@@ -9,7 +9,7 @@ module.exports = getRisingPolitics;
 
 function getRisingPolitics() {
   var deferred = Q.defer();
-  client.get('r/politics/search.json?q=&restrict_sr=on&sort=hot&t=hour', function (err, res, body) {
+  client.get('r/politics.json?q=&restrict_sr=on&sort=hot&t=hour', function (err, res, body) {
     if (err) return deferred.reject(err);
     deferred.resolve(body.data.children.map(function (child) {
       return child.data;
