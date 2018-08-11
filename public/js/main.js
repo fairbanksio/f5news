@@ -22,7 +22,6 @@ angular.module('myApp', ['angularMoment','ngclipboard'])
       }
     }
 
-
     // Loop for fetching information from API routes
     $interval(function() {
       $http.get('/getPosts').then(function(response){
