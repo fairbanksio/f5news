@@ -9,7 +9,7 @@ var rp = require('request-promise');
 var newPost = require('../models/newPost');
 var config = require('../config');
 
-mongoose.connect(config.mongo.uri);
+mongoose.connect(config.mongo.uri, { useNewUrlParser: true });
 
 fetchPosts(); // start
 
