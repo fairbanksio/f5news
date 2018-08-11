@@ -3,6 +3,10 @@
 ![f5oclock](https://raw.githubusercontent.com/jonfairbanks/f5oclock/master/f5oclock.png)
 A MEAN stack based application that scrapes **r/politics/rising** and asynchronously presents it to the user.
 
+This is what was on f5oclock.com before they switched to the gross UI with the ads. 
+
+Original Source: Dadsquatch
+
 #### Prerequisites
 1. Node v8+ Recommended
 2. A Previously Setup MongoDB Instance with an **f5oclock** collection and auth'd user
