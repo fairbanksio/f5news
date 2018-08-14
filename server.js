@@ -25,9 +25,9 @@ app.get('/getPosts', function(req, res){
   var timeAdjust = function(){
     var today = new Date().getUTCHours();
     if (today >= 11 && today <= 23) {
-      return '3600'
+      return '7200' // 2 hours
     } else {
-      return '7200'
+      return '14400' // 4 hours
     }
   }
   var searchTime = utcDate - timeAdjust();
