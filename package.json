@@ -20,13 +20,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dadsquatch/f5oclock.git"
+    "url": "git+https://github.com/jonfairbanks/f5oclock.git"
   },
-  "author": "IHB",
+  "author": "Jon Fairbanks",
   "license": "SNCL 2.1.0",
   "bugs": {
-    "url": "https://github.com/dadsquatch/f5oclock/issues"
+    "url": "https://github.com/jonfairbanks/f5oclock/issues"
   },
-  "homepage": "https://github.com/dadsquatch/f5oclock#readme",
+  "homepage": "https://github.com/jonfairbanks/f5oclock#readme",
   "keywords": []
 }

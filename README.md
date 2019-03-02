@@ -3,7 +3,7 @@
 ![f5oclock](https://raw.githubusercontent.com/jonfairbanks/f5oclock/master/f5oclock.png)
 A MEAN stack based application that scrapes **r/politics/rising** and asynchronously presents it to the user.
 
-This is what was on f5oclock.com before they switched to the gross UI with the ads. 
+This is what was on f5oclock.com before they switched to the UI with ads. 
 
 Original Source: Dadsquatch
 
