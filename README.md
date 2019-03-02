@@ -9,7 +9,7 @@ Original Source: Dadsquatch
 
 #### Prerequisites
 1. Node v8+ Recommended
-2. A Previously Setup MongoDB Instance with an **f5oclock** collection and auth'd user
+2. A Previously Setup MongoDB Instance
 2. `yarn` or `npm` installed and up-to-date
 3. *Optional:* `pm2` to keep the app running in the background
 
