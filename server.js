@@ -10,7 +10,7 @@ var config = require('./config');
 var newPost = require('./models/newPost');
 var port = process.env.PORT || 3030;
 
-mongoose.connect(config.mongo.uri, { useNewUrlParser: true });
+mongoose.connect(config.mongo.uri, { useNewUrlParser: true, useCreateIndex: true, useFindAndModify: false });
 
 app.use(express.static(__dirname + '/public'));
 app.engine('html', require('ejs').renderFile);
