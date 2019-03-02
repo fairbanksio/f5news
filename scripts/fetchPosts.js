@@ -11,7 +11,7 @@ var config = require('../config');
 
 mongoose.connect(config.mongo.uri, { useNewUrlParser: true });
 
-fetchPosts(); // start
+fetchPosts(); // Start
 
 function fetchPosts() {
   console.time('Rising Work Took');
@@ -40,7 +40,7 @@ function parseHtmlJson(htmlString) {
 
 function insertNewPosts(newPosts) {
   var insertPromises = [];
-  // fill array with promises
+  // Fill array with promises
   newPosts.forEach(function(value){
     insertPromises.push(newPost.findOneAndUpdate({
       title: value.data.title,

@@ -22,4 +22,4 @@ var fetchedPost = new mongoose.Schema(
 
 var newPost = mongoose.model('newPost', fetchedPost);
 
-module.exports = newPost; // this is what you want
+module.exports = newPost;
