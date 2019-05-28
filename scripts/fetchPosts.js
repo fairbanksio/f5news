@@ -14,15 +14,13 @@ mongoose.connect(config.mongo.uri, { useNewUrlParser: true, useCreateIndex: true
 fetchPosts(); // Start
 
 function fetchPosts() {
-  console.time('Rising Work Took');
   return rp('https://www.reddit.com/r/politics/rising.json')
     .then(parseHtmlJson)
     .then(insertNewPosts)
     .then(() => wait())
-    .then(() => { console.timeEnd('Rising Work Took'); })
     .then(fetchPosts)
     .catch(err => {
-      console.warn(err);
+      //console.warn(err);
       return wait(10).then(fetchPosts);
     });
 }
