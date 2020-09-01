@@ -1,8 +1,8 @@
 import express from 'express';
 import Q from 'q';
 import mongoose from 'mongoose';
-import newPost from './models/newPost';
 import path from 'path';
+import newPost from './models/newPost';
 
 mongoose.Promise = Q.Promise;
 
@@ -42,21 +42,19 @@ mongoose.connection.on('error', (err) => {
 app.use(express.static(path.resolve(__dirname, '/public')));
 app.engine('html', require('ejs').renderFile);
 
-app.get('/', (_req, res) => { res.render('index.html') });
+app.get('/', (_req, res) => { res.render('index.html'); });
 app.get('/getPosts', (_req, res) => {
   const utcDate = Math.floor((new Date()).getTime() / 1000);
   // Depending on time per day 30 minute and 60 minute searches in database
   const timeAdjust = () => {
     const today = new Date().getUTCHours();
     if (today >= 11 && today <= 23) {
-      // 2 Hours
-      return '7200';
+      return '7200'; // 2 Hours
     } else {
-      // 4 Hours
-      return '14400'; // eslint-disable-line no-else-return
-    }
+      return '14400'; // 4 Hours
+    } // eslint-disable-line no-else-return
   };
-  let searchTime = utcDate - timeAdjust();
+  const searchTime = utcDate - timeAdjust();
   // Search the db and return up to 20 docs
   newPost
     .find({ created_utc: { $gt: searchTime },  upvoteCount: { $gt: 5 } })

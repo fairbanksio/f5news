@@ -1,21 +1,21 @@
 angular.module('myApp', ['angularMoment', 'ngclipboard']) // eslint-disable-line no-undef
-  .controller('myCtrl', ['$scope', '$interval', '$http', function($scope, $interval, $http) {
-    function firstFetch(){
-      $http.get('/getPosts').then(function(response){
+  .controller('myCtrl', ['$scope', '$interval', '$http', ($scope, $interval, $http) => {
+    const firstFetch = () => {
+      $http.get('/getPosts').then((response) => {
         $scope.posts = response.data;
-      })
+      });
     }
 
     $scope.message = firstFetch();
 
-    var today = new Date().getUTCHours(); // eslint-disable-line vars-on-top
+    const today = new Date().getUTCHours(); // eslint-disable-line vars-on-top
     if (today >= 11 && today <= 23) {
       $scope.timeOfQuery = '60';
     } else {
       $scope.timeOfQuery = '120';
     }
 
-    $scope.setBackgroundColor = function(value){
+    $scope.setBackgroundColor = (value) => {
       if (value.upvoteCount >= 100 && value.upvoteCount < 250){
         return 'trending';
       } else if (value.upvoteCount >= 250 && value.upvoteCount < 500) {
@@ -28,14 +28,14 @@ angular.module('myApp', ['angularMoment', 'ngclipboard']) // eslint-disable-line
     }
 
     // Loop for fetching information from API routes
-    $interval(function() {
+    $interval(() => {
       $http.get('/getPosts').then(function(response){
         $scope.posts = response.data;
       })
     }, 5000);
   }])
-  .filter('cut', function () {
-    return function (value, wordwise, max, tail) {
+  .filter('cut', () => {
+    return (value, wordwise, max, tail) => {
       if (!value) return '';
 
       max = parseInt(max, 10);
@@ -44,7 +44,7 @@ angular.module('myApp', ['angularMoment', 'ngclipboard']) // eslint-disable-line
 
       value = value.substr(0, max);
       if (wordwise) {
-        var lastspace = value.lastIndexOf(' ');
+        const lastspace = value.lastIndexOf(' ');
         if (lastspace !== -1) {
           //Also remove . and , so its gives a cleaner result.
           if (value.charAt(lastspace-1) === '.' || value.charAt(lastspace-1) === ',') {
