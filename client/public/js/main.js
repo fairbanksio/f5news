@@ -4,7 +4,7 @@ angular.module('myApp', ['angularMoment', 'ngclipboard']) // eslint-disable-line
       $http.get('/getPosts').then((response) => {
         $scope.posts = response.data;
       });
-    }
+    };
 
     $scope.message = firstFetch();
 
@@ -16,7 +16,7 @@ angular.module('myApp', ['angularMoment', 'ngclipboard']) // eslint-disable-line
     }
 
     $scope.setBackgroundColor = (value) => {
-      if (value.upvoteCount >= 100 && value.upvoteCount < 250){
+      if (value.upvoteCount >= 100 && value.upvoteCount < 250) {
         return 'trending';
       } else if (value.upvoteCount >= 250 && value.upvoteCount < 500) {
         return 'hot';
@@ -25,13 +25,13 @@ angular.module('myApp', ['angularMoment', 'ngclipboard']) // eslint-disable-line
       } else {
         return false;
       }
-    }
+    };
 
     // Loop for fetching information from API routes
     $interval(() => {
-      $http.get('/getPosts').then(function(response){
+      $http.get('/getPosts').then((response) => {
         $scope.posts = response.data;
-      })
+      });
     }, 5000);
   }])
   .filter('cut', () => {
@@ -44,10 +44,10 @@ angular.module('myApp', ['angularMoment', 'ngclipboard']) // eslint-disable-line
 
       value = value.substr(0, max);
       if (wordwise) {
-        const lastspace = value.lastIndexOf(' ');
+        let lastspace = value.lastIndexOf(' ');
         if (lastspace !== -1) {
           //Also remove . and , so its gives a cleaner result.
-          if (value.charAt(lastspace-1) === '.' || value.charAt(lastspace-1) === ',') {
+          if (value.charAt(lastspace - 1) === '.' || value.charAt(lastspace - 1) === ',') {
             lastspace = lastspace - 1;
           }
           value = value.substr(0, lastspace);
@@ -56,4 +56,4 @@ angular.module('myApp', ['angularMoment', 'ngclipboard']) // eslint-disable-line
 
       return value + (tail || ' …');
     };
-  });
+  }); // eslint-ignore arrow-body-style

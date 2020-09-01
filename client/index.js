@@ -52,7 +52,7 @@ app.get('/getPosts', (_req, res) => {
       return '7200'; // 2 Hours
     } else {
       return '14400'; // 4 Hours
-    } // eslint-disable-line no-else-return
+    }
   };
   const searchTime = utcDate - timeAdjust();
   // Search the db and return up to 20 docs
