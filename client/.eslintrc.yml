@@ -7,3 +7,4 @@ rules:
     comma-spacing: 0
     vars-on-top: 0
     import/newline-after-import: 0
+    no-multi-spaces: 0
