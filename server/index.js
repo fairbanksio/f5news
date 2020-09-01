@@ -1,10 +1,7 @@
-
-
 const Q = require('q');
 const mongoose = require('mongoose');
 
 mongoose.Promise = Q.Promise;
-// const _ = require('lodash');
 const rp = require('request-promise');
 
 const newPost = require('./models/newPost');
@@ -26,7 +23,7 @@ function connectToDB() {
 connectToDB();
 
 mongoose.connection.on('connected', () => {
-  console.log('f5 o\'clock is now saving posts to MongoDB...'); // eslint-disable-line no-console
+  console.log('F5 is now saving posts to MongoDB...'); // eslint-disable-line no-console
 });
 
 mongoose.connection.on('disconnected', (err) => {
@@ -81,9 +78,9 @@ function fetchPosts() {
     .then(insertNewPosts)
     .then(() => wait())
     .then(fetchPosts)
-    .catch(_err => {
-      console.log('Error Fetching Posts: ' + _err) // eslint-disable-line no-console
-      wait(10).then(fetchPosts)
+    .catch(() => {
+      console.log('Error Fetching Posts. This may be due to a timeout from Reddit. F5 will try again shortly.'); // eslint-disable-line no-console
+      wait(10).then(fetchPosts);
     });
 }
 

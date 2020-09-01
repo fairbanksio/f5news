@@ -1,15 +1,15 @@
-'use strict';
+import express from 'express';
+import Q from 'q';
+import mongoose from 'mongoose';
+import path from 'path';
+import newPost from './models/newPost';
 
-var express = require('express');
-var Q = require('q');
-var app = express();
-var mongoose = require('mongoose');
 mongoose.Promise = Q.Promise;
 
-var newPost = require('./models/newPost');
-var port = process.env.PORT || 3000;
+const app = express();
+const port = process.env.PORT || 3000;
 
-function connectToDB() {
+const connectToDB = () => {
   mongoose.connect(
     process.env.MONGO_URI || 'mongodb://localhost/f5oclock',
     {
@@ -19,44 +19,45 @@ function connectToDB() {
       useUnifiedTopology: true,
     },
   ).catch(
-    err => console.warn("MongoDB connect error: " + err) // eslint-disable-line no-console
+    err => console.warn(`MongoDB connect error: ${err}`) // eslint-disable-line no-console
   );
-}
+};
+
 connectToDB();
+
 mongoose.connection.on('connected', () => {
-  console.log('f5 is connected to MongoDB...'); // eslint-disable-line no-console
+  console.log('F5 is connected to MongoDB...'); // eslint-disable-line no-console
 });
+
 mongoose.connection.on('disconnected', (err) => {
-  console.warn("MongoDB disconnected: " + err); // eslint-disable-line no-console
-  setTimeout(() => { connectToDB(); }, 3000);
-});
-mongoose.connection.on('error', (err) => {
-  console.warn("MongoDB error: " + err); // eslint-disable-line no-console
+  console.warn(`MongoDB disconnected: ${err}`); // eslint-disable-line no-console
   setTimeout(() => { connectToDB(); }, 3000);
 });
 
-app.use(express.static(__dirname + '/public'));
+mongoose.connection.on('error', (err) => {
+  console.warn(`MongoDB error: ${err}`); // eslint-disable-line no-console
+  setTimeout(() => { connectToDB(); }, 3000);
+});
+
+app.use(express.static(path.resolve(__dirname, '/public')));
 app.engine('html', require('ejs').renderFile);
 
-app.get('/', function (req, res) {
-  res.render('index.html');
-});
-
-app.get('/getPosts', function(req, res){
-  var utcDate = Math.floor((new Date()).getTime() / 1000);
+app.get('/', (_req, res) => { res.render('index.html'); });
+app.get('/getPosts', (_req, res) => {
+  const utcDate = Math.floor((new Date()).getTime() / 1000);
   // Depending on time per day 30 minute and 60 minute searches in database
-  var timeAdjust = function(){
-    var today = new Date().getUTCHours();
+  const timeAdjust = () => {
+    const today = new Date().getUTCHours();
     if (today >= 11 && today <= 23) {
-      return '7200' // 2 hours
+      return '7200'; // 2 Hours
     } else {
-      return '14400' // 4 hours
+      return '14400'; // 4 Hours
     }
-  }
-  var searchTime = utcDate - timeAdjust();
+  };
+  const searchTime = utcDate - timeAdjust();
   // Search the db and return up to 20 docs
   newPost
-    .find({ created_utc: { $gt : searchTime },  upvoteCount: { $gt : 5 }})
+    .find({ created_utc: { $gt: searchTime },  upvoteCount: { $gt: 5 } })
     .sort({ upvoteCount: -1, created_utc: 1 })
     .limit(20)
     .exec()
@@ -64,6 +65,6 @@ app.get('/getPosts', function(req, res){
     .catch(console.warn); // eslint-disable-line no-console
 });
 
-app.listen(port, function () {
-  console.log('f5 o\'clock running on port ' + port + '!'); // eslint-disable-line no-console
+app.listen(port, () => {
+  console.log(`F5 is now running on port ${port}!`); // eslint-disable-line no-console
 });
