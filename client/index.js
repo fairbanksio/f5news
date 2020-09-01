@@ -2,13 +2,14 @@ import express from 'express';
 import Q from 'q';
 import mongoose from 'mongoose';
 import newPost from './models/newPost';
+import path from 'path';
 
 mongoose.Promise = Q.Promise;
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-connectToDB = () => {
+const connectToDB = () => {
   mongoose.connect(
     process.env.MONGO_URI || 'mongodb://localhost/f5oclock',
     {
@@ -20,12 +21,12 @@ connectToDB = () => {
   ).catch(
     err => console.warn(`MongoDB connect error: ${err}`) // eslint-disable-line no-console
   );
-}
+};
 
 connectToDB();
 
 mongoose.connection.on('connected', () => {
-  console.log('f5 is connected to MongoDB...'); // eslint-disable-line no-console
+  console.log('F5 is connected to MongoDB...'); // eslint-disable-line no-console
 });
 
 mongoose.connection.on('disconnected', (err) => {
@@ -48,9 +49,11 @@ app.get('/getPosts', (_req, res) => {
   const timeAdjust = () => {
     const today = new Date().getUTCHours();
     if (today >= 11 && today <= 23) {
-      return '7200'; // 2 hours
+      // 2 Hours
+      return '7200';
     } else {
-      return '14400'; // 4 hours
+      // 4 Hours
+      return '14400'; // eslint-disable-line no-else-return
     }
   };
   let searchTime = utcDate - timeAdjust();
@@ -65,5 +68,5 @@ app.get('/getPosts', (_req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`f5 o\'clock running on port ${port}!`); // eslint-disable-line no-console
+  console.log(`F5 is now running on port ${port}!`); // eslint-disable-line no-console
 });
