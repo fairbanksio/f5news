@@ -12,7 +12,8 @@
     "q": "^1.5.1",
     "request": "^2.88.0",
     "request-json": "^0.6.4",
-    "request-promise": "^4.2.4"
+    "request-promise": "^4.2.4",
+    "saslprep": "^1.0.3"
   },
   "devDependencies": {
     "eslint": "^5.16.0",
