@@ -81,9 +81,9 @@ function fetchPosts() {
     .then(insertNewPosts)
     .then(() => wait())
     .then(fetchPosts)
-    .catch(_err => {
-      console.log('Error Fetching Posts: ' + _err) // eslint-disable-line no-console
-      wait(10).then(fetchPosts)
+    .catch((_err) => {
+      console.log(`Error Fetching Posts: ${_err}`); // eslint-disable-line no-console
+      wait(10).then(fetchPosts);
     });
 }
 
