@@ -82,7 +82,7 @@ function fetchPosts() {
     .then(() => wait())
     .then(fetchPosts)
     .catch((_err) => {
-      console.log(`Error Fetching Posts: ${_err}`); // eslint-disable-line no-console
+      console.warn(`Error Fetching Posts. This may be due to a timeout on Reddit's side. f5 will try again shortly.`); // eslint-disable-line no-console
       wait(10).then(fetchPosts);
     });
 }
