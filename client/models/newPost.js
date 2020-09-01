@@ -1,7 +1,7 @@
-'use strict';
-var mongoose = require('mongoose');
 
-var fetchedPost = new mongoose.Schema(
+const mongoose = require('mongoose');
+
+const fetchedPost = new mongoose.Schema(
   {
     title: 'string',
     domain: 'string',
@@ -15,11 +15,11 @@ var fetchedPost = new mongoose.Schema(
     fetchedAt: {
       type: Date,
       default: new Date(),
-      expires: 360
-    }
-  }, { collection: 'newposts'}
+      expires: 360,
+    },
+  }, { collection: 'newposts' },
 );
 
-var newPost = mongoose.model('newPost', fetchedPost);
+const newPost = mongoose.model('newPost', fetchedPost);
 
 module.exports = newPost;

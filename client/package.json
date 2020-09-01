@@ -1,6 +1,6 @@
 {
   "name": "f5oclock",
-  "version": "1.5",
+  "version": "1.0.0",
   "description": "Rising Political Threads from /r/politics",
   "main": "server.js",
   "dependencies": {
@@ -14,16 +14,24 @@
     "request-json": "^0.6.4",
     "request-promise": "^4.2.4"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "eslint": "^5.16.0",
+    "eslint-config-airbnb-base": "^13.2.0",
+    "eslint-plugin-import": "^2.22.0",
+    "nodemon": "^2.0.4"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "./node_modules/eslint/bin/eslint.js .",
+    "lint-fix": "./node_modules/eslint/bin/eslint.js . --fix"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jonfairbanks/f5oclock.git"
   },
   "author": "Jon Fairbanks",
-  "license": "SNCL 2.1.0",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/jonfairbanks/f5oclock/issues"
   },
