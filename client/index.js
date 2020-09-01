@@ -1,13 +1,11 @@
-'use strict';
-
-var express = require('express');
-var Q = require('q');
-var app = express();
-var mongoose = require('mongoose');
+let express = require('express');
+let Q = require('q');
+let app = express();
+let mongoose = require('mongoose');
 mongoose.Promise = Q.Promise;
 
-var newPost = require('./models/newPost');
-var port = process.env.PORT || 3000;
+let newPost = require('./models/newPost');
+let port = process.env.PORT || 3000;
 
 function connectToDB() {
   mongoose.connect(
@@ -19,7 +17,7 @@ function connectToDB() {
       useUnifiedTopology: true,
     },
   ).catch(
-    err => console.warn("MongoDB connect error: " + err) // eslint-disable-line no-console
+    err => console.warn('MongoDB connect error: ' + err) // eslint-disable-line no-console
   );
 }
 connectToDB();
@@ -27,11 +25,11 @@ mongoose.connection.on('connected', () => {
   console.log('f5 is connected to MongoDB...'); // eslint-disable-line no-console
 });
 mongoose.connection.on('disconnected', (err) => {
-  console.warn("MongoDB disconnected: " + err); // eslint-disable-line no-console
+  console.warn('MongoDB disconnected: ' + err); // eslint-disable-line no-console
   setTimeout(() => { connectToDB(); }, 3000);
 });
 mongoose.connection.on('error', (err) => {
-  console.warn("MongoDB error: " + err); // eslint-disable-line no-console
+  console.warn('MongoDB error: ' + err); // eslint-disable-line no-console
   setTimeout(() => { connectToDB(); }, 3000);
 });
 
@@ -43,17 +41,17 @@ app.get('/', function (req, res) {
 });
 
 app.get('/getPosts', function(req, res){
-  var utcDate = Math.floor((new Date()).getTime() / 1000);
+  let utcDate = Math.floor((new Date()).getTime() / 1000);
   // Depending on time per day 30 minute and 60 minute searches in database
-  var timeAdjust = function(){
-    var today = new Date().getUTCHours();
+  let timeAdjust = function(){
+    let today = new Date().getUTCHours();
     if (today >= 11 && today <= 23) {
       return '7200' // 2 hours
     } else {
       return '14400' // 4 hours
     }
   }
-  var searchTime = utcDate - timeAdjust();
+  let searchTime = utcDate - timeAdjust();
   // Search the db and return up to 20 docs
   newPost
     .find({ created_utc: { $gt : searchTime },  upvoteCount: { $gt : 5 }})

@@ -2,3 +2,7 @@ extends: airbnb-base
 rules:
     func-names: 0
     no-param-reassign: 0
+    eol-last: 0
+    comma-dangle: 0
+    comma-spacing: 0
+    vars-on-top: 0

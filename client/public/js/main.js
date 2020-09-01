@@ -1,5 +1,5 @@
-angular.module('myApp', ['angularMoment','ngclipboard']) // eslint-disable-line no-undef
-  .controller('myCtrl', ['$scope','$interval', '$http', function($scope, $interval, $http) {
+angular.module('myApp', ['angularMoment', 'ngclipboard']) // eslint-disable-line no-undef
+  .controller('myCtrl', ['$scope', '$interval', '$http', function($scope, $interval, $http) {
     function firstFetch(){
       $http.get('/getPosts').then(function(response){
         $scope.posts = response.data;
@@ -8,7 +8,7 @@ angular.module('myApp', ['angularMoment','ngclipboard']) // eslint-disable-line 
 
     $scope.message = firstFetch();
 
-    var today = new Date().getUTCHours();
+    var today = new Date().getUTCHours(); // eslint-disable-line vars-on-top
     if (today >= 11 && today <= 23) {
       $scope.timeOfQuery = '60';
     } else {
@@ -16,14 +16,14 @@ angular.module('myApp', ['angularMoment','ngclipboard']) // eslint-disable-line 
     }
 
     $scope.setBackgroundColor = function(value){
-      if(value.upvoteCount >= 100 && value.upvoteCount < 250){
-        return 'trending'
+      if (value.upvoteCount >= 100 && value.upvoteCount < 250){
+        return 'trending';
       } else if (value.upvoteCount >= 250 && value.upvoteCount < 500) {
-        return 'hot'
+        return 'hot';
       } else if (value.upvoteCount >= 500) {
-        return 'f5oclock'
+        return 'f5oclock';
       } else {
-        return false
+        return false;
       }
     }
 
