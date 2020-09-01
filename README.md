@@ -2,10 +2,10 @@
 
 ![f5oclock](https://raw.githubusercontent.com/jonfairbanks/f5oclock/master/f5oclock.png)
 
-![Docker Cloud Automated build](https://img.shields.io/docker/cloud/automated/jonfairbanks/f5oclock.svg)
-![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/jonfairbanks/f5oclock.svg)
+![Docker Cloud Automated build](https://img.shields.io/docker/cloud/automated/jonfairbanks/f5oclockweb.svg)
+![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/jonfairbanks/f5oclockweb.svg)
 ![GitHub top language](https://img.shields.io/github/languages/top/jonfairbanks/f5oclock.svg)
-![Docker Pulls](https://img.shields.io/docker/pulls/jonfairbanks/f5oclock.svg)
+![Docker Pulls](https://img.shields.io/docker/pulls/jonfairbanks/f5oclockweb.svg)
 ![GitHub last commit](https://img.shields.io/github/last-commit/jonfairbanks/f5oclock.svg)
 ![License](https://img.shields.io/github/license/jonfairbanks/f5oclock.svg?style=flat)
 
