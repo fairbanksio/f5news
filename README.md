@@ -30,7 +30,7 @@ This is what was on f5oclock.com before they switched to the UI with ads.
 #### Docker
 This application is also available on DockerHub. To setup, run the following:
 
-- First setup the backend service to collect posts: `docker run -d --restart=always -e MONGO_URI='mongodb://user:password@localhost/f5oclock' --name f5serv jonfairbanks/f5oclockserv`
-- Last, fire up the frontend: `docker run -d --restart=always -p 3000:3000 -e MONGO_URI='mongodb://user:password@localhost/f5oclock' --name f5web jonfairbanks/f5oclockweb`
+- First setup the backend service to collect Reddit posts: `docker run -d --restart=always -e MONGO_URI='mongodb://user:password@localhost/f5oclock' --name f5serv jonfairbanks/f5oclockserv`
+- Last, fire up the frontend to view the UI: `docker run -d --restart=always -p 3000:3000 -e MONGO_URI='mongodb://user:password@localhost/f5oclock' --name f5web jonfairbanks/f5oclockweb`
 
 The application should now be running on Port 3000.
