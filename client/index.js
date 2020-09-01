@@ -1,8 +1,8 @@
-import express from 'express';
-import Q from 'q';
-import mongoose from 'mongoose';
-import path from 'path';
-import newPost from './models/newPost';
+const express = require('express');
+const Q = require('q');
+const mongoose = require('mongoose');
+const path = require('path');
+const newPost = require('./models/newPost');
 
 mongoose.Promise = Q.Promise;
 
