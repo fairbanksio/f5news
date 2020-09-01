@@ -10,3 +10,5 @@ rules:
     no-multi-spaces: 0
     no-else-return: 0
     spaced-comment: 0
+    arrow-body-style: 1
+    operator-assignment: 1

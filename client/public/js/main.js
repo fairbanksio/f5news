@@ -56,4 +56,4 @@ angular.module('myApp', ['angularMoment', 'ngclipboard']) // eslint-disable-line
 
       return value + (tail || ' …');
     };
-  }); // eslint-ignore arrow-body-style
+  });
