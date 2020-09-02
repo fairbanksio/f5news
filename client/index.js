@@ -1,7 +1,6 @@
 const express = require('express');
 const Q = require('q');
 const mongoose = require('mongoose');
-const path = require('path');
 const newPost = require('./models/newPost');
 
 mongoose.Promise = Q.Promise;
