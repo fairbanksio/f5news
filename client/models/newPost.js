@@ -15,7 +15,7 @@ const fetchedPost = new mongoose.Schema(
     fetchedAt: {
       type: Date,
       default: new Date(),
-      expires: 360,
+      expires: 86400,
     },
   }, { collection: 'newposts' },
 );
