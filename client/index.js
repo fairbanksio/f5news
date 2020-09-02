@@ -1,7 +1,6 @@
 const express = require('express');
 const Q = require('q');
 const mongoose = require('mongoose');
-const path = require('path');
 const newPost = require('./models/newPost');
 
 mongoose.Promise = Q.Promise;
@@ -39,7 +38,7 @@ mongoose.connection.on('error', (err) => {
   setTimeout(() => { connectToDB(); }, 3000);
 });
 
-app.use(express.static(path.resolve(__dirname, '/public')));
+app.use(express.static(__dirname + '/public')); // eslint-disable-line
 app.engine('html', require('ejs').renderFile);
 
 app.get('/', (_req, res) => { res.render('index.html'); });

@@ -12,3 +12,4 @@ rules:
     spaced-comment: 0
     arrow-body-style: 1
     operator-assignment: 1
+    no-console: 1
