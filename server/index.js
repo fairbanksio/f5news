@@ -81,7 +81,7 @@ connectToDB();
 
 mongoose.connection.on('connected', () => {
   console.log('F5 is now saving posts to MongoDB...'); // eslint-disable-line no-console
-  wait(30).then(fetchPosts); // Start
+  wait(3).then(fetchPosts); // Start
 });
 
 mongoose.connection.on('disconnected', (err) => {
