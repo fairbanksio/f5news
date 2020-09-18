@@ -6,7 +6,7 @@ const rp = require('request-promise');
 
 const newPost = require('./models/newPost');
 
-function connectToDB() {
+const connectToDB = () => {
   mongoose.connect(
     process.env.MONGO_URI || 'mongodb://localhost/f5oclock',
     {
@@ -16,39 +16,24 @@ function connectToDB() {
       useUnifiedTopology: true,
     },
   ).catch(
-    err => console.warn(`MongoDB connect error: ${err}`), // eslint-disable-line no-console
+    err => console.warn(`MongoDB connection error: ${err}`), // eslint-disable-line no-console
   );
-}
+};
 
-connectToDB();
-
-mongoose.connection.on('connected', () => {
-  console.log('F5 is now saving posts to MongoDB...'); // eslint-disable-line no-console
-});
-
-mongoose.connection.on('disconnected', (err) => {
-  console.warn(`MongoDB disconnected: ${err}`); // eslint-disable-line no-console
-  setTimeout(() => { connectToDB(); }, 3000);
-});
-
-mongoose.connection.on('error', (err) => {
-  console.warn(`MongoDB error: ${err}`); // eslint-disable-line no-console
-  setTimeout(() => { connectToDB(); }, 3000);
-});
-
-function wait(sec = 5) {
+const wait = (sec = 5) => {
   const deferred = Q.defer();
   setTimeout(deferred.resolve, sec * 1000);
   return deferred.promise;
-}
+};
 
-function parseHtmlJson(htmlString) {
-  const jsonData = JSON.parse(htmlString);
+const parseHtmlJson = (htmlString) => {
+  let jsonData = null;
+  jsonData = JSON.parse(htmlString);
   return jsonData.data.children;
-}
+};
 
-function insertNewPosts(newPosts) {
-  const insertPromises = [];
+const insertNewPosts = (newPosts) => {
+  let insertPromises = [];
   // Fill array with promises
   newPosts.forEach((value) => {
     insertPromises.push(newPost.findOneAndUpdate({
@@ -69,19 +54,42 @@ function insertNewPosts(newPosts) {
     }, { upsert: true }));
   });
 
-  return Q.all(insertPromises);
-}
+  return Q.all(insertPromises)
+    .catch((e) => {
+      console.warn(`Error Inserting Posts @ ${Date.now()}: ${e}`); // eslint-disable-line no-console
+    })
+    .fin(() => {
+      insertPromises = [];
+    })
+    .done();
+};
 
-function fetchPosts() {
-  return rp('https://www.reddit.com/r/politics/rising.json')
-    .then(parseHtmlJson)
-    .then(insertNewPosts)
-    .then(() => wait())
-    .then(fetchPosts)
-    .catch(() => {
-      console.log('Error Fetching Posts. This may be due to a timeout from Reddit. F5 will try again shortly.'); // eslint-disable-line no-console
-      wait(10).then(fetchPosts);
-    });
-}
+const fetchPosts = () => rp('https://www.reddit.com/r/politics/rising.json')
+  .then(parseHtmlJson)
+  .then(insertNewPosts)
+  .then(() => wait())
+  .then(fetchPosts)
+  .catch(() => {
+    console.warn(`Error Fetching Posts @ ${Date.now()}. This may be due to a timeout from Reddit. F5 will try again shortly.`); // eslint-disable-line no-console
+    wait(30).then(fetchPosts);
+  })
+  .finally(
+    console.log(`Saved New Posts @ ${Date.now()}`), // eslint-disable-line no-console
+  );
 
-fetchPosts(); // Start
+connectToDB();
+
+mongoose.connection.on('connected', () => {
+  console.log('F5 is now saving posts to MongoDB...'); // eslint-disable-line no-console
+  wait(30).then(fetchPosts); // Start
+});
+
+mongoose.connection.on('disconnected', (err) => {
+  console.warn(`MongoDB disconnected: ${err}`); // eslint-disable-line no-console
+  setTimeout(() => { connectToDB(); }, 3000);
+});
+
+mongoose.connection.on('error', (err) => {
+  console.warn(`MongoDB error: ${err}`); // eslint-disable-line no-console
+  setTimeout(() => { connectToDB(); }, 3000);
+});
