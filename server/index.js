@@ -69,18 +69,19 @@ const fetchPosts = () => rp('https://www.reddit.com/r/politics/rising.json')
   .then(insertNewPosts)
   .then(() => wait())
   .then(fetchPosts)
+  .then(
+    console.log(`Saved New Posts @ ${Date.now()}`), // eslint-disable-line no-console
+    console.log(`Currently using ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB of memory \n`), // eslint-disable-line no-console
+  )
   .catch(() => {
     console.warn(`Error Fetching Posts @ ${Date.now()}. This may be due to a timeout from Reddit. F5 will try again shortly.`); // eslint-disable-line no-console
     wait(3).then(fetchPosts);
-  })
-  .finally(
-    console.log(`Saved New Posts @ ${Date.now()}`), // eslint-disable-line no-console
-  );
+  });
 
 connectToDB();
 
 mongoose.connection.on('connected', () => {
-  console.log('F5 is now saving posts to MongoDB...'); // eslint-disable-line no-console
+  console.log('F5 is now saving posts to MongoDB...\n'); // eslint-disable-line no-console
   wait(3).then(fetchPosts); // Start
 });
 
