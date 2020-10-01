@@ -1,11 +1,19 @@
 const express = require('express');
 const Q = require('q');
 const mongoose = require('mongoose');
+const RateLimit = require('express-rate-limit');
 const newPost = require('./models/newPost');
+
+// Setup rate limiter: maximum of 50 req/min
+const limiter = new RateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 50
+});
 
 mongoose.Promise = Q.Promise;
 
 const app = express();
+app.use(limiter);
 const port = process.env.PORT || 3000;
 
 const connectToDB = () => {
