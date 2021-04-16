@@ -20,7 +20,7 @@ const connectToDB = () => {
   );
 };
 
-const wait = (sec = 10) => {
+const wait = (sec = 5) => {
   const deferred = Q.defer();
   setTimeout(deferred.resolve, sec * 1000);
   return deferred.promise;
