@@ -64,7 +64,10 @@ const insertNewPosts = (newPosts) => {
     .done();
 };
 
-const fetchPosts = () => rp('https://www.reddit.com/r/politics/rising.json')
+subreddit = process.env.SUBREDDIT || 'politics'
+const redditUrl = 'https://www.reddit.com/r/' + subreddit  + '/rising.json'
+
+const fetchPosts = () => rp(redditUrl)
   .then(parseHtmlJson)
   .then(insertNewPosts)
   .then(() => wait())
