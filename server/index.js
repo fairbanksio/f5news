@@ -64,7 +64,7 @@ const insertNewPosts = (newPosts) => {
     .done();
 };
 
-subreddit = process.env.SUBREDDIT || 'politics'
+const subreddit = process.env.SUBREDDIT || 'politics'
 const redditUrl = 'https://www.reddit.com/r/' + subreddit  + '/rising.json'
 
 const fetchPosts = () => rp(redditUrl)
