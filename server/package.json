@@ -4,7 +4,7 @@
   "description": "Backend API for f5 o'clock",
   "main": "index.js",
   "dependencies": {
-    "lodash": "^4.17.20",
+    "lodash": "^4.17.21",
     "mongoose": "^5.10.2",
     "q": "^1.5.1",
     "request": "^2.88.2",
