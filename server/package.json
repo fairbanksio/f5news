@@ -5,7 +5,7 @@
   "main": "index.js",
   "dependencies": {
     "lodash": "^4.17.21",
-    "mongoose": "^5.12.5",
+    "mongoose": "^5.12.8",
     "q": "^1.5.1",
     "request": "^2.88.2",
     "request-promise": "^4.2.6",
