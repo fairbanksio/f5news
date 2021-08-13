@@ -1,4 +1,4 @@
-name: Create Release(s)
+name: Create Client Release(s)
 
 on:
   push:
@@ -76,7 +76,7 @@ jobs:
         with:
           builder: ${{ steps.buildx.outputs.name }}
           context: ./
-          file: ./Dockerfile
+          file: ./client/Dockerfile
           push: true
           tags: ${{ steps.tag-images.outputs.tags }}
           cache-from: type=local,src=/tmp/.buildx-cache
