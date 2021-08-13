@@ -91,7 +91,7 @@ jobs:
           username: jonfairbanks
           access-token: ${{ secrets.GITHUB_TOKEN }}
           force: true
-          chart-folder: chart
+          chart-folder: ./server/chart
 
       # - name: Push Helm Chart to DigitalOcean Container Registry
       #   id: push-helm-digital-ocean
@@ -102,7 +102,7 @@ jobs:
       #     username: ${{ secrets.DIGITAL_OCEAN_REGISTRY_TOKEN }}
       #     access-token: ${{ secrets.DIGITAL_OCEAN_REGISTRY_TOKEN }}
       #     force: true
-      #     chart-folder: chart
+      #     chart-folder: ./server/chart
 
       - uses: act10ns/slack@v1
         with:
