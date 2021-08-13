@@ -37,7 +37,7 @@ jobs:
       - name: Commit Version Updates
         uses: EndBug/add-and-commit@v7.2.1
         with:
-          message: "yo-client v${{ steps.update-versions.outputs.version }}"
+          message: "f5-web v${{ steps.update-versions.outputs.version }}"
           push: "origin master --force"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,23 +82,23 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache
 
-      # - name: Push Helm Chart to Github Container Registry
-      #   id: push-helm-github
-      #   uses: bsord/helm-push@v4
-      #   with:
-      #     useOCIRegistry: true
-      #     registry-url: https://ghcr.io/${{ github.repository }}
-      #     username: jonfairbanks
-      #     access-token: ${{ secrets.GITHUB_TOKEN }}
-      #     force: true
-      #     chart-folder: chart
+      - name: Push Helm Chart to Github Container Registry
+        id: push-helm-github
+        uses: bsord/helm-push@v4
+        with:
+          useOCIRegistry: true
+          registry-url: https://ghcr.io/${{ github.repository }}
+          username: jonfairbanks
+          access-token: ${{ secrets.GITHUB_TOKEN }}
+          force: true
+          chart-folder: chart
 
       # - name: Push Helm Chart to DigitalOcean Container Registry
       #   id: push-helm-digital-ocean
       #   uses: bsord/helm-push@v4
       #   with:
       #     useOCIRegistry: true
-      #     registry-url: https://registry.digitalocean.com/fairbanks-io/yo-client
+      #     registry-url: https://registry.digitalocean.com/fairbanks-io/f5-web
       #     username: ${{ secrets.DIGITAL_OCEAN_REGISTRY_TOKEN }}
       #     access-token: ${{ secrets.DIGITAL_OCEAN_REGISTRY_TOKEN }}
       #     force: true
