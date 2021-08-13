@@ -1,6 +1,6 @@
 {
   "name": "f5oclock",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Rising Political Threads from /r/politics",
   "main": "server.js",
   "dependencies": {
