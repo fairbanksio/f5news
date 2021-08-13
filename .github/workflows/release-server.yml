@@ -37,7 +37,7 @@ jobs:
       - name: Commit Version Updates
         uses: EndBug/add-and-commit@v7.2.1
         with:
-          message: "f5-api v${{ steps.update-versions.outputs.version }}"
+          message: "f5oclockserv v${{ steps.update-versions.outputs.version }}"
           push: "origin master --force"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
