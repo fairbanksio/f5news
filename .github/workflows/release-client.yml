@@ -1,4 +1,4 @@
-name: Create Release(s)
+name: Create Client Release(s)
 
 on:
   push:
