@@ -37,7 +37,7 @@ jobs:
       - name: Commit Version Updates
         uses: EndBug/add-and-commit@v7.2.1
         with:
-          message: "yo-api v${{ steps.update-versions.outputs.version }}"
+          message: "f5-api v${{ steps.update-versions.outputs.version }}"
           push: "origin master --force"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -98,7 +98,7 @@ jobs:
       #   uses: bsord/helm-push@v4
       #   with:
       #     useOCIRegistry: true
-      #     registry-url: https://registry.digitalocean.com/fairbanks-io/yo-api
+      #     registry-url: https://registry.digitalocean.com/fairbanks-io/f5f-api
       #     username: ${{ secrets.DIGITAL_OCEAN_REGISTRY_TOKEN }}
       #     access-token: ${{ secrets.DIGITAL_OCEAN_REGISTRY_TOKEN }}
       #     force: true
