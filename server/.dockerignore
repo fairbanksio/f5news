@@ -15,3 +15,4 @@ logo.*
 *.sample
 .env*
 samples/
+.prettier*
