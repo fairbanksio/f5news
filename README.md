@@ -2,7 +2,8 @@
 
 ![f5oclock](https://raw.githubusercontent.com/jonfairbanks/f5oclock/master/f5oclock.png)
 
-![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/jonfairbanks/f5oclock/Create%20Release(s)?label=Docker%20Build>)
+![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/jonfairbanks/f5oclock/Create%20Client%20Release(s)?label=Client%20Build>)
+![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/jonfairbanks/f5oclock/Create%20Server%20Release(s)?label=Server%20Build>)
 ![GitHub top language](https://img.shields.io/github/languages/top/jonfairbanks/f5oclock.svg)
 ![Docker Pulls](https://img.shields.io/docker/pulls/jonfairbanks/f5oclockweb.svg)
 ![GitHub last commit](https://img.shields.io/github/last-commit/jonfairbanks/f5oclock.svg)
