@@ -65,6 +65,10 @@ jobs:
           key: ${{ runner.os }}-buildx-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-buildx-
+            
+      - name: Set up QEMU
+        id: setup-qemu
+        uses: docker/setup-qemu-action@v1
 
       - name: Set up Docker Buildx
         id: buildx
@@ -76,6 +80,7 @@ jobs:
         with:
           builder: ${{ steps.buildx.outputs.name }}
           context: ./
+          platforms: linux/amd64,linux/arm64,linux/arm
           file: ./client/Dockerfile
           push: true
           tags: ${{ steps.tag-images.outputs.tags }}
