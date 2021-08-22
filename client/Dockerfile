@@ -1,5 +1,5 @@
 # Base
-FROM node:14-slim as base
+FROM node:16-slim as base
 RUN apt-get update; apt-get install wget gpg -y
 ENV NODE_ENV=production
 ENV TINI_VERSION v0.19.0
@@ -16,7 +16,7 @@ RUN mkdir /app && chown -R node:node /app
 WORKDIR /app
 USER node
 COPY --chown=node:node /client/package*.json ./
-RUN  npm install --no-optional --silent && npm cache clean --force > "/dev/null" 2>&1
+RUN npm install --no-optional --silent && npm cache clean --force > "/dev/null" 2>&1
 
 # Development ENV
 FROM base as dev
