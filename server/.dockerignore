@@ -16,3 +16,5 @@ logo.*
 .env*
 samples/
 .prettier*
+chart/
+Dockerfile
