@@ -7,8 +7,6 @@ replicaCount: 1
 image:
   repository: jonfairbanks/f5oclockweb
   pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: "latest"
 
 f5:
   secretName: f5-mongouri
