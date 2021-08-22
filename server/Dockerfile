@@ -9,6 +9,7 @@ RUN gpg --batch --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 595E85A6B1
   && gpg --batch --verify /tini.asc /tini
 RUN chmod +x /tini
 RUN apt-get purge wget gpg -y; apt-get autoremove -y; apt-get autoclean; rm -rf /var/lib/{apt,dpkg,cache,log}/
+RUN npm i npm@latest -g
 # apt-get is unavailable after this point
 RUN mkdir /app && chown -R node:node /app
 WORKDIR /app
