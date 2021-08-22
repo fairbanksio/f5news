@@ -7,7 +7,7 @@ const newPost = require('./models/newPost');
 // Setup rate limiter: maximum of 50 req/min
 const limiter = new RateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 50
+  max: 50,
 });
 
 mongoose.Promise = Q.Promise;
@@ -17,17 +17,16 @@ app.use(limiter);
 const port = process.env.PORT || 3000;
 
 const connectToDB = () => {
-  mongoose.connect(
-    process.env.MONGO_URI || 'mongodb://localhost/f5oclock',
-    {
+  mongoose
+    .connect(process.env.MONGO_URI || 'mongodb://localhost/f5oclock', {
       useNewUrlParser: true,
       useCreateIndex: true,
       useFindAndModify: false,
       useUnifiedTopology: true,
-    },
-  ).catch(
-    err => console.warn(`MongoDB connect error: ${err}`) // eslint-disable-line no-console
-  );
+    })
+    .catch(
+      err => console.warn(`MongoDB connect error: ${err}`) // eslint-disable-line no-console
+    );
 };
 
 connectToDB();
@@ -38,20 +37,26 @@ mongoose.connection.on('connected', () => {
 
 mongoose.connection.on('disconnected', (err) => {
   console.warn(`MongoDB disconnected: ${err}`); // eslint-disable-line no-console
-  setTimeout(() => { connectToDB(); }, 3000);
+  setTimeout(() => {
+    connectToDB();
+  }, 3000);
 });
 
 mongoose.connection.on('error', (err) => {
   console.warn(`MongoDB error: ${err}`); // eslint-disable-line no-console
-  setTimeout(() => { connectToDB(); }, 3000);
+  setTimeout(() => {
+    connectToDB();
+  }, 3000);
 });
 
-app.use(express.static(__dirname + '/public')); // eslint-disable-line
+app.use(express.static(__dirname + '/public')) // eslint-disable-line
 app.engine('html', require('ejs').renderFile);
 
-app.get('/', (_req, res) => { res.render('index.html'); });
+app.get('/', (_req, res) => {
+  res.render('index.html');
+});
 app.get('/getPosts', (_req, res) => {
-  const utcDate = Math.floor((new Date()).getTime() / 1000);
+  const utcDate = Math.floor(new Date().getTime() / 1000);
   // Depending on time per day 30 minute and 60 minute searches in database
   const timeAdjust = () => {
     const today = new Date().getUTCHours();
@@ -64,7 +69,7 @@ app.get('/getPosts', (_req, res) => {
   const searchTime = utcDate - timeAdjust();
   // Search the db and return up to 20 docs
   newPost
-    .find({ created_utc: { $gt: searchTime },  upvoteCount: { $gt: 5 } })
+    .find({ created_utc: { $gt: searchTime }, upvoteCount: { $gt: 5 } })
     .sort({ upvoteCount: -1, created_utc: 1 })
     .limit(20)
     .exec()
