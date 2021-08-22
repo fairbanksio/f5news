@@ -15,8 +15,8 @@ RUN dpkgArch="$(dpkg --print-architecture | awk -F- '{ print $NF }')"; \
 RUN apt-get purge wget gpg -y; apt-get autoremove -y; apt-get autoclean; rm -rf /var/lib/{apt,dpkg,cache,log}/
 # apt-get is unavailable after this point
 EXPOSE 3000
-RUN mkdir -p /app/client && chown -R node:node /app
-WORKDIR /app/client
+RUN mkdir /app && chown -R node:node /app
+WORKDIR /app
 USER node
 COPY --chown=node:node package*.json ./
 RUN  npm install --no-optional --silent && npm cache clean --force > "/dev/null" 2>&1
@@ -24,7 +24,7 @@ RUN  npm install --no-optional --silent && npm cache clean --force > "/dev/null"
 # Development ENV
 FROM base as dev
 ENV NODE_ENV=development
-ENV PATH=/app/client/node_modules/.bin:$PATH
+ENV PATH=/app/node_modules/.bin:$PATH
 RUN npm install --only=development --no-optional --silent && npm cache clean --force > "/dev/null" 2>&1
 CMD ["nodemon", "index.js", "--inspect=0.0.0.0:9229"]
 
@@ -35,8 +35,8 @@ COPY --chown=node:node ./client .
 # Test ENV
 FROM source as test
 ENV NODE_ENV=development
-ENV PATH=/app/client/node_modules/.bin:$PATH
-COPY --from=dev /app/client/node_modules /app/client/node_modules
+ENV PATH=/app/node_modules/.bin:$PATH
+COPY --from=dev /app/node_modules /app/node_modules
 RUN eslint .
 # RUN npm test // Disabled pending unit tests
 
