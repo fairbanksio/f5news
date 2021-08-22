@@ -47,5 +47,5 @@ RUN /microscanner $MICROSCANNER_TOKEN --continue-on-failure
 
 # Production ENV
 FROM source as prod
-ENTRYPOINT ["/usr/local/bin/tini", "--"]
+ENTRYPOINT ["tini", "--"]
 CMD ["node", "index.js"]
