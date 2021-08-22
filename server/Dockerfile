@@ -29,7 +29,7 @@ CMD ["nodemon", "server.js", "--inspect=0.0.0.0:9229"]
 
 # Source
 FROM base as source
-COPY --chown=node:node . .
+COPY --chown=node:node ./server .
 
 # Test ENV
 FROM source as test
