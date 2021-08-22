@@ -1,6 +1,6 @@
 {
   "name": "f5oclockserv",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Backend API for f5 o'clock",
   "main": "index.js",
   "dependencies": {
