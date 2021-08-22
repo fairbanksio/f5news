@@ -15,7 +15,7 @@ EXPOSE 3000
 RUN mkdir /app && chown -R node:node /app
 WORKDIR /app
 USER node
-COPY --chown=node:node package*.json ./
+COPY --chown=node:node /client/package*.json ./
 RUN  npm install --no-optional --silent && npm cache clean --force > "/dev/null" 2>&1
 
 # Development ENV

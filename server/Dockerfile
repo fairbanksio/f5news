@@ -14,7 +14,7 @@ RUN npm i npm@latest -g
 RUN mkdir /app && chown -R node:node /app
 WORKDIR /app
 USER node
-COPY --chown=node:node package*.json ./
+COPY --chown=node:node /server/package*.json ./
 RUN  npm install --no-optional --silent && npm cache clean --force > "/dev/null" 2>&1
 
 # Development ENV
