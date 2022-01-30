@@ -16,14 +16,8 @@ const connectToDB = () => {
       useUnifiedTopology: true,
     },
   ).catch(
-    err => console.warn(`MongoDB connection error: ${err}`), // eslint-disable-line no-console
+    (err) => console.warn(`MongoDB connection error: ${err}`), // eslint-disable-line no-console
   );
-};
-
-const wait = (sec = 5) => {
-  const deferred = Q.defer();
-  setTimeout(deferred.resolve, sec * 1000);
-  return deferred.promise;
 };
 
 const parseHtmlJson = (htmlString) => {
@@ -67,25 +61,22 @@ const insertNewPosts = (newPosts) => {
 const subreddit = process.env.SUBREDDIT || 'politics';
 const redditUrl = `https://www.reddit.com/r/${subreddit}/rising.json`;
 
-const fetchPosts = () => rp(redditUrl)
+const fetchPosts = () => rp({ uri: redditUrl, timeout: 4000 })
   .then(parseHtmlJson)
   .then(insertNewPosts)
-  .then(() => wait())
-  .then(fetchPosts)
   .then(
     console.log(`Saved New Posts @ ${Date.now()}`), // eslint-disable-line no-console
     console.log(`Currently using ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB of memory \n`), // eslint-disable-line no-console
   )
   .catch(() => {
     console.warn(`Error Fetching Posts @ ${Date.now()}. This may be due to a timeout from Reddit. F5 will try again shortly.`); // eslint-disable-line no-console
-    wait(3).then(fetchPosts);
   });
 
 connectToDB();
 
 mongoose.connection.on('connected', () => {
   console.log('F5 is now saving posts to MongoDB...\n'); // eslint-disable-line no-console
-  wait(3).then(fetchPosts); // Start
+  setInterval(fetchPosts, 5000);
 });
 
 mongoose.connection.on('disconnected', (err) => {
