@@ -14,6 +14,8 @@ const connectToDB = () => {
       useCreateIndex: true,
       useFindAndModify: false,
       useUnifiedTopology: true,
+      reconnectTries: 180,
+      reconnectInterval: 10000,
     },
   ).catch(
     (err) => console.warn(`MongoDB connection error: ${err}`), // eslint-disable-line no-console
@@ -73,18 +75,18 @@ const fetchPosts = () => rp({ uri: redditUrl, timeout: 4000 })
   });
 
 connectToDB();
-
+let intervalId;
 mongoose.connection.on('connected', () => {
   console.log('F5 is now saving posts to MongoDB...\n'); // eslint-disable-line no-console
-  setInterval(fetchPosts, 5000);
+  intervalId = setInterval(fetchPosts, 5000);
 });
 
 mongoose.connection.on('disconnected', (err) => {
   console.warn(`MongoDB disconnected: ${err}`); // eslint-disable-line no-console
-  setTimeout(() => { connectToDB(); }, 3000);
+  clearInterval(intervalId);
 });
 
 mongoose.connection.on('error', (err) => {
   console.warn(`MongoDB error: ${err}`); // eslint-disable-line no-console
-  setTimeout(() => { connectToDB(); }, 3000);
+  clearInterval(intervalId);
 });
