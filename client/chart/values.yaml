@@ -68,4 +68,4 @@ topologySpreadConstraints: []
   #   whenUnsatisfiable: ScheduleAnyway
   #   labelSelector:
   #     matchLabels:
-  #       app.kubernetes.io/instance: tetris-tetris
+  #       app.kubernetes.io/instance: f5oclock-f5-web
