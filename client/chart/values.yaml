@@ -62,3 +62,10 @@ minAvailable: 1
 nodeSelector: {}
 tolerations: []
 affinity: {}
+topologySpreadConstraints: []
+  # - maxSkew: 1
+  #   topologyKey: kubernetes.io/hostname
+  #   whenUnsatisfiable: ScheduleAnyway
+  #   labelSelector:
+  #     matchLabels:
+  #       app.kubernetes.io/instance: f5oclock-f5-web
