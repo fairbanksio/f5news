@@ -1,4 +1,4 @@
-name: "Release"
+name: "API - Release"
 # SECRETS NEEDED:
 # DOCKER_USERNAME - Container Registry Username (github or dockerhub)
 # DOCKER_ACCESS_TOKEN - Container registry Personal access token with push priveledges
@@ -31,7 +31,7 @@ jobs:
           ref: ${{ github.ref }}
 
       - name: Update version in version files
-        id: update-version
+        id: update-versions
         run: |
           # Bump version
           npm version --no-git-tag-version patch
@@ -48,8 +48,8 @@ jobs:
       - name: Commit changes
         uses: EndBug/add-and-commit@v7.2.1
         with:
-          message: 'chore(version): Bump to: ${{ steps.update-version.outputs.version }}'
-          tag: '${{ steps.get-version.outputs.version }}'
+          message: 'Bump to: ${{ steps.update-versions.outputs.version }}'
+          tag: '${{ steps.update-versions.outputs.version }}'
           push: 'origin ${{ github.event.repository.default_branch }} --force'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
