@@ -1,4 +1,4 @@
-name: "Release"
+name: "API - Release"
 # SECRETS NEEDED:
 # DOCKER_USERNAME - Container Registry Username (github or dockerhub)
 # DOCKER_ACCESS_TOKEN - Container registry Personal access token with push priveledges

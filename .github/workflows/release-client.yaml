@@ -1,4 +1,4 @@
-name: "Release"
+name: "Client - Release"
 # SECRETS NEEDED:
 # DOCKER_USERNAME - Container Registry Username (github or dockerhub)
 # DOCKER_ACCESS_TOKEN - Container registry Personal access token with push priveledges
@@ -19,10 +19,12 @@ jobs:
         working-directory: ./client
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
     steps:
       - uses: act10ns/slack@v1
         with:
           status: starting
+
       - name: Checkout source code
         uses: "actions/checkout@v2"
         with:
