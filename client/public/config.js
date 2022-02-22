@@ -1,0 +1,1 @@
+window.REACT_APP_API="https://fn.bsord.dev/function/f5-get-posts-dev"
