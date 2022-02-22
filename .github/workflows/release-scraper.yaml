@@ -53,9 +53,9 @@ jobs:
         id: tag-images
         run: |
           if [[ ${{ steps.update-versions.outputs.version }} =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            TAGS="fairbanksio/f5oclock-client:${{ steps.update-versions.outputs.version }},fairbanksio/f5oclock-client:latest"
+            TAGS="fairbanksio/f5oclock-scraper:${{ steps.update-versions.outputs.version }},fairbanksio/f5oclock-scraper:latest"
           else
-            TAGS="fairbanksio/f5oclock-client:latest"
+            TAGS="fairbanksio/f5oclock-scraper:latest"
           fi
           echo "::set-output name=tags::${TAGS}"
 
