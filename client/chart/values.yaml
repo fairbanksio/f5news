@@ -5,7 +5,7 @@
 replicaCount: 1
 
 image:
-  repository: fairbanksio/f5-client
+  repository: fairbanksio/f5oclock-client
   pullPolicy: Always
 
 imagePullSecrets: []
