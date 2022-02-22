@@ -43,7 +43,7 @@ jobs:
       - name: Run openfaas-cli build for node16 and shrinkwrap
         uses: docker://openfaas/faas-cli:latest-root
         with:
-          args: build --shrinkwrap --image ${{ github.event.repository}} --handler=. --name ${GITHUB_REPOSITORY#*/} --lang=node16
+          args: build --shrinkwrap --image fairbanksio/f5oclock-client --handler=. --name f5oclock-client --lang=node16
 
       - name: Commit changes
         uses: EndBug/add-and-commit@v7.2.1
@@ -77,8 +77,8 @@ jobs:
       - name: Build and Push the OpenFaaS function
         uses: docker/build-push-action@v2
         with:
-          context: ./api/build/${GITHUB_REPOSITORY#*/}/
-          file: ./api/build/${GITHUB_REPOSITORY#*/}/Dockerfile
+          context: ./api/build/f5oclock-client/
+          file: ./api/build/f5oclock-client/Dockerfile
           push: true
           tags: ${{ steps.tag-images.outputs.tags }}
 
