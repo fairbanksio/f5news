@@ -4,7 +4,7 @@
 
   "version": "1.0.14",
 
-  "description": "F5 function to get posts from MongoDB",
+  "description": "Serverless function for F5 to get posts from MongoDB",
 
   "main": "handler.js",
 
