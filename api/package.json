@@ -4,7 +4,7 @@
 
   "version": "1.0.15",
 
-  "description": "Serverless function for F5 to get posts from MongoDB",
+  "description": "Openfaas Serverless function for F5 to get posts from MongoDB",
 
   "main": "handler.js",
 
