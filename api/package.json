@@ -2,7 +2,7 @@
 
   "name": "f5oclock-api",
 
-  "version": "1.0.16",
+  "version": "1.0.17",
 
   "description": "Openfaas Serverless function for F5 to get posts from MongoDB",
 
