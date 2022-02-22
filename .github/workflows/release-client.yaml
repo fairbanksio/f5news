@@ -6,7 +6,9 @@ name: "Release"
 on:
   push:
     branches:
-      - "main"
+      - "master"
+    paths:
+    - 'client/**'
 
 jobs:
   release:
