@@ -1,2 +1,2 @@
-# f5-fetch-data
-Container meant to be scheduled for pulling reddit data into MongoDB
+# F5oclock scraper
+Container meant to be scheduled for scraping reddit posts and storing in MongoDB
