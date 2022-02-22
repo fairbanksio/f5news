@@ -40,11 +40,6 @@ jobs:
           # Output new version for other steps
           echo "::set-output name=version::$PACKAGE_VERSION"
 
-      - name: Run openfaas-cli build for node16 and shrinkwrap
-        uses: docker://openfaas/faas-cli:latest-root
-        with:
-          args: build --shrinkwrap --image ${{ github.event.repository}} --handler=. --name ${GITHUB_REPOSITORY#*/} --lang=node16
-
       - name: Commit changes
         uses: EndBug/add-and-commit@v7.2.1
         with:
@@ -63,6 +58,11 @@ jobs:
             TAGS="fairbanksio/f5oclock-api:latest"
           fi
           echo "::set-output name=tags::${TAGS}"
+
+      - name: Run openfaas-cli build for node16 and shrinkwrap
+        uses: docker://openfaas/faas-cli:latest-root
+        with:
+          args: build --shrinkwrap --image ${{ github.event.repository}} --handler=. --name ${GITHUB_REPOSITORY#*/} --lang=node16
 
       - name: Login to DockerHub
         if: success()
