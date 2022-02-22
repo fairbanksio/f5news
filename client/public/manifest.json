@@ -1,25 +1,16 @@
 {
-  "short_name": "f5",
-  "name": "f5 o'clock",
+  "short_name": "React App",
+  "name": "Create React App Sample",
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "48x48",
-      "type": "image/png"
-    },
-    {
-      "src": "./images/android-chrome-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "./images/android-chrome-384x384.png",
-      "sizes": "384x384",
-      "type": "image/png"
+      "src": "favicon.svg",
+      "sizes": "48x48 72x72 96x96 128x128 256x256",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ],
-  "start_url": "./index.html",
+  "start_url": ".",
   "display": "standalone",
-  "theme_color": "#FFA64C",
-  "background_color": "#F5F5F5"
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
 }

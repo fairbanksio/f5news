@@ -1,13 +1,13 @@
 {{- if or (and .Values.autoscaling.enabled (gt (.Values.autoscaling.minReplicas | int) 1)) (gt (.Values.replicaCount | int) 1) -}}
-apiVersion: policy/v1
+apiVersion: policy/v1beta1
 kind: PodDisruptionBudget
 metadata:
   labels:
-    {{- include "f5-web.labels" . | nindent 4 }}
-  name: {{ include "f5-web.fullname" . }}
+    {{- include "f5-client.labels" . | nindent 4 }}
+  name: {{ include "f5-client.fullname" . }}
 spec:
   selector:
     matchLabels:
-      {{- include "f5-web.selectorLabels" . | nindent 6 }}
+      {{- include "f5-client.selectorLabels" . | nindent 6 }}
   minAvailable: {{ .Values.minAvailable }}
 {{- end }}

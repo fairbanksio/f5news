@@ -1,8 +1,8 @@
 {{- if .Values.ingress.enabled -}}
-{{- $fullName := include "f5-web.fullname" . -}}
+{{- $fullName := include "f5-client.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 {{- if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
-apiVersion: networking.k8s.io/v1
+apiVersion: networking.k8s.io/v1beta1
 {{- else -}}
 apiVersion: extensions/v1beta1
 {{- end }}
@@ -10,7 +10,7 @@ kind: Ingress
 metadata:
   name: {{ $fullName }}
   labels:
-    {{- include "f5-web.labels" . | nindent 4 }}
+    {{- include "f5-client.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -31,12 +31,9 @@ spec:
     - host: {{ .host | quote }}
       http:
         paths:
-          - pathType: Prefix
-            path: "/"
+          - path: /
             backend:
-              service:
-                name: {{ $fullName }}
-                port: 
-                  number: {{ $svcPort }}
+              serviceName: {{ $fullName }}
+              servicePort: {{ $svcPort }}
   {{- end }}
 {{- end }}

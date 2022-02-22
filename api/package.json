@@ -1,0 +1,15 @@
+{
+  "name": "f5-get-posts",
+  "version": "1.0.12",
+  "description": "F5 function get posts from MongoDB",
+  "main": "handler.js",
+  "dependencies": {
+    "mongoose": "^5.12.5"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 0"
+  },
+  "keywords": [],
+  "author": "Brandon Sorgdrager",
+  "license": "MIT"
+}
