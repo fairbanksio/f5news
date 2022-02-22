@@ -1,3 +1,3 @@
-# Web client for f5oclock
+# Web client for f5 o'clock
 
-A React based web user interface for F5oclock's
+A React based web user interface for F5oclock
