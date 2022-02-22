@@ -1,7 +1,7 @@
 {
-  "name": "f5-fetch-data",
+  "name": "f5oclock-scraper",
   "version": "1.0.7",
-  "description": "Scheduled job for pulling reddit data into MongoDB",
+  "description": "Scheduled job for scraping reddit posts and storing in MongoDB",
   "main": "index.js",
   "dependencies": {
     "mongoose": "^5.12.5",
