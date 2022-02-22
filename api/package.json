@@ -1,7 +1,7 @@
 {
-  "name": "f5-get-posts",
+  "name": "f5oclock-api",
   "version": "1.0.12",
-  "description": "F5 function get posts from MongoDB",
+  "description": "F5 function to get posts from MongoDB",
   "main": "handler.js",
   "dependencies": {
     "mongoose": "^5.12.5"
