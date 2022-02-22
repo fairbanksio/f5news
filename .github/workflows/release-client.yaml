@@ -58,7 +58,7 @@ jobs:
             TAGS="fairbanksio/f5oclock-client:latest"
           fi
           echo "::set-output name=tags::${TAGS}"
-          
+
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
@@ -69,7 +69,7 @@ jobs:
         id: docker-build
         uses: docker/build-push-action@v2
         with:
-          context: ./
+          context: ./client
           file: ./client/Dockerfile
           push: true
           tags: ${{ steps.tag-images.outputs.tags }}
