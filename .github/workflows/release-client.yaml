@@ -12,7 +12,7 @@ on:
 
 jobs:
   release:
-    name: "Release"
+    name: "Client - Build and Publish"
     runs-on: ubuntu-latest
     defaults:
       run:
