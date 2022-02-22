@@ -3,9 +3,6 @@ const fs = require('fs');
 const mongoose = require('mongoose');
 let mongoUri
 
-// Get secret for MongoDB access
-
-
 const fetchedPost = new mongoose.Schema(
   {
     title: 'string',
@@ -42,7 +39,6 @@ fs.readFile('/var/openfaas/secrets/mongouri', 'utf8', function(err, mongoUri){
   );
 });
 
-
 // Database event handlers
 mongoose.connection.on('connected', () => {
   console.log('F5 is connected to MongoDB...'); // eslint-disable-line no-console
@@ -59,7 +55,6 @@ mongoose.connection.on('error', (err) => {
     connectToDB();
   }, 3000);
 });
-
 
 // main request handler
 module.exports = async (event, context) => {
