@@ -77,8 +77,8 @@ jobs:
       - name: Build and Push the OpenFaaS function
         uses: docker/build-push-action@v2
         with:
-          context: ./api/build/${GITHUB_REPOSITORY#*/}/
-          file: ./api/build/${GITHUB_REPOSITORY#*/}/Dockerfile
+          context: ./build/${GITHUB_REPOSITORY#*/}/
+          file: ./build/${GITHUB_REPOSITORY#*/}/Dockerfile
           push: true
           tags: ${{ steps.tag-images.outputs.tags }}
 
