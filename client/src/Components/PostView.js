@@ -65,7 +65,7 @@ const PostView = () => {
       setError({show:false})
 
       if(gtThan5MinsAgo(findLatestFetch(json.posts))){
-        setError({level:"warning", show: true, title: "Delayed Data:", message: "Content may be out of date.. This may be due to Reddit's experiencing issues."})
+        setError({level:"warning", show: true, title: "Delayed Data:", message: "Content may be out of date.. This may be due to Reddit's API experiencing issues."})
       }
 
     })
