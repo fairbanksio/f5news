@@ -1,3 +1,3 @@
 # Web client for f5oclock
 
-A React based web application that connects to F5oclock's API
+A React based web user interface for F5oclock's
