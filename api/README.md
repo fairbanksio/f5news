@@ -1,4 +1,4 @@
-# f5-get-posts
+#  F5oclock-api
 Serverless function to return posts from MongoDB in JSON format. 
 
 
