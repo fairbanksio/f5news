@@ -3,11 +3,11 @@ apiVersion: policy/v1beta1
 kind: PodDisruptionBudget
 metadata:
   labels:
-    {{- include "f5-client.labels" . | nindent 4 }}
-  name: {{ include "f5-client.fullname" . }}
+    {{- include "f5oclock-client.labels" . | nindent 4 }}
+  name: {{ include "f5oclock-client.fullname" . }}
 spec:
   selector:
     matchLabels:
-      {{- include "f5-client.selectorLabels" . | nindent 6 }}
+      {{- include "f5oclock-client.selectorLabels" . | nindent 6 }}
   minAvailable: {{ .Values.minAvailable }}
 {{- end }}

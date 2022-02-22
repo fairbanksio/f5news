@@ -1,6 +1,6 @@
 apiVersion: v2
-name: f5-client
-description: Web client for f5 remix
+name: f5oclock-client
+description: Web client for F5oclock
 
 # A chart can be either an 'application' or a 'library' chart.
 #

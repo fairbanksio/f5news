@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "f5-client.fullname" . }}
+  name: {{ include "f5oclock-client.fullname" . }}
   labels:
-    {{- include "f5-client.labels" . | nindent 4 }}
+    {{- include "f5oclock-client.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "f5-client.selectorLabels" . | nindent 6 }}
+      {{- include "f5oclock-client.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "f5-client.selectorLabels" . | nindent 8 }}
+        {{- include "f5oclock-client.selectorLabels" . | nindent 8 }}
     spec:
     {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -21,7 +21,7 @@ spec:
     {{- if .Values.topologySpreadConstraints }}
       topologySpreadConstraints: {{ toYaml .Values.topologySpreadConstraints | nindent 8 }}
     {{- end }}
-      serviceAccountName: {{ include "f5-client.serviceAccountName" . }}
+      serviceAccountName: {{ include "f5oclock-client.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
