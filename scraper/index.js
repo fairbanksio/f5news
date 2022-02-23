@@ -34,6 +34,17 @@ const parseHtmlJson = (htmlString) => {
   return jsonData.data.children;
 };
 
+const imageSource = (data) => {
+  if (data.preview) {
+    if (data.preview.images) {
+      if (data.preview.images.length > 0) {
+        return data.preview.images[0].source.url.replace('amp;s', 's');
+      }
+    }
+  }
+  return data.thumbnail;
+};
+
 const insertNewPosts = (newPosts) => {
   let insertPromises = [];
   // Fill array with promises
@@ -47,7 +58,7 @@ const insertNewPosts = (newPosts) => {
       domain: value.data.domain,
       url: value.data.url,
       commentLink: value.data.permalink,
-      thumbnail: value.data.thumbnail,
+      thumbnail: imageSource(value.data),
       author: value.data.author,
       created_utc: value.data.created_utc,
       upvoteCount: value.data.ups,
