@@ -38,10 +38,22 @@ const imageSource = (data) => {
   if (data.preview) {
     if (data.preview.images) {
       if (data.preview.images.length > 0) {
-        return data.preview.images[0].source.url.replace('amp;', '');
+        return data.preview.images[0].source.url.replace(/amp;/g, '');
       }
     }
   }
+
+  if (data.is_gallery) {
+    console.log(data.title); // eslint-disable-line no-console
+    if (data.gallery_data) {
+      if (data.gallery_data.items) {
+        if (data.gallery_data.items.length > 0) {
+          return data.media_metadata[data.gallery_data.items[0].media_id].s.u.replace(/amp;/g, '');
+        }
+      }
+    }
+  }
+
   return data.thumbnail;
 };
 

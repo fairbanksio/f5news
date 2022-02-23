@@ -37,7 +37,7 @@ function PostCard(props) {
   const {post} = props
   return (
     <Box borderWidth='1px' borderRadius='lg' overflow='hidden' bg={hotnessBGColor(post.upvoteCount)}>
-      <Image src={post.thumbnail === 'default'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover'/>
+      <Image src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover'/>
 
       <Box p='6'>
         <Box display='flex' alignItems='baseline'>
