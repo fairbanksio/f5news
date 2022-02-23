@@ -18,7 +18,7 @@ export default function GridView(props) {
         pb={4}
         p={0}
         >
-        <Grid templateColumns='repeat(3, 1fr)' gap={4}>
+        <Grid templateColumns={['repeat(1, 1fr)','repeat(1, 1fr)','repeat(2, 1fr)','repeat(3, 1fr)']} gap={4}>
 
           {posts?
             posts.map((item, i) => {
@@ -36,7 +36,7 @@ export default function GridView(props) {
 function PostCard(props) {
   const {post} = props
   return (
-    <Box maxW='md' borderWidth='1px' borderRadius='lg' overflow='hidden' bg={hotnessBGColor(post.upvoteCount)}>
+    <Box borderWidth='1px' borderRadius='lg' overflow='hidden' bg={hotnessBGColor(post.upvoteCount)}>
       <Image src={post.thumbnail === 'default'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover'/>
 
       <Box p='6'>

@@ -38,7 +38,7 @@ const imageSource = (data) => {
   if (data.preview) {
     if (data.preview.images) {
       if (data.preview.images.length > 0) {
-        return data.preview.images[0].source.url.replace('amp;s', 's');
+        return data.preview.images[0].source.url.replace('amp;', '');
       }
     }
   }
