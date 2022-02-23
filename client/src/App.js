@@ -17,7 +17,7 @@ const ThemedApp = () => {
   const { theme } = useContext(ThemeContext)
 
   return (
-      <ChakraProvider theme={theme == 'classic' ? ClassicTheme : CustomTheme}>
+      <ChakraProvider theme={theme === 'classic' ? ClassicTheme : CustomTheme}>
         <RefreshIntervalProvider>
           <SubredditProvider>
             <Flex minHeight='100vh' direction='column' p={0}>

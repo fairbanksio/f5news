@@ -1,44 +1,22 @@
-import { ReactNode, useContext } from 'react';
+import { useContext } from 'react';
 import {
   Box,
   Flex,
-  Avatar,
-  Link,
   Button,
   Menu,
   MenuButton,
   MenuList,
   MenuItem,
-  MenuDivider,
-  useDisclosure,
-  useColorModeValue,
   Stack,
-  useColorMode,
-  Center,
   Container,
   Text
 } from '@chakra-ui/react';
-import { MoonIcon, SunIcon, ChevronDownIcon, RepeatIcon } from '@chakra-ui/icons';
+import { ChevronDownIcon, RepeatIcon } from '@chakra-ui/icons';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext'
 import { SubredditContext } from '../Contexts/SubredditContext'
 import { ColorModeSwitcher } from './ColorModeSwitcher';
-const NavLink = ({ children }) => (
-  <Link
-    px={2}
-    py={1}
-    rounded={'md'}
-    _hover={{
-      textDecoration: 'none',
-      bg: useColorModeValue('gray.200', 'gray.700'),
-    }}
-    href={'#'}>
-    {children}
-  </Link>
-);
 
 export default function Nav() {
-  const { colorMode, toggleColorMode } = useColorMode();
-  const { isOpen, onOpen, onClose } = useDisclosure();
   const { refreshInterval, setRefreshInterval } = useContext(RefreshIntervalContext)
   const { subreddit, setSubreddit } = useContext(SubredditContext)
   return (
