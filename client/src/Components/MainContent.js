@@ -1,26 +1,17 @@
 import React, {useState, useEffect, useContext } from 'react';
 import {
   Container,
-  Table,
-  TableCaption,
-  Thead,
-  Tbody,
-  Tr,
-  Td,
-  Tfoot,
-  Th,
-  Link,
-  Text,
   Progress,
-  Tooltip,Alert,
+  Alert,
   AlertIcon,
   AlertTitle,
   AlertDescription,
 } from '@chakra-ui/react';
-import { LinkIcon, ChatIcon, ArrowUpIcon, TimeIcon } from '@chakra-ui/icons'
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext'
 import { SubredditContext } from '../Contexts/SubredditContext'
-import { timeAgoShort } from '../Util/FormattedTime'
+import { ViewModeContext } from '../Contexts/ViewModeContext'
+import GridView from './GridView'
+import ListView from './ListView'
 
 const apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API
 
@@ -48,6 +39,7 @@ const findLatestFetch = (posts) => {
 const PostView = () => {
   const { refreshInterval } = useContext(RefreshIntervalContext)
   const { subreddit } = useContext(SubredditContext)
+  const { viewMode } = useContext(ViewModeContext)
 
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true)
@@ -86,19 +78,7 @@ const PostView = () => {
   useEffect(() => {
     fetchPosts()
   }, [subreddit]);
-
-  const hotnessBGColor = (upvoteCount) => {
-    if (upvoteCount >= 100 && upvoteCount < 250) {
-      return 'trending';
-    } else if (upvoteCount >= 250 && upvoteCount < 500) {
-      return 'hot';
-    } else if (upvoteCount >= 500) {
-      return 'f5oclock';
-    } else {
-      return false;
-    }
-  }
-
+  console.log(viewMode)
   return (
     <Container maxW='container.xl' >
       {loading?
@@ -112,64 +92,14 @@ const PostView = () => {
         </Alert>
       : null}
 
-      {data && data.length > 0 ?
-        <Table size='sm' textAlign="left">
+      {viewMode === 'list' ? 
+        <ListView posts={data}/>
+      : 
+        <GridView posts={data}/>
+      }
+      
 
-          <Thead>
-            <Tr>
-              <Th w={1}><ChatIcon  w={4} h={4}/></Th>
-              <Th w={1}><ArrowUpIcon w={5} h={5}/></Th>
-              <Th w={1}><TimeIcon w={4} h={4}/></Th>
-              <Th>Title</Th>
-              <Th>Source</Th>
-              <Th>Action</Th>
-            </Tr>
-          </Thead>
-
-          <Tbody>
-            {
-            data.map((item, i) => {
-              return [
-                  <Tr key={i} bg={hotnessBGColor(item.upvoteCount)}>
-                    <Td>{item.commentCount}</Td>
-                    <Td>{item.upvoteCount}</Td>
-                    <Td>{timeAgoShort(item.created_utc)}</Td>
-                    <Td>
-                      <Tooltip label={item.title} fontSize='md'>
-                        <Link href={item.url} isExternal color='link'>
-                          <Text noOfLines={3}>{item.title}</Text>
-                        </Link>
-                      </Tooltip>
-                    </Td>
-                    <Td>{item.domain}</Td>
-                    <Td>
-                      <Link href={'https://reddit.com/' + item.commentLink} isExternal color='link'>
-                        <ChatIcon/>
-                      </Link>
-                      &nbsp;
-                      <Link href={item.url} color='link'>
-                        <LinkIcon/>
-                      </Link>
-                    </Td>
-                  </Tr>
-                ];
-            })
-            }
-          </Tbody>
-
-          <Tfoot>
-            <Tr>
-              <Th w={1}><ChatIcon  w={4} h={4}/></Th>
-              <Th w={1}><ArrowUpIcon w={5} h={5}/></Th>
-              <Th w={1}><TimeIcon w={4} h={4}/></Th>
-              <Th>Title</Th>
-              <Th>Source</Th>
-              <Th>Action</Th>
-            </Tr>
-          </Tfoot>
-
-        </Table>
-      :null}
+      
 
     </Container>
   );
