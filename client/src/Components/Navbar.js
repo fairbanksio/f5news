@@ -15,6 +15,7 @@ import { ChevronDownIcon, RepeatIcon } from '@chakra-ui/icons';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext'
 import { SubredditContext } from '../Contexts/SubredditContext'
 import { ColorModeSwitcher } from './ColorModeSwitcher';
+import { ViewModeSwitcher } from './ViewModeSwitcher';
 
 export default function Nav() {
   const { refreshInterval, setRefreshInterval } = useContext(RefreshIntervalContext)
@@ -48,8 +49,10 @@ export default function Nav() {
               </MenuList>
             </Menu>
 
+            <ViewModeSwitcher />
+            
             <ColorModeSwitcher />
-
+            
           </Stack>
         </Flex>
       </Flex>
