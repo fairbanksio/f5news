@@ -48,7 +48,7 @@ export default function Nav() {
   
   return (
 
-    <Box position='fixed' width={'100%'} bg='navbar'>
+    <Box position='fixed' width={'100%'} bg='navbar' style={{zIndex:'1'}}>
       
       <Container maxW='container.xl' pr={mobileMode?0:4} pl={mobileMode?0:4} >
       
