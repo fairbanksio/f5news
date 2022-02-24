@@ -48,14 +48,14 @@ export default function Nav() {
   
   return (
 
-    <Box position='fixed' width={'100%'} bg='navbar'>
+    <Box position='fixed' width={'100%'} bg='navbar' style={{zIndex:'1'}}>
       
       <Container maxW='container.xl' pr={mobileMode?0:4} pl={mobileMode?0:4} >
       
         <Flex h={12} alignItems={'center'} justifyContent={'space-between'} pr={mobileMode?2:0} pl={mobileMode?2:0} >
 
           <Box maxH='40px' onClick={(e)=>{setLogo(!logo)}}>
-            <Stack direction={['column', 'row']}>
+            <Stack direction={['row']}>
               {logo? <PrimaryLogo/> : <SecondaryLogo/>}
               <Text float='left' fontSize={'xl'} ml='2'>F5 News</Text>
             </Stack>

@@ -1,6 +1,7 @@
 import React, {useState, useEffect, useContext } from 'react';
 import {
   Container,
+  useBreakpointValue
 } from '@chakra-ui/react';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext'
 import { SubredditContext } from '../Contexts/SubredditContext'
@@ -40,7 +41,7 @@ const PostView = () => {
 
   const [data, setData] = useState([]);
   const [setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"})
-  
+  const padding = useBreakpointValue({base: 2, sm: 2, md: 4})
 
   const fetchPosts = () => {
     setLoading(true)
@@ -73,9 +74,9 @@ const PostView = () => {
   useEffect(() => {
     fetchPosts()
   }, [subreddit]);
-  console.log(viewMode)
+
   return (
-    <Container maxW='container.xl' mt={16}>
+    <Container maxW='container.xl' mt={16} pl={padding} pr={padding}>
       
 
       {viewMode === 'list' ? 

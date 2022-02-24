@@ -38,7 +38,7 @@ function PostCard(props) {
   return (
     <Box borderWidth='1px' borderRadius='lg' overflow='hidden' bg={hotnessBGColor(post.upvoteCount)}>
       <PostModal post={post}>
-      <Box p='6'>
+      <Box p={4}>
         <Box display='flex' alignItems='baseline'>
           <Box
             color='gray.500'
