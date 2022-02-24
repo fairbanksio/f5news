@@ -22,6 +22,10 @@ const CustomTheme = extendTheme({
         default: 'blue.800', 
         _dark: 'blue.500',
       },
+      navbar: {
+        default: 'gray.300', 
+        _dark: 'gray.900',
+      },
     },
   },
   styles: {

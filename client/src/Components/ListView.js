@@ -21,7 +21,7 @@ const ListView = (props) => {
   return (
     <Container
         maxW='container.xl'
-        mt={4}
+        mt={2}
         pb={4}
         p={0}
         >

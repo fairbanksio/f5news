@@ -1,15 +1,11 @@
 import React, {useState, useEffect, useContext } from 'react';
 import {
   Container,
-  Progress,
-  Alert,
-  AlertIcon,
-  AlertTitle,
-  AlertDescription,
 } from '@chakra-ui/react';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext'
 import { SubredditContext } from '../Contexts/SubredditContext'
 import { ViewModeContext } from '../Contexts/ViewModeContext'
+import { LoadingContext } from '../Contexts/LoadingContext'
 import GridView from './GridView'
 import ListView from './ListView'
 
@@ -40,11 +36,10 @@ const PostView = () => {
   const { refreshInterval } = useContext(RefreshIntervalContext)
   const { subreddit } = useContext(SubredditContext)
   const { viewMode } = useContext(ViewModeContext)
+  const { setLoading } = useContext(LoadingContext)
 
   const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"})
-
+  const [setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"})
   
 
   const fetchPosts = () => {
@@ -80,17 +75,8 @@ const PostView = () => {
   }, [subreddit]);
   console.log(viewMode)
   return (
-    <Container maxW='container.xl' >
-      {loading?
-        <Progress size='xs' isIndeterminate />:<Progress value={0} size='xs' />}
-
-      {error.show? 
-        <Alert status={error.level}>
-          <AlertIcon />
-          <AlertTitle mr={2}>{error.title}</AlertTitle>
-          <AlertDescription>{error.message}</AlertDescription>
-        </Alert>
-      : null}
+    <Container maxW='container.xl' mt={16}>
+      
 
       {viewMode === 'list' ? 
         <ListView posts={data}/>

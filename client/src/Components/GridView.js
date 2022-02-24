@@ -2,19 +2,19 @@
 import {
   Container,
   Grid,
-  Image,
   Box,
-  Link
+  Text
 } from '@chakra-ui/react';
 import { timeAgoShort } from '../Util/FormattedTime'
 import { hotnessBGColor } from '../Util/HotnessBGColor';
+import {PostModal} from './PostModal';
 
 export default function GridView(props) {
   const {posts} = props
   return (
       <Container
         maxW='container.xl'
-        mt={4}
+        mt={2}
         pb={4}
         p={0}
         >
@@ -37,8 +37,7 @@ function PostCard(props) {
   const {post} = props
   return (
     <Box borderWidth='1px' borderRadius='lg' overflow='hidden' bg={hotnessBGColor(post.upvoteCount)}>
-      <Image src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover'/>
-
+      <PostModal post={post}>
       <Box p='6'>
         <Box display='flex' alignItems='baseline'>
           <Box
@@ -48,9 +47,9 @@ function PostCard(props) {
             fontSize='xs'
             textTransform='uppercase'
           >
-            <Link href={'https://reddit.com/' + post.commentLink} isExternal color='link'>
+            <Text href={'https://reddit.com/' + post.commentLink} isExternal color='link'>
               {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
-            </Link>
+            </Text>
           </Box>
         </Box>
 
@@ -61,11 +60,12 @@ function PostCard(props) {
           lineHeight='tight'
           noOfLines={2}
         >
-          <Link href={post.url} isExternal>
+          <Text href={post.url} isExternal>
             {post.title}
-          </Link>
+          </Text>
         </Box>
       </Box>
+      </PostModal>
     </Box>
   )
 }
