@@ -1,6 +1,6 @@
 {
   "name": "f5oclock-scraper",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Scheduled job for scraping reddit posts and storing in MongoDB",
   "main": "index.js",
   "dependencies": {
