@@ -76,6 +76,7 @@ const insertNewPosts = (newPosts) => {
       upvoteCount: value.data.ups,
       commentCount: value.data.num_comments,
       fetchedAt: new Date(),
+      post_hint: value.data.post_hint,
       sub: subreddit,
     }, { upsert: true }));
   });
