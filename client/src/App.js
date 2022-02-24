@@ -13,6 +13,7 @@ import Footer from './Components/Footer';
 import Navbar from './Components/Navbar';
 import { ThemeProvider, ThemeContext } from './Contexts/ThemeContext'
 import { ViewModeProvider } from './Contexts/ViewModeContext'
+import { LoadingProvider } from './Contexts/LoadingContext'
 
 const ThemedApp = () => {
   const { theme } = useContext(ThemeContext)
@@ -22,17 +23,19 @@ const ThemedApp = () => {
         <RefreshIntervalProvider>
           <SubredditProvider>
             <ViewModeProvider>
-              <Flex minHeight='100vh' direction='column' p={0}>
-                <Box>
-                  <Navbar/>
-                </Box>
-                <Box flex='1'>
-                  <MainContent/>
-                </Box>
-                <Box >
-                  <Footer/>
-                </Box>
-              </Flex>
+              <LoadingProvider>
+                <Flex minHeight='100vh' direction='column' p={0}>
+                  <Box>
+                    <Navbar/>
+                  </Box>
+                  <Box flex='1'>
+                    <MainContent/>
+                  </Box>
+                  <Box >
+                    <Footer/>
+                  </Box>
+                </Flex>
+              </LoadingProvider>
             </ViewModeProvider>
           </SubredditProvider>
         </RefreshIntervalProvider>
