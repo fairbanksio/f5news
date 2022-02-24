@@ -55,7 +55,7 @@ export default function Nav() {
         <Flex h={12} alignItems={'center'} justifyContent={'space-between'} pr={mobileMode?2:0} pl={mobileMode?2:0} >
 
           <Box maxH='40px' onClick={(e)=>{setLogo(!logo)}}>
-            <Stack direction={['column', 'row']}>
+            <Stack direction={['row']}>
               {logo? <PrimaryLogo/> : <SecondaryLogo/>}
               <Text float='left' fontSize={'xl'} ml='2'>F5 News</Text>
             </Stack>

@@ -73,7 +73,7 @@ const PostView = () => {
   useEffect(() => {
     fetchPosts()
   }, [subreddit]);
-  console.log(viewMode)
+
   return (
     <Container maxW='container.xl' mt={16}>
       
