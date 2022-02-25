@@ -2,7 +2,7 @@
 
   "name": "f5oclock-list-subs",
 
-  "version": "1.0.0",
+  "version": "1.0.1",
 
   "description": "Openfaas Serverless function for F5 to list unique subs from mongodb",
 
