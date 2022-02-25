@@ -118,18 +118,17 @@ export const PostCard = ({post}) => {
         
         <Modal onClose={onClose} isOpen={isOpen} isCentered >
           <ModalOverlay />
-          <ModalContent maxW='container.xl' maxH='100vh' bg='none' w='auto'>
+          <ModalContent maxW='container.xl' bg='none' w='auto' >
             <ModalBody p={0}>
-              <Center maxW='container.xl'>
-                <Stack position='relative'>
+              <Center maxW='container.xl' position='relative' overflow='hidden'>
+                <Stack overflowY='scroll' maxH='80vh' >
                   {Object.keys(post.media_metadata).map((key) =>{
                     return (
                       <Image src={post.media_metadata[key].s.u.replace(/amp;/g,'')} w='100%' objectFit='cover' maxH='75vh' minW='50%'/>
                     )
                   })}
-                  <ModalCloseButton />
                 </Stack>
-                
+                <ModalCloseButton color='white' mr={4}/>
               </Center>
             </ModalBody>
           </ModalContent>
