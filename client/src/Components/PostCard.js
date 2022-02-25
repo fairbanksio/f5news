@@ -44,10 +44,9 @@ export const PostCard = ({post}) => {
           </Box>
         </Box>
 
-        <Modal onClose={onClose} isOpen={isOpen} isCentered >
+        <Modal onClose={onClose} isOpen={isOpen} isCentered blockScrollOnMount={false}>
           <ModalOverlay />
-          <ModalContent maxW='container.xl' maxH='100vh' bg='none'>
-            
+          <ModalContent maxW='container.xl' maxH='100vh' bg='green' w='auto'>
             <ModalBody p={0}>
               <Center maxW='container.xl'>
                 <Box position='relative'>
@@ -56,7 +55,7 @@ export const PostCard = ({post}) => {
                     controls
                     loop="true" autoplay="autoplay"
                     src={post.media.reddit_video.fallback_url}
-                    poster={post.thumbnail}
+                    
                     objectFit='contain'
                     type="application/x-mpegURL"
                   />
@@ -437,9 +436,9 @@ export const PostCard = ({post}) => {
           </Box>
         </Box>
         
-        <Modal onClose={onClose} isOpen={isOpen} isCentered >
+        <Modal onClose={onClose} isOpen={isOpen} isCentered blockScrollOnMount={false}>
           <ModalOverlay />
-          <ModalContent maxW='container.xl' maxH='100vh' bg='none'>
+          <ModalContent maxW='container.xl' maxH='100vh' bg='none' w='auto'>
             <ModalBody p={0} >
               <Center maxW='container.xl'>
                 <Box position='relative'>
