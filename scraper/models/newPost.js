@@ -25,6 +25,7 @@ const fetchedPost = new mongoose.Schema({
   selftext_html: 'string',
   upvote_ratio: 'number',
   post_hint: 'string',
+  rpan_video: Object,
   sub: 'string',
 }, { collection: 'newposts' });
 

@@ -85,6 +85,7 @@ const insertNewPosts = (newPosts) => {
       selftext: value.data.selftext,
       selftext_html: value.data.selftext_html,
       upvote_ratio: value.data.upvote_ratio,
+      rpan_video: value.data.rpan_video,
       sub: subreddit,
     }, { upsert: true }));
   });
