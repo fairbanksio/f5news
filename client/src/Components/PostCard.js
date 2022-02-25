@@ -437,14 +437,8 @@ export const PostCard = ({post}) => {
   )
   else if (post.post_hint === 'image') return (
     <Box borderWidth='1px' borderRadius='lg' overflow='hidden' bg={hotnessBGColor(post.upvoteCount)}>
-      
-      <Box onClick={onOpen} >
-
-        <Box position='relative'>
+        <Box position='relative' onClick={onOpen} >
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' bottom='0' color='white' background='black' width='100%' p={2} bg='rgb(33,33,33,0.3)'>
-            <Text isTruncated fontSize='xs'> Image</Text>
-          </Box>
         </Box>
 
         <Box p={4} flex={1}>
@@ -456,9 +450,9 @@ export const PostCard = ({post}) => {
               fontSize='xs'
               textTransform='uppercase'
             >
-              <Text href={'https://reddit.com/' + post.commentLink} color='link'>
+              <Link href={'https://reddit.com/' + post.commentLink} color='link' external>
                 {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
-              </Text>
+              </Link>
             </Box>
           </Box>
 
@@ -469,67 +463,26 @@ export const PostCard = ({post}) => {
             lineHeight='tight'
             noOfLines={2}
           >
-            <Text href={post.url} >
+            <Link onClick={onOpen} external>
               {post.title}
-            </Text>
+            </Link>
           </Box>
         </Box>
         
         <Modal onClose={onClose} isOpen={isOpen} isCentered >
           <ModalOverlay />
-          <ModalContent maxW='container.xl' maxH='100vh'>
-            <ModalCloseButton />
-            <ModalBody p={0}>
-
-              <Center>
-                <Image src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} w='100%' objectFit='contain' maxH='75vh' minW='50%'/>
+          <ModalContent maxW='container.xl' maxH='100vh' bg='none'>
+            <ModalBody p={0} >
+              <Center maxW='container.xl'>
+                <Box position='relative'>
+                  <Image src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail}  objectFit='contain' maxH='90vh' minW='50%'/>
+                  <ModalCloseButton />
+                </Box>
               </Center>
-              
-              <Box p={4} bg={hotnessBGColor(post.upvoteCount)}>
-                <Box display='flex' alignItems='baseline'>
-                  <Box
-                    color='gray.500'
-                    fontWeight='semibold'
-                    letterSpacing='wide'
-                    fontSize='xs'
-                    textTransform='uppercase'
-                  >
-                    <Text href={'https://reddit.com/' + post.commentLink}  color='link'>
-                      {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
-                    </Text>
-                  </Box>
-                </Box>
-
-                <Box
-                  mt='1'
-                  fontWeight='semibold'
-                  as='h4'
-                  lineHeight='tight'
-                  noOfLines={2}
-                >
-                  <Text href={post.url}>
-                    {post.title}
-                  </Text>
-                </Box>
-              </Box>
-
             </ModalBody>
-            <ModalFooter >
-
-              <Stack direction={['row']} spacing={5}>
-                <Link href={'https://reddit.com/' + post.commentLink} isExternal color='link'>
-                  <Button>Comments</Button>
-                </Link>
-                
-                <Link href={post.url} isExternal>
-                  <Button>Visit</Button> 
-                </Link>
-              </Stack>
-
-            </ModalFooter>
           </ModalContent>
         </Modal>
-      </Box>
+      
     </Box>
     
   )
