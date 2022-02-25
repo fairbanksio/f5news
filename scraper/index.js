@@ -44,7 +44,6 @@ const imageSource = (data) => {
   }
 
   if (data.is_gallery) {
-    console.log(data.title); // eslint-disable-line no-console
     if (data.gallery_data) {
       if (data.gallery_data.items) {
         if (data.gallery_data.items.length > 0) {
