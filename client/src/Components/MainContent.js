@@ -39,8 +39,8 @@ const PostView = () => {
   const { viewMode } = useContext(ViewModeContext)
   const { setLoading } = useContext(LoadingContext)
 
-  const [data, setData] = useState([]);
-  const [setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"})
+  const [posts, setPosts] = useState([]);
+  const [error, setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"})
   const padding = useBreakpointValue({base: 2, sm: 2, md: 4})
 
   const fetchPosts = () => {
@@ -48,12 +48,12 @@ const PostView = () => {
     fetch(apiEndpoint + '/?sub=' + subreddit)
     .then((response) => response.json())
     .then((json) => {
-      setData(json.posts)
+      setPosts(json.posts)
       setTimeout(() => {setLoading(false)}, 1700);
       setError({show:false})
 
       if(gtThan5MinsAgo(findLatestFetch(json.posts))){
-        setError({level:"warning", show: true, title: "Delayed Data:", message: "Content may be out of date.. This may be due to Reddit's API experiencing issues."})
+        setError({level:"warning", show: true, title: "Delayed Posts:", message: "Content may be out of date.. This may be due to Reddit's API experiencing issues."})
       }
 
     })
@@ -77,16 +77,12 @@ const PostView = () => {
 
   return (
     <Container maxW='container.xl' mt={16} pl={padding} pr={padding}>
-      
 
       {viewMode === 'list' ? 
-        <ListView posts={data}/>
+        <ListView posts={posts}/>
       : 
-        <GridView posts={data}/>
+        <GridView posts={posts}/>
       }
-      
-
-      
 
     </Container>
   );

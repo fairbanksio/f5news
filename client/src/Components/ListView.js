@@ -16,8 +16,7 @@ import { LinkIcon, ChatIcon, ArrowUpIcon, TimeIcon } from '@chakra-ui/icons'
 import { timeAgoShort } from '../Util/FormattedTime'
 import { hotnessBGColor } from '../Util/HotnessBGColor';
 
-const ListView = (props) => {
-  const {posts} = props
+const ListView = ({posts}) => {
   return (
     <Container
         maxW='container.xl'
