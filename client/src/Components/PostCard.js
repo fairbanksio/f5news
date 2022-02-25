@@ -415,7 +415,7 @@ export const PostCard = ({post}) => {
             fontSize='xs'
             textTransform='uppercase'
           >
-            <Link href={'https://reddit.com/' + post.commentLink} color='link'>
+            <Link href={'https://reddit.com/' + post.commentLink} color='link' isExternal>
               {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
             </Link>
           </Box>
@@ -428,7 +428,7 @@ export const PostCard = ({post}) => {
           lineHeight='tight'
           noOfLines={2}
         >
-          <Link href={post.url} >
+          <Link href={post.url} isExternal>
             {post.title}
           </Link>
         </Box>
