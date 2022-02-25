@@ -77,6 +77,15 @@ const insertNewPosts = (newPosts) => {
       commentCount: value.data.num_comments,
       fetchedAt: new Date(),
       post_hint: value.data.post_hint,
+      is_video: value.data.is_video,
+      media: value.data.media,
+      is_gallery: value.data.is_gallery,
+      gallery_data: value.data.gallery_data,
+      media_metadata: value.data.media_metadata,
+      is_self: value.data.is_self, 
+      selftext: value.data.selftext,
+      selftext_html: value.data.selftext_html,
+      upvote_ratio: value.data.upvote_ratio,
       sub: subreddit,
     }, { upsert: true }));
   });
