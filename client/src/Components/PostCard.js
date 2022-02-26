@@ -2,6 +2,7 @@ import { Box, Stack, Link, Center, Button, Modal, ModalOverlay, ModalBody, Modal
 import { timeAgoShort } from '../Util/FormattedTime'
 import { hotnessBGColor } from '../Util/HotnessBGColor';
 import { FaVideo, FaLink, FaPhotoVideo, FaImage, FaImages, FaComment } from 'react-icons/fa'
+import ReactPlayer from 'react-player'
 
 export const PostCard = ({post}) => {
   const { isOpen, onOpen, onClose } = useDisclosure()
@@ -54,19 +55,12 @@ export const PostCard = ({post}) => {
 
         <Modal onClose={onClose} isOpen={isOpen} isCentered blockScrollOnMount={false}>
           <ModalOverlay />
-          <ModalContent maxW='container.xl' maxH='100vh' bg='green' w='auto'>
+          <ModalContent maxW='container.xl' maxH='80vh' bg='none' w='auto'>
             <ModalBody p={0}>
-              <Center maxW='container.xl'>
-                <Box position='relative'>
-                  <Box
-                    as='video'
-                    controls
-                    loop="true" autoplay="autoplay"
-                    src={post.media.reddit_video.fallback_url}
-                    
-                    objectFit='contain'
-                    type="application/x-mpegURL"
-                  />
+              <Center >
+                <Box position='relative' width='100vh' height='80vh' bg='#222'>
+                  <ReactPlayer url={post.media.reddit_video.dash_url} width='100%' height='100%' controls stopOnUnmount={false} playing/>
+                  
                   <ModalCloseButton />
                 </Box>
               </Center>
