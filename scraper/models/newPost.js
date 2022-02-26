@@ -20,7 +20,7 @@ const fetchedPost = new mongoose.Schema({
   is_gallery: Boolean,
   gallery_data: Object,
   media_metadata: Object,
-  is_self: Boolean, 
+  is_self: Boolean,
   selftext: 'string',
   selftext_html: 'string',
   upvote_ratio: 'number',

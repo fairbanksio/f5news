@@ -17,6 +17,7 @@ import {
   MenuDivider,
   Progress,
   Image,
+  Tooltip
 } from '@chakra-ui/react';
 import { ChevronDownIcon, RepeatIcon, SettingsIcon } from '@chakra-ui/icons';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext'
@@ -65,10 +66,10 @@ export default function Nav() {
             <Stack direction={'row'} spacing={2}>
 
               <Menu>
-                <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />}>r/{subreddit}</MenuButton>
+                <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />}  maxW='10vw'><Text isTruncated>r/{subreddit}</Text></MenuButton>
                 <MenuList>
                   {subredditList.map((subreddit, key) => {
-                    return(<MenuItem key={key} onClick={(e)=>{setSubreddit(subreddit)}}>{subreddit}</MenuItem>)
+                    return(<MenuItem  key={key} onClick={(e)=>{setSubreddit(subreddit)}}  maxW='10vw'><Tooltip label={subreddit} ><Text isTruncated>{subreddit}</Text></Tooltip></MenuItem>)
                   })}
                 </MenuList>
               </Menu>
