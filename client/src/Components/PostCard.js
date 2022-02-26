@@ -58,7 +58,7 @@ export const PostCard = ({post}) => {
           <ModalContent maxW='container.xl' maxH='80vh' bg='none' w='auto'>
             <ModalBody p={0}>
               <Center >
-                <Box position='relative' width='100vh' height='80vh' bg='#222'>
+                <Box position='relative' width='100%' height='80vh' bg='#222'>
                   <ReactPlayer url={post.media.reddit_video.dash_url} width='100%' height='100%' controls stopOnUnmount={false} playing/>
                   
                   <ModalCloseButton />
@@ -415,9 +415,9 @@ export const PostCard = ({post}) => {
         <Modal onClose={onClose} isOpen={isOpen} isCentered blockScrollOnMount={false}>
           <ModalOverlay />
           <ModalContent maxW='container.xl' maxH='80vh' bg='none' w='auto'>
-            <ModalBody p={0}>
+          <ModalBody p={0}>
               <Center >
-                <Box position='relative' width='100vh' height='80vh' bg='#222'>
+                <Box position='relative' width='100%' height='80vh' bg='#222'>
                   <ReactPlayer url={post.rpan_video.hls_url} width='100%' height='100%' controls stopOnUnmount={false} playing/>
                   
                   <ModalCloseButton />
