@@ -66,10 +66,10 @@ export default function Nav() {
             <Stack direction={'row'} spacing={2}>
 
               <Menu>
-                <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />}  maxW='10vw'><Text isTruncated>r/{subreddit}</Text></MenuButton>
+                <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />}  maxW={mobileMode?'50vw':'10vw'}><Text isTruncated>r/{subreddit}</Text></MenuButton>
                 <MenuList>
                   {subredditList.map((subreddit, key) => {
-                    return(<MenuItem  key={key} onClick={(e)=>{setSubreddit(subreddit)}}  maxW='10vw'><Tooltip label={subreddit} ><Text isTruncated>{subreddit}</Text></Tooltip></MenuItem>)
+                    return(<MenuItem  key={key} onClick={(e)=>{setSubreddit(subreddit)}} maxW={mobileMode?'50vw':'10vw'}><Tooltip label={subreddit} ><Text isTruncated>{subreddit}</Text></Tooltip></MenuItem>)
                   })}
                 </MenuList>
               </Menu>
