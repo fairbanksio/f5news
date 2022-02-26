@@ -41,7 +41,7 @@ const SecondaryLogo = () => {
 
 export default function Nav() {
   const { refreshInterval, setRefreshInterval } = useContext(RefreshIntervalContext)
-  const { subreddit, setSubreddit } = useContext(SubredditContext)
+  const { subreddit, setSubreddit, subredditList } = useContext(SubredditContext)
   const { loading } = useContext(LoadingContext)
   const [logo, setLogo] = useState(true)
   const mobileMode = useBreakpointValue({base: true, sm: true, md: false})
@@ -67,9 +67,9 @@ export default function Nav() {
               <Menu>
                 <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />}>r/{subreddit}</MenuButton>
                 <MenuList>
-                  <MenuItem onClick={(e)=>{setSubreddit('superstonk')}}>r/superstonk</MenuItem>
-                  <MenuItem onClick={(e)=>{setSubreddit('politics')}}>r/politics</MenuItem>
-                  <MenuItem onClick={(e)=>{setSubreddit('all')}}>r/all</MenuItem>
+                  {subredditList.map((subreddit, key) => {
+                    return(<MenuItem key={key} onClick={(e)=>{setSubreddit(subreddit)}}>{subreddit}</MenuItem>)
+                  })}
                 </MenuList>
               </Menu>
 
