@@ -50,7 +50,7 @@ const PostView = () => {
 
   const fetchPosts = () => {
     setLoading(true)
-    fetch(apiEndpoint + '/?sub=' + subreddit)
+    fetch(apiEndpoint + '/?sub=' + subreddit.replace(/\+/g, '%2b'))
     .then((response) => response.json())
     .then((json) => {
       setPosts(json.posts)
@@ -83,7 +83,7 @@ const PostView = () => {
 
   return (
     <Container maxW='container.xl' mt={16} pl={padding} pr={padding}>
-      
+
       {error.show?
       <Box>
         <Alert status={error.level}>
