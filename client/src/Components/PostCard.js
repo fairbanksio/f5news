@@ -48,7 +48,7 @@ export const PostCard = ({post}) => {
             noOfLines={2}
           >
             <Link href={post.url} isExternal>
-              {post.title}
+              {post.title.replace(/amp;/g,'')}
             </Link>
           </Box>
         </Box>
@@ -105,7 +105,7 @@ export const PostCard = ({post}) => {
             noOfLines={2}
           >
             <Link href={post.url} isExternal>
-              {post.title}
+              {post.title.replace(/amp;/g,'')}
             </Link>
           </Box>
         </Box>
@@ -171,7 +171,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Link href={post.url} isExternal>
-            {post.title}
+            {post.title.replace(/amp;/g,'')}
           </Link>
         </Box>
       </Box>
@@ -214,7 +214,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Link href={post.url} isExternal>
-            {post.title}
+            {post.title.replace(/amp;/g,'')}
           </Link>
         </Box>
       </Box>
@@ -258,7 +258,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Link href={post.url} isExternal>
-            {post.title}
+            {post.title.replace(/amp;/g,'')}
           </Link>
         </Box>
       </Box>
@@ -296,7 +296,7 @@ export const PostCard = ({post}) => {
             noOfLines={2}
           >
             <Link onClick={onOpen} isExternal>
-              {post.title}
+              {post.title.replace(/amp;/g,'')}
             </Link>
           </Box>
         </Box>
@@ -350,7 +350,7 @@ export const PostCard = ({post}) => {
             noOfLines={2}
           >
             <Link onClick={onOpen} isExternal>
-              {post.title}
+              {post.title.replace(/amp;/g,'')}
             </Link>
           </Box>
         </Box>
@@ -407,7 +407,7 @@ export const PostCard = ({post}) => {
             noOfLines={2}
           >
             <Link href={post.url} isExternal>
-              {post.title}
+              {post.title.replace(/amp;/g,'')}
             </Link>
           </Box>
         </Box>
@@ -433,7 +433,7 @@ export const PostCard = ({post}) => {
     <Box borderWidth='1px' borderRadius='lg' overflow='hidden' bg={hotnessBGColor(post.upvoteCount)}>
       <Link href={post.url} isExternal>
         <Box position='relative'>
-          <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
+          <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler' || post.thumbnail === '' ? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
           <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
             <Center h='100%' ><Icon fontSize='xl' as={FaLink} /></Center>
           </Box>
@@ -466,7 +466,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Link href={post.url} isExternal>
-            {post.title}
+            {post.title.replace(/amp;/g,'')}
           </Link>
         </Box>
       </Box>
