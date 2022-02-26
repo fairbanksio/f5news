@@ -328,8 +328,8 @@ export const PostCard = ({post}) => {
     <Box borderWidth='1px' borderRadius='lg' overflow='hidden' bg={hotnessBGColor(post.upvoteCount)}>
         <Box position='relative' onClick={onOpen} >
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' bottom='0' h='100%' color='white' width='100%' p={2} >
-            <Center h='100%' ><Icon fontSize='5xl' as={FaPhotoVideo} /></Center>
+          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+            <Center h='100%' ><Icon fontSize='xl' as={FaPhotoVideo} /></Center>
           </Box>
         </Box>
 
