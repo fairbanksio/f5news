@@ -379,8 +379,8 @@ export const PostCard = ({post}) => {
 
         <Box position='relative'>
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' bottom='0' h='100%' color='white' width='100%' p={2} >
-            <Center h='100%' ><Text isTruncated fontSize='xs' bg='rgb(33,33,33,0.3)' background='black' p={5}>Live Video</Text></Center>
+          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+            <Center h='100%' ><Icon fontSize='xl' as={FaVideo} color='red'/></Center>
           </Box>
         </Box>
 
@@ -412,13 +412,16 @@ export const PostCard = ({post}) => {
           </Box>
         </Box>
 
-        <Modal onClose={onClose} isOpen={isOpen} isCentered >
+        <Modal onClose={onClose} isOpen={isOpen} isCentered blockScrollOnMount={false}>
           <ModalOverlay />
-          <ModalContent maxW='container.xl' maxH='100vh'>
-            <ModalCloseButton />
+          <ModalContent maxW='container.xl' maxH='80vh' bg='none' w='auto'>
             <ModalBody p={0}>
-              <Center>
-                <Image src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} w='100%' objectFit='contain' maxH='75vh' minW='50%'/>
+              <Center >
+                <Box position='relative' width='100vh' height='80vh' bg='#222'>
+                  <ReactPlayer url={post.rpan_video.hls_url} width='100%' height='100%' controls stopOnUnmount={false} playing/>
+                  
+                  <ModalCloseButton />
+                </Box>
               </Center>
             </ModalBody>
           </ModalContent>
