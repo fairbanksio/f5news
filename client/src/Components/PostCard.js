@@ -124,7 +124,7 @@ export const PostCard = ({post}) => {
                 <Stack overflowY='scroll' maxH='80vh' >
                   {Object.keys(post.media_metadata).map((key) =>{
                     return (
-                      <Image src={post.media_metadata[key].s.u.replace(/amp;/g,'')} w='100%' objectFit='cover' maxH='75vh' minW='50%'/>
+                      <Image key={key} src={post.media_metadata[key].s.u.replace(/amp;/g,'')} w='100%' objectFit='cover' maxH='75vh' minW='50%'/>
                     )
                   })}
                 </Stack>

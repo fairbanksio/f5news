@@ -12,6 +12,7 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 apiURL: "https://pls.change.me"
+listsubsURL: "https://pls.change.me"
 serviceAccount:
   # Specifies whether a service account should be created
   create: true
