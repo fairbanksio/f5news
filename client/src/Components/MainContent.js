@@ -1,7 +1,12 @@
 import React, {useState, useEffect, useContext } from 'react';
 import {
   Container,
-  useBreakpointValue
+  useBreakpointValue,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
+  Box
 } from '@chakra-ui/react';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext'
 import { SubredditContext } from '../Contexts/SubredditContext'
@@ -53,6 +58,7 @@ const PostView = () => {
       setError({show:false})
 
       if(gtThan5MinsAgo(findLatestFetch(json.posts))){
+        console.log('delayed')
         setError({level:"warning", show: true, title: "Delayed Posts:", message: "Content may be out of date.. This may be due to Reddit's API experiencing issues."})
       }
 
@@ -77,13 +83,23 @@ const PostView = () => {
 
   return (
     <Container maxW='container.xl' mt={16} pl={padding} pr={padding}>
-
+      
+      {error.show?
+      <Box>
+        <Alert status={error.level}>
+          <AlertIcon />
+          <AlertTitle mr={2}>{error.title}</AlertTitle>
+          <AlertDescription>{error.message}</AlertDescription>
+        </Alert>
+      </Box>
+      :null}
+      
       {viewMode === 'list' ? 
         <ListView posts={posts}/>
       : 
         <GridView posts={posts}/>
       }
-
+      
     </Container>
   );
 }
