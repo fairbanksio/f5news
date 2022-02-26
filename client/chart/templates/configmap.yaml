@@ -5,3 +5,4 @@ metadata:
 data:
   config.js: |
     window.REACT_APP_API="{{ .Values.apiURL }}"
+    window.REACT_APP_LIST_SUBS="{{ .Values.listsubsURL }}"
