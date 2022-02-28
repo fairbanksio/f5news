@@ -1,4 +1,4 @@
-import { Box, Stack, Link, Center, Button, Modal, ModalOverlay, ModalBody, ModalCloseButton, ModalFooter, Text, ModalHeader, ModalContent, Image, useDisclosure, Icon } from '@chakra-ui/react';
+import { Box, Stack, Link, Center, Modal, ModalOverlay, ModalBody, ModalCloseButton, Text, ModalContent, Image, useDisclosure, Icon } from '@chakra-ui/react';
 import { timeAgoShort } from '../Util/FormattedTime'
 import { hotnessBGColor } from '../Util/HotnessBGColor';
 import { FaVideo, FaLink, FaPhotoVideo, FaImage, FaImages, FaComment } from 'react-icons/fa'
@@ -18,7 +18,7 @@ export const PostCard = ({post}) => {
       <Box onClick={onOpen} >
         <Box position='relative'>
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+          <Box position='absolute' top='0' right='0' color='white' p={2} background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
             <Center h='100%' ><Icon fontSize='xl' as={FaVideo} /></Center>
           </Box>
         </Box>
@@ -73,7 +73,7 @@ export const PostCard = ({post}) => {
       <Box onClick={onOpen} >
         <Box position='relative'>
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+          <Box position='absolute' top='0' right='0' color='white' p={2} background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
             <Center h='100%' ><Icon fontSize='xl' as={FaImages} /></Center>
           </Box>
         </Box>
@@ -134,7 +134,7 @@ export const PostCard = ({post}) => {
           <Box position='absolute' top='0' h='100%' color='white' background='black' width='100%' p={4} bg='rgb(33,33,33,0.8)'>
             <Text fontSize='sm' noOfLines={8} > {post.selftext}  </Text>
           </Box>
-          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+          <Box position='absolute' top='0' right='0' color='white' p={2} background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
             <Center h='100%' ><Icon fontSize='xl' as={FaComment} /></Center>
           </Box>
           <Box position='absolute' bottom='0' color='white' background='black' width='100%' p={2} bg='rgb(33,33,33,0.5)' >
@@ -178,7 +178,7 @@ export const PostCard = ({post}) => {
       <Link href={post.url} isExternal>
         <Box position='relative'>
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+          <Box position='absolute' top='0' right='0' color='white' p={2} background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
             <Center h='100%' ><Icon fontSize='xl' as={FaComment} /></Center>
           </Box>
           <Box position='absolute' bottom='0' color='white' background='black' width='100%' p={2} bg='rgb(33,33,33,0.5)' >
@@ -221,7 +221,7 @@ export const PostCard = ({post}) => {
       <Link href={post.url} isExternal>
         <Box position='relative'>
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+          <Box position='absolute' top='0' right='0' color='white' p={2} background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
             <Center h='100%' ><Icon fontSize='xl' as={FaLink} /></Center>
           </Box>
           <Box position='absolute' bottom='0' color='white' background='black' width='100%' p={2} bg='rgb(33,33,33,0.5)' >
@@ -263,7 +263,7 @@ export const PostCard = ({post}) => {
     <Box borderWidth='1px' borderRadius='lg' overflow='hidden' bg={hotnessBGColor(post.upvoteCount)}>
         <Box position='relative' onClick={onOpen} >
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+          <Box position='absolute' top='0' right='0' color='white' p={2} background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
             <Center h='100%' ><Icon fontSize='xl' as={FaImage} /></Center>
           </Box>
         </Box>
@@ -317,7 +317,7 @@ export const PostCard = ({post}) => {
     <Box borderWidth='1px' borderRadius='lg' overflow='hidden' bg={hotnessBGColor(post.upvoteCount)}>
         <Box position='relative' onClick={onOpen} >
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+          <Box position='absolute' top='0' right='0' color='white' p={2} background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
             <Center h='100%' ><Icon fontSize='xl' as={FaPhotoVideo} /></Center>
           </Box>
         </Box>
@@ -372,7 +372,7 @@ export const PostCard = ({post}) => {
       <Box onClick={onOpen} >
         <Box position='relative'>
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler'? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+          <Box position='absolute' top='0' right='0' color='white' p={2} background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
             <Center h='100%' ><Icon fontSize='xl' as={FaVideo} color='red'/></Center>
           </Box>
         </Box>
@@ -427,7 +427,7 @@ export const PostCard = ({post}) => {
       <Link href={post.url} isExternal>
         <Box position='relative'>
           <Image  src={post.thumbnail === 'default' || post.thumbnail === 'self' || post.thumbnail === 'spoiler' || post.thumbnail === '' ? './placeholder.png' : post.thumbnail} boxSize='100%' h='225px' objectFit='cover' position='relative'/>
-          <Box position='absolute' top='0' right='0' color='white' p={2} color='white' background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
+          <Box position='absolute' top='0' right='0' color='white' p={2} background='black' bg='rgb(33,33,33,0.5)' borderRadius='full' m={2}>
             <Center h='100%' ><Icon fontSize='xl' as={FaLink} /></Center>
           </Box>
           <Box position='absolute' bottom='0' color='white' background='black' width='100%' p={2} bg='rgb(33,33,33,0.5)' >
