@@ -1,4 +1,4 @@
-import { Box, Link, Center, Text, Image, Icon } from '@chakra-ui/react';
+import { Box, Link, Center, Text, Image, Icon, Tooltip } from '@chakra-ui/react';
 import { timeAgoShort } from '../Util/FormattedTime'
 import { hotnessBGColor } from '../Util/HotnessBGColor';
 import { FaVideo, FaLink, FaPhotoVideo, FaImage, FaImages, FaComment } from 'react-icons/fa'
@@ -40,9 +40,11 @@ export const PostCard = ({post}) => {
           lineHeight='tight'
           noOfLines={2}
         >
-          <Link href={post.url} isExternal>
-            {post.title.replace(/amp;/g,'')}
-          </Link>
+          <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
+            <Link href={post.url} isExternal>
+              {post.title.replace(/amp;/g,'')}
+            </Link>
+          </Tooltip>
         </Box>
       </Box>
     </Box>
@@ -79,9 +81,11 @@ export const PostCard = ({post}) => {
           lineHeight='tight'
           noOfLines={2}
         >
-          <Link href={post.url} isExternal>
-            {post.title.replace(/amp;/g,'')}
-          </Link>
+          <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
+            <Link href={post.url} isExternal>
+              {post.title.replace(/amp;/g,'')}
+            </Link>
+          </Tooltip>
         </Box>
       </Box>
     </Box>
@@ -126,9 +130,11 @@ export const PostCard = ({post}) => {
           lineHeight='tight'
           noOfLines={2}
         >
-          <Link href={post.url} isExternal>
-            {post.title.replace(/amp;/g,'')}
-          </Link>
+          <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
+            <Link href={post.url} isExternal>
+              {post.title.replace(/amp;/g,'')}
+            </Link>
+          </Tooltip>
         </Box>
       </Box>
     </Box>
@@ -169,9 +175,11 @@ export const PostCard = ({post}) => {
           lineHeight='tight'
           noOfLines={2}
         >
-          <Link href={post.url} isExternal>
-            {post.title.replace(/amp;/g,'')}
-          </Link>
+          <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
+            <Link href={post.url} isExternal>
+              {post.title.replace(/amp;/g,'')}
+            </Link>
+          </Tooltip>
         </Box>
       </Box>
     </Box>
@@ -213,9 +221,11 @@ export const PostCard = ({post}) => {
           lineHeight='tight'
           noOfLines={2}
         >
-          <Link href={post.url} isExternal>
-            {post.title.replace(/amp;/g,'')}
-          </Link>
+          <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
+            <Link href={post.url} isExternal>
+              {post.title.replace(/amp;/g,'')}
+            </Link>
+          </Tooltip>
         </Box>
       </Box>
     </Box>
@@ -251,9 +261,11 @@ export const PostCard = ({post}) => {
             lineHeight='tight'
             noOfLines={2}
           >
-            <Link  onClick={(e)=>{setModalData(post)}} isExternal>
-              {post.title.replace(/amp;/g,'')}
-            </Link>
+            <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
+              <Link  onClick={(e)=>{setModalData(post)}} isExternal>
+                {post.title.replace(/amp;/g,'')}
+              </Link>
+            </Tooltip>
           </Box>
         </Box>
       
@@ -291,9 +303,11 @@ export const PostCard = ({post}) => {
             lineHeight='tight'
             noOfLines={2}
           >
-            <Link  onClick={(e)=>{setModalData(post)}} isExternal>
-              {post.title.replace(/amp;/g,'')}
-            </Link>
+            <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
+              <Link  onClick={(e)=>{setModalData(post)}} isExternal>
+                {post.title.replace(/amp;/g,'')}
+              </Link>
+            </Tooltip>
           </Box>
         </Box>
 
@@ -333,9 +347,11 @@ export const PostCard = ({post}) => {
           lineHeight='tight'
           noOfLines={2}
         >
-          <Link href={post.url} isExternal>
-            {post.title.replace(/amp;/g,'')}
-          </Link>
+          <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
+            <Link href={post.url} isExternal>
+              {post.title.replace(/amp;/g,'')}
+            </Link>
+          </Tooltip>
         </Box>
       </Box>
 
@@ -377,9 +393,11 @@ export const PostCard = ({post}) => {
           lineHeight='tight'
           noOfLines={2}
         >
-          <Link href={post.url} isExternal>
-            {post.title.replace(/amp;/g,'')}
-          </Link>
+          <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
+            <Link href={post.url} isExternal>
+              {post.title.replace(/amp;/g,'')}
+            </Link>
+          </Tooltip>
         </Box>
       </Box>
     </Box>

@@ -18,7 +18,7 @@ import ListView from './ListView'
 const apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API
 
 const gtThan5MinsAgo = (date) => {
-  const FIVE_MINS = 1000 * 60 * 1;
+  const FIVE_MINS = 1000 * 60 * 2;
   const fiveMinsAgo = Date.now() - FIVE_MINS;
   return new Date(date).getTime() < fiveMinsAgo;
 }
