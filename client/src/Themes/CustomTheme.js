@@ -20,7 +20,7 @@ const CustomTheme = extendTheme({
       },
       link: {
         default: 'blue.800', 
-        _dark: 'blue.500',
+        _dark: '#b5a788',
       },
       navbar: {
         default: 'gray.300', 
