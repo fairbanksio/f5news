@@ -74,12 +74,12 @@ const PostView = () => {
       const interval = setInterval(fetchPosts, refreshInterval*1000);
       return () => clearInterval(interval);
     }
-  }, [refreshInterval, subreddit]);
+  }, [refreshInterval, subreddit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // call only on load/refresh
   useEffect(() => {
     fetchPosts()
-  }, [subreddit]);
+  }, [subreddit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Container maxW='container.xl' mt={16} pl={padding} pr={padding}>

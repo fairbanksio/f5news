@@ -29,7 +29,7 @@ export const SubredditProvider = (props) => {
 
 
 
-  const [error, setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"})
+  const [error, setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"}) // eslint-disable-line no-unused-vars
   const listsubsEndpoint = process.env.REACT_APP_LIST_SUBS ? process.env.REACT_APP_LIST_SUBS : window.REACT_APP_LIST_SUBS
 
   const fetchPosts = () => {
@@ -49,7 +49,7 @@ export const SubredditProvider = (props) => {
 
   useEffect(() => {
     fetchPosts()
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
 
 
