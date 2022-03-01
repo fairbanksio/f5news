@@ -46,7 +46,7 @@ export default function Nav() {
   const { loading } = useContext(LoadingContext)
   const [logo, setLogo] = useState(true)
   const mobileMode = useBreakpointValue({base: true, sm: true, md: false})
-  
+  const maxMenuWidth = useBreakpointValue({base: '50vw', sm: '50vw', md: '40vw', lg: '30vw'})
   return (
 
     <Box position='fixed' width={'100%'} bg='navbar' style={{zIndex:'1'}}>
@@ -66,10 +66,10 @@ export default function Nav() {
             <Stack direction={'row'} spacing={2}>
 
               <Menu>
-                <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />}  maxW={mobileMode?'50vw':'10vw'}><Text isTruncated>r/{subreddit}</Text></MenuButton>
+                <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />}  maxW={maxMenuWidth}><Text isTruncated>r/{subreddit}</Text></MenuButton>
                 <MenuList>
                   {subredditList.map((subreddit, key) => {
-                    return(<MenuItem  key={key} onClick={(e)=>{setSubreddit(subreddit)}} maxW={mobileMode?'50vw':'10vw'}><Tooltip label={subreddit} ><Text isTruncated>{subreddit}</Text></Tooltip></MenuItem>)
+                    return(<MenuItem  key={key} onClick={(e)=>{setSubreddit(subreddit)}} maxW={maxMenuWidth}><Tooltip label={subreddit} ><Text isTruncated>{subreddit}</Text></Tooltip></MenuItem>)
                   })}
                 </MenuList>
               </Menu>

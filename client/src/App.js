@@ -14,6 +14,8 @@ import Navbar from './Components/Navbar';
 import { ThemeProvider, ThemeContext } from './Contexts/ThemeContext'
 import { ViewModeProvider } from './Contexts/ViewModeContext'
 import { LoadingProvider } from './Contexts/LoadingContext'
+import { ModalProvider } from './Contexts/ModalContext'
+import { MediaModal } from './Components/MediaModal'
 
 const ThemedApp = () => {
   const { theme } = useContext(ThemeContext)
@@ -24,17 +26,20 @@ const ThemedApp = () => {
           <SubredditProvider>
             <ViewModeProvider>
               <LoadingProvider>
-                <Flex minHeight='100vh' direction='column' p={0}>
-                  <Box>
-                    <Navbar/>
-                  </Box>
-                  <Box flex='1'>
-                    <MainContent/>
-                  </Box>
-                  <Box >
-                    <Footer/>
-                  </Box>
-                </Flex>
+                <ModalProvider>
+                  <Flex minHeight='100vh' direction='column' p={0}>
+                    <Box>
+                      <Navbar/>
+                    </Box>
+                    <Box flex='1'>
+                      <MediaModal/>
+                      <MainContent/>
+                    </Box>
+                    <Box >
+                      <Footer/>
+                    </Box>
+                  </Flex>
+                </ModalProvider>
               </LoadingProvider>
             </ViewModeProvider>
           </SubredditProvider>
