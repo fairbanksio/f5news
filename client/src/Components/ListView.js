@@ -10,13 +10,15 @@ import {
   Link,
   Text,
   Tooltip,
-  Container
+  Container,
+  useBreakpointValue,
 } from '@chakra-ui/react';
 import { LinkIcon, ChatIcon, ArrowUpIcon, TimeIcon } from '@chakra-ui/icons'
 import { timeAgoShort } from '../Util/FormattedTime'
 import { hotnessBGColor } from '../Util/HotnessBGColor';
 
 const ListView = ({posts}) => {
+  const mobileMode = useBreakpointValue({base: true, sm: true, md: false})
   return (
     <Container
         maxW='container.xl'
@@ -29,12 +31,12 @@ const ListView = ({posts}) => {
         <Table size='sm' textAlign="left">
 
           <Thead>
-            <Tr>
+            <Tr >
               <Th w={1}><ChatIcon  w={4} h={4}/></Th>
-              <Th w={1}><ArrowUpIcon w={5} h={5}/></Th>
-              <Th w={1}><TimeIcon w={4} h={4}/></Th>
+              <Th w={1}><ArrowUpIcon w={5} h={5}/></Th> 
+              {mobileMode?null:<Th w={1}><TimeIcon w={4} h={4}/></Th>}
               <Th>Title</Th>
-              <Th>Source</Th>
+              {mobileMode?null:<Th>Source</Th>}
               <Th>Action</Th>
             </Tr>
           </Thead>
@@ -43,10 +45,10 @@ const ListView = ({posts}) => {
             {
             posts.map((post, i) => {
               return [
-                  <Tr key={i} bg={hotnessBGColor(post.upvoteCount)}>
-                    <Td>{post.commentCount}</Td>
+                  <Tr key={i} bg={hotnessBGColor(post.upvoteCount)} >
+                    <Td >{post.commentCount}</Td>
                     <Td>{post.upvoteCount}</Td>
-                    <Td>{timeAgoShort(post.created_utc)}</Td>
+                    {mobileMode?null:<Td>{timeAgoShort(post.created_utc)}</Td>}
                     <Td>
                       <Tooltip label={post.title} fontSize='md'>
                         <Link href={post.url} isExternal color='link'>
@@ -54,7 +56,7 @@ const ListView = ({posts}) => {
                         </Link>
                       </Tooltip>
                     </Td>
-                    <Td>{post.domain}</Td>
+                    {mobileMode?null:<Td>{post.domain}</Td>}
                     <Td>
                       <Link href={'https://reddit.com' + post.commentLink} isExternal color='link'>
                         <ChatIcon/>
@@ -74,9 +76,9 @@ const ListView = ({posts}) => {
             <Tr>
               <Th w={1}><ChatIcon  w={4} h={4}/></Th>
               <Th w={1}><ArrowUpIcon w={5} h={5}/></Th>
-              <Th w={1}><TimeIcon w={4} h={4}/></Th>
+              {mobileMode?null:<Th w={1}><TimeIcon w={4} h={4}/></Th>}
               <Th>Title</Th>
-              <Th>Source</Th>
+              {mobileMode?null:<Th>Source</Th>}
               <Th>Action</Th>
             </Tr>
           </Tfoot>
