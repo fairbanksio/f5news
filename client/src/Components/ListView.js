@@ -56,7 +56,7 @@ const ListView = ({posts}) => {
                     </Td>
                     <Td>{post.domain}</Td>
                     <Td>
-                      <Link href={'https://reddit.com/' + post.commentLink} isExternal color='link'>
+                      <Link href={'https://reddit.com' + post.commentLink} isExternal color='link'>
                         <ChatIcon/>
                       </Link>
                       &nbsp;
