@@ -1,11 +1,10 @@
-# The Original f5oclock
+# F5oclock
 
 ![f5oclock](https://raw.githubusercontent.com/fairbanks-io/f5oclock/master/f5oclock.gif)
 
 ![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/fairbanks-io/f5oclock/Create%20Client%20Release(s)?label=Client%20Build>)
 ![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/fairbanks-io/f5oclock/Create%20Server%20Release(s)?label=Server%20Build>)
 ![GitHub top language](https://img.shields.io/github/languages/top/fairbanks-io/f5oclock.svg)
-![Docker Pulls](https://img.shields.io/docker/pulls/fairbanks-io/f5oclockweb.svg)
 ![GitHub last commit](https://img.shields.io/github/last-commit/fairbanks-io/f5oclock.svg)
 ![Lines of code](https://img.shields.io/tokei/lines/github/fairbanks-io/f5oclock)
 ![License](https://img.shields.io/github/license/fairbanks-io/f5oclock.svg?style=flat)
