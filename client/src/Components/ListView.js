@@ -51,18 +51,18 @@ const ListView = ({posts}) => {
                     {mobileMode?null:<Td>{timeAgoShort(post.created_utc)}</Td>}
                     <Td>
                       <Tooltip label={post.title} fontSize='md'>
-                        <Link href={post.url} isExternal color='link'>
+                        <Link href={post.url} isExternal color='link' id={"external-url-"+i}>
                           <Text noOfLines={3}>{post.title}</Text>
                         </Link>
                       </Tooltip>
                     </Td>
                     {mobileMode?null:<Td>{post.domain}</Td>}
                     <Td>
-                      <Link href={'https://reddit.com' + post.commentLink} isExternal color='link'>
+                      <Link href={'https://reddit.com' + post.commentLink} isExternal color='link' id={"reddit-url-"+i}>
                         <ChatIcon/>
                       </Link>
                       &nbsp;
-                      <Link href={post.url} color='link'>
+                      <Link href={post.url} color='link' id={"external-url-"+i}>
                         <LinkIcon/>
                       </Link>
                     </Td>
