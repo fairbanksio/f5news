@@ -5,7 +5,7 @@ import { FaVideo, FaLink, FaPhotoVideo, FaImage, FaImages, FaComment } from 'rea
 import {ModalContext} from '../Contexts/ModalContext'
 import {useContext} from 'react'
 
-export const PostCard = ({post}) => {
+export const PostCard = ({post, elId}) => {
   const {setModalData} = useContext(ModalContext)
 
   if (post.is_video) return (
@@ -27,7 +27,7 @@ export const PostCard = ({post}) => {
             fontSize='xs'
             textTransform='uppercase'
           >
-            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal>
+            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal id={"reddit-url-"+elId}>
               {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
             </Link>
           </Box>
@@ -41,7 +41,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
-            <Link href={post.url} isExternal>
+            <Link href={post.url} isExternal id={"external-url-"+elId}>
               {post.title.replace(/amp;/g,'')}
             </Link>
           </Tooltip>
@@ -68,7 +68,7 @@ export const PostCard = ({post}) => {
             fontSize='xs'
             textTransform='uppercase'
           >
-            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal>
+            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal id={"reddit-url-"+elId}>
               {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
             </Link>
           </Box>
@@ -82,7 +82,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
-            <Link href={post.url} isExternal>
+            <Link href={post.url} isExternal id={"external-url-"+elId}>
               {post.title.replace(/amp;/g,'')}
             </Link>
           </Tooltip>
@@ -117,7 +117,7 @@ export const PostCard = ({post}) => {
             fontSize='xs'
             textTransform='uppercase'
           >
-            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal>
+            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal id={"reddit-url-"+elId}>
               {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
             </Link>
           </Box>
@@ -131,7 +131,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
-            <Link href={post.url} isExternal>
+            <Link href={post.url} isExternal id={"external-url-"+elId}>
               {post.title.replace(/amp;/g,'')}
             </Link>
           </Tooltip>
@@ -162,7 +162,7 @@ export const PostCard = ({post}) => {
             fontSize='xs'
             textTransform='uppercase'
           >
-            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal>
+            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal id={"reddit-url-"+elId}>
               {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
             </Link>
           </Box>
@@ -176,7 +176,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
-            <Link href={post.url} isExternal>
+            <Link href={post.url} isExternal id={"external-url-"+elId}>
               {post.title.replace(/amp;/g,'')}
             </Link>
           </Tooltip>
@@ -208,7 +208,7 @@ export const PostCard = ({post}) => {
             fontSize='xs'
             textTransform='uppercase'
           >
-            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal>
+            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal id={"reddit-url-"+elId}>
               {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
             </Link>
           </Box>
@@ -222,7 +222,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
-            <Link href={post.url} isExternal>
+            <Link href={post.url} isExternal id={"external-url-"+elId}>
               {post.title.replace(/amp;/g,'')}
             </Link>
           </Tooltip>
@@ -248,7 +248,7 @@ export const PostCard = ({post}) => {
               fontSize='xs'
               textTransform='uppercase'
             >
-              <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal>
+              <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal id={"reddit-url-"+elId}>
                 {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
               </Link>
             </Box>
@@ -262,7 +262,7 @@ export const PostCard = ({post}) => {
             noOfLines={2}
           >
             <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
-              <Link  onClick={(e)=>{setModalData(post)}} isExternal>
+              <Link  onClick={(e)=>{setModalData(post)}} isExternal id={"external-url-"+elId}>
                 {post.title.replace(/amp;/g,'')}
               </Link>
             </Tooltip>
@@ -290,7 +290,7 @@ export const PostCard = ({post}) => {
               fontSize='xs'
               textTransform='uppercase'
             >
-              <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal>
+              <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal id={"reddit-url-"+elId}>
                 {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
               </Link>
             </Box>
@@ -304,7 +304,7 @@ export const PostCard = ({post}) => {
             noOfLines={2}
           >
             <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
-              <Link  onClick={(e)=>{setModalData(post)}} isExternal>
+              <Link  onClick={(e)=>{setModalData(post)}} isExternal id={"external-url-"+elId}>
                 {post.title.replace(/amp;/g,'')}
               </Link>
             </Tooltip>
@@ -334,7 +334,7 @@ export const PostCard = ({post}) => {
             fontSize='xs'
             textTransform='uppercase'
           >
-            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal>
+            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal id={"reddit-url-"+elId}>
               {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
             </Link>
           </Box>
@@ -348,7 +348,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
-            <Link href={post.url} isExternal>
+            <Link href={post.url} isExternal id={"external-url-"+elId}>
               {post.title.replace(/amp;/g,'')}
             </Link>
           </Tooltip>
@@ -380,7 +380,7 @@ export const PostCard = ({post}) => {
             fontSize='xs'
             textTransform='uppercase'
           >
-            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal>
+            <Link href={'https://reddit.com' + post.commentLink} color='link' isExternal id={"reddit-url-"+elId}>
               {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull;  {timeAgoShort(post.created_utc)}
             </Link>
           </Box>
@@ -394,7 +394,7 @@ export const PostCard = ({post}) => {
           noOfLines={2}
         >
           <Tooltip placement='bottom-start' label={post.title.replace(/amp;/g,'')} openDelay={500}>
-            <Link href={post.url} isExternal>
+            <Link href={post.url} isExternal id={"external-url-"+elId}>
               {post.title.replace(/amp;/g,'')}
             </Link>
           </Tooltip>

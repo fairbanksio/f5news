@@ -22,7 +22,7 @@ export default function GridView({posts}) {
             posts.map((post, i) => {
 
               return [
-                <PostCard key={i} post={post}/>
+                <PostCard key={i} elId={i} post={post}/>
               ];
 
             })
