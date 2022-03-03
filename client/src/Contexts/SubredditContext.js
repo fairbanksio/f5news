@@ -30,14 +30,15 @@ export const SubredditProvider = (props) => {
 
 
   const [error, setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"}) // eslint-disable-line no-unused-vars
-  const listsubsEndpoint = process.env.REACT_APP_LIST_SUBS ? process.env.REACT_APP_LIST_SUBS : window.REACT_APP_LIST_SUBS
+  let apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API
+  apiEndpoint = apiEndpoint.replace(/\/$/, '')
 
   const fetchPosts = () => {
     setLoading(true)
-    fetch(listsubsEndpoint)
+    fetch(apiEndpoint + '/subreddits')
     .then((response) => response.json())
     .then((json) => {
-      setSubredditList(json.subs)
+      setSubredditList(json.data)
       setTimeout(() => {setLoading(false)}, 1700);
       setError({show:false})
     })

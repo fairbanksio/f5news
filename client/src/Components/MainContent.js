@@ -15,7 +15,8 @@ import { LoadingContext } from '../Contexts/LoadingContext'
 import GridView from './GridView'
 import ListView from './ListView'
 
-const apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API
+let apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API
+apiEndpoint = apiEndpoint.replace(/\/$/, '')
 
 const gtThan5MinsAgo = (date) => {
   const FIVE_MINS = 1000 * 60 * 2;
@@ -50,14 +51,14 @@ const PostView = () => {
 
   const fetchPosts = () => {
     setLoading(true)
-    fetch(apiEndpoint + '/?sub=' + subreddit.replace(/\+/g, '%2b'))
+    fetch(apiEndpoint + '/posts/' + subreddit.replace(/\+/g, '%2b'))
     .then((response) => response.json())
     .then((json) => {
-      setPosts(json.posts)
+      setPosts(json.data)
       setTimeout(() => {setLoading(false)}, 1700);
       setError({show:false})
 
-      if(gtThan5MinsAgo(findLatestFetch(json.posts))){
+      if(gtThan5MinsAgo(findLatestFetch(json.data))){
         console.log('delayed')
         setError({level:"warning", show: true, title: "Delayed Posts:", message: "Content may be out of date.. This may be due to Reddit's API experiencing issues."})
       }
