@@ -10,12 +10,13 @@ exports.getSubreddits = async () => {
   const searchTime = utcDate - 14400;
   try {
     return await Post
-      .distinct('sub',{ created_utc: { $gt: searchTime }, upvoteCount: { $gt: 5 } })
-      .exec()
-
+      .distinct('sub', {
+        created_utc: { $gt: searchTime },
+        upvoteCount: { $gt: 5 }
+      })
+      .exec();
   }
   catch (error) {
     throw new Error(error.message);
   }
 };
-

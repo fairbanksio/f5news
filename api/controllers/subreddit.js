@@ -1,4 +1,3 @@
-
 const { getSubreddits } = require('../services/subreddit');
 
 exports.getSubreddits = async (req, res) => {

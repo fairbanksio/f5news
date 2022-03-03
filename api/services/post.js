@@ -22,15 +22,18 @@ exports.getPostsBySubreddit = async (subreddit) => {
       const today = new Date().getUTCHours();
       if (today >= 11 && today <= 23) {
         return '7200'; // 2 Hours
-      } else {
-        return '14400'; // 4 Hours
       }
+      return '14400'; // 4 Hours
     };
     const searchTime = utcDate - timeAdjust();
 
-    return await Post.find({ created_utc: { $gt: searchTime }, upvoteCount: { $gt: 5 }, sub: subreddit  })
-    .sort({ upvoteCount: -1, created_utc: 1 })
-    .limit(20)
+    return await Post.find({
+      created_utc: { $gt: searchTime },
+      upvoteCount: { $gt: 5 },
+      sub: subreddit
+    })
+      .sort({ upvoteCount: -1, created_utc: 1 })
+      .limit(20);
   }
   catch (error) {
     throw new Error(error.message);
