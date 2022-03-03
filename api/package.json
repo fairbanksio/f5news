@@ -1,14 +1,5 @@
 {
   "name": "f5oclock-api",
-<<<<<<< HEAD
-
-  "version": "1.0.20",
-
-  "description": "Openfaas Serverless function for F5 to get posts from MongoDB",
-
-  "main": "handler.js",
-
-=======
   "version": "1.0.17",
   "description": "API backend for F5oclock",
   "main": "index.js",
@@ -20,7 +11,6 @@
   },
   "author": "Brandon sorgdrager",
   "license": "MIT",
->>>>>>> develop
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.17.3",
