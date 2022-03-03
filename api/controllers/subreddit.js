@@ -1,19 +1,17 @@
-const Post = require('../models/post');
+
+const { getSubreddits } = require('../services/subreddit');
 
 exports.getSubreddits = async (req, res) => {
   try {
-    const posts = await Post.find();
+    const subreddits = await getSubreddits();
 
     return res.status(200).json({
       success: true,
-      count: posts.length,
-      data: posts
+      count: subreddits.length,
+      data: subreddits
     });
   }
   catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: `Error fetching data: ${error.message}`
-    });
+    return res.sendStatus(500);
   }
 };
