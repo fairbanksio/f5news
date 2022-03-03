@@ -14,7 +14,7 @@ FROM base as dev
 ENV NODE_ENV=development
 ENV PATH=/app/node_modules/.bin:$PATH
 RUN npm install --only=development
-CMD ["nodemon", "./bin/www", "--inspect=0.0.0.0:9229"]
+CMD ["nodemon", "index.js", "--inspect=0.0.0.0:9229"]
 
 FROM base as source
 COPY --chown=node:node . .
@@ -36,5 +36,5 @@ RUN /microscanner $MICROSCANNER_TOKEN --continue-on-failure
 
 FROM source as prod
 ENTRYPOINT ["/tini", "--"]
-CMD ["node", "./bin/www"]
+CMD ["node", "index.js"]
 
