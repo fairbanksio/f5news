@@ -37,6 +37,8 @@ jobs:
           npm version --no-git-tag-version patch
           # Get new bumped version
           PACKAGE_VERSION=$(cat package.json | grep version | head -1 | awk -F: '{ print $2 }' | sed 's/[",]//g' | tr -d '[[:space:]]')
+          # Update chart version
+          sed -r -i "s/(version:[^*]|appVersion:[^*])([[:alnum:].]*)/\1$PACKAGE_VERSION/g" ./chart/Chart.yaml
           # Output new version for other steps
           echo "::set-output name=version::$PACKAGE_VERSION"
           
@@ -73,6 +75,25 @@ jobs:
           file: ./scraper/Dockerfile
           push: true
           tags: ${{ steps.tag-images.outputs.tags }}
+
+      - name: Push Helm Chart to Github Container Registry
+        id: push-helm-github
+        uses: bsord/helm-push@v4
+        with:
+          useOCIRegistry: true
+          registry-url: https://ghcr.io/fairbanks-io/f5oclock-scraper
+          username: fairbanksio
+          access-token: ${{ secrets.GITHUB_TOKEN }}
+          force: true
+          chart-folder: ./scraper/chart
+
+      - name: Initiate Helm sync
+        id: helm-sync
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          token: ${{ secrets.PERSONAL_TOKEN }}
+          repo: fairbanks-io/helm-charts
+          workflow: Helm repo index
 
       - uses: act10ns/slack@v1
         with:
