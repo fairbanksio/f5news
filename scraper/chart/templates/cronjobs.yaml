@@ -2,7 +2,7 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: "{{ include "f5oclock-scraper.fullname" $ }}-{{ $subreddit }}"
+  name: "{{ include "f5oclock-scraper.fullname" $ }}-{{ lower $subreddit | replace "+" "-" | trunc 12 }}"
   labels:
     {{- include "f5oclock-scraper.labels" $ | nindent 4 }}
 spec:
