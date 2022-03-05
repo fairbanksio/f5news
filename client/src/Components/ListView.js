@@ -51,7 +51,7 @@ const ListView = ({posts}) => {
                     <Td>{post.upvoteCount}</Td>
                     {mobileMode?null:<Td>{timeAgoShort(post.created_utc)}</Td>}
                     <Td>
-                      <Tooltip label={post.title} fontSize='md'>
+                      <Tooltip label={post.title} fontSize='md' openDelay={500} placement='bottom-start'>
                         <Link href={post.url} isExternal color='link' id={"external-url-"+i}>
                           <Text noOfLines={noOfLines}>{post.title}</Text>
                         </Link>
