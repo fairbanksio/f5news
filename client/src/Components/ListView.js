@@ -19,9 +19,10 @@ import { hotnessBGColor } from '../Util/HotnessBGColor';
 
 const ListView = ({posts}) => {
   const mobileMode = useBreakpointValue({base: true, sm: true, md: false})
+  const noOfLines = useBreakpointValue({base: 3, sm: 1})
   return (
     <Container
-        maxW='container.xl'
+        maxW='100%'
         mt={2}
         pb={4}
         p={0}
@@ -52,11 +53,11 @@ const ListView = ({posts}) => {
                     <Td>
                       <Tooltip label={post.title} fontSize='md'>
                         <Link href={post.url} isExternal color='link' id={"external-url-"+i}>
-                          <Text noOfLines={3}>{post.title}</Text>
+                          <Text noOfLines={noOfLines}>{post.title}</Text>
                         </Link>
                       </Tooltip>
                     </Td>
-                    {mobileMode?null:<Td>{post.domain}</Td>}
+                    {mobileMode?null:<Td><Text noOfLines={1}>{post.domain}</Text></Td>}
                     <Td>
                       <Link href={'https://reddit.com' + post.commentLink} isExternal color='link' id={"reddit-url-"+i}>
                         <ChatIcon/>
