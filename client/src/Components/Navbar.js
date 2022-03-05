@@ -47,11 +47,12 @@ export default function Nav() {
   const [logo, setLogo] = useState(true)
   const mobileMode = useBreakpointValue({base: true, sm: true, md: false})
   const maxMenuWidth = useBreakpointValue({base: '50vw', sm: '50vw', md: '40vw', lg: '30vw'})
+  const maxW = useBreakpointValue({base: 'container.xl', sm: 'container.xl', md: 'container.xl', xl: 'container.xl', '2xl': '1600px'})
   return (
 
     <Box position='fixed' width={'100%'} bg='navbar' style={{zIndex:'1'}}>
       
-      <Container maxW='container.xl' pr={mobileMode?0:4} pl={mobileMode?0:4} >
+      <Container maxW={maxW} pr={mobileMode?0:4} pl={mobileMode?0:4} >
       
         <Flex h={12} alignItems={'center'} justifyContent={'space-between'} pr={mobileMode?2:0} pl={mobileMode?2:0} >
 

@@ -6,7 +6,7 @@ import {
   AlertIcon,
   AlertTitle,
   AlertDescription,
-  Box
+  Box,
 } from '@chakra-ui/react';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext'
 import { SubredditContext } from '../Contexts/SubredditContext'
@@ -44,10 +44,12 @@ const PostView = () => {
   const { subreddit } = useContext(SubredditContext)
   const { viewMode } = useContext(ViewModeContext)
   const { setLoading } = useContext(LoadingContext)
+  
 
   const [posts, setPosts] = useState([]);
   const [error, setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"})
   const padding = useBreakpointValue({base: 2, sm: 2, md: 4})
+  const maxW = useBreakpointValue({base: 'container.xl', sm: 'container.xl', md: 'container.xl', xl: 'container.xl', '2xl': '1600px'})
 
   const fetchPosts = () => {
     setLoading(true)
@@ -83,7 +85,7 @@ const PostView = () => {
   }, [subreddit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <Container maxW='container.xl' mt={16} pl={padding} pr={padding}>
+    <Container maxW={maxW} mt={16} pl={padding} pr={padding}>
 
       {error.show?
       <Box>

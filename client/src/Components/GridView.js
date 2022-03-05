@@ -11,7 +11,7 @@ export default function GridView({posts}) {
 
   return (
       <Container
-        maxW='container.xl'
+        maxW='100%'
         mt={2}
         pb={4}
         p={0}

@@ -3,15 +3,17 @@ import {
   Stack,
   Text,
   Link,
-  Icon
+  Icon,
+  useBreakpointValue
 } from '@chakra-ui/react';
 import { FaGithub } from 'react-icons/fa';
 
 export default function Footer() {
+  const maxW = useBreakpointValue({base: 'container.xl', sm: 'container.xl', md: 'container.xl', xl: 'container.xl', '2xl': '1600px'})
   return (
       <Container
         as={Stack}
-        maxW='container.xl'
+        maxW={maxW}
         py={4}
         direction={{ base: 'column', md: 'row' }}
         spacing={4}
