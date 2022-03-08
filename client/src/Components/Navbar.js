@@ -70,7 +70,7 @@ export default function Nav() {
                 <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />}  maxW={maxMenuWidth}><Text isTruncated>r/{subreddit}</Text></MenuButton>
                 <MenuList>
                   {subredditList.map((subreddit, key) => {
-                    return(<MenuItem  key={key} onClick={(e)=>{setSubreddit(subreddit)}} maxW={maxMenuWidth}><Tooltip label={subreddit} ><Text isTruncated>{subreddit}</Text></Tooltip></MenuItem>)
+                    return(<MenuItem  key={key} onClick={(e)=>{setSubreddit(subreddit); window.scrollTo(0, 0)}} maxW={maxMenuWidth}><Tooltip label={subreddit} ><Text isTruncated>{subreddit}</Text></Tooltip></MenuItem>)
                   })}
                 </MenuList>
               </Menu>
