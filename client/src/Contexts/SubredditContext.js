@@ -33,7 +33,7 @@ export const SubredditProvider = (props) => {
   let apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API
   apiEndpoint = apiEndpoint.replace(/\/$/, '')
 
-  const fetchPosts = () => {
+  const fetchSubreddits = () => {
     setLoading(true)
     fetch(apiEndpoint + '/subreddits')
     .then((response) => response.json())
@@ -49,7 +49,7 @@ export const SubredditProvider = (props) => {
   }
 
   useEffect(() => {
-    fetchPosts()
+    fetchSubreddits()
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
 
