@@ -1,0 +1,46 @@
+name: "Scraper - Build"
+# SECRETS NEEDED:
+# DOCKER_USERNAME - Container Registry Username (github or dockerhub)
+# DOCKER_ACCESS_TOKEN - Container registry Personal access token with push priveledges
+
+on:
+  push:
+    branches:
+      - "master"
+    paths:
+    - 'scraper/**'
+
+jobs:
+  build:
+    name: "Scraper - Build"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./scraper
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    steps:
+      - uses: act10ns/slack@v1
+        with:
+          status: starting
+
+      - name: Checkout source code
+        uses: "actions/checkout@v2"
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Build & Push Docker Image
+        id: docker-build
+        uses: docker/build-push-action@v2
+        with:
+          context: ./scraper
+          file: ./scraper/Dockerfile
+          push: false
+          tags: ${{ steps.tag-images.outputs.tags }}
+
+      - uses: act10ns/slack@v1
+        with:
+          status: ${{ job.status }}
+          steps: ${{ toJson(steps) }}
+        if: always()
