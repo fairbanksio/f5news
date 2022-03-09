@@ -33,7 +33,8 @@ This application is designed to be deployed to kubernetes using Helm v3.
 
 1. Create kubernetes secret that contains the Mongo URI connection string for the database where posts will be stored
 ```sh
-kubectl create secret generic f5oclock-mongouri --from-literal=mongouri="mongodb+srv://USER:PASS@HOSTNAME/DATABASE_NAME?retryWrites=true&w=majority"
+kubectl create secret generic f5oclock-mongouri \
+ --from-literal=mongouri="mongodb+srv://USER:PASS@HOSTNAME/DATABASE_NAME?retryWrites=true&w=majority"
 ```
 2. Add helm repo
 ```sh
@@ -41,5 +42,9 @@ helm repo add fairbanks-io https://fairbanks-io.github.io/helm-charts/
 ```
 3. Install helm chart for f5oclock and specify ingress values
 ```sh
-helm install f5oclock --set f5oclock-api.ingress.hosts[0].host="API_INGRESS_HOST_NAME" --set f5oclock-client.apiURL="https://API_INGRESS_HOST_NAME" --set f5oclock-client.ingress.hosts[0].host="CLIENT_INGRESS_HOST_NAME" fairbanks-io/f5oclock
+helm install f5oclock \
+--set f5oclock-api.ingress.hosts[0].host="API_INGRESS_HOST_NAME" \
+--set f5oclock-client.apiURL="https://API_INGRESS_HOST_NAME" \
+--set f5oclock-client.ingress.hosts[0].host="CLIENT_INGRESS_HOST_NAME" \
+fairbanks-io/f5oclock
 ```
