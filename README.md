@@ -14,33 +14,22 @@ A MERN stack based application that scrapes subreddits and asynchronously presen
 ### Prerequisites
 
 1. MongoDB instance
-2. Docker
-3. Kubernetes with Ingress and Helm v3 (optional)
+3. Kubernetes with Ingress support and Helm v3
 
 ### Getting Started
 
-#### Docker
+F5Oclock is designed to be deployed to Kubernetes using Helm v3.
 
-- First setup the scraper service to collect Reddit posts: `docker run -d --restart=always -e MONGO_URI='mongodb://user:password@localhost/database?retryWrites=true&w=majority' --name f5oclock-scraper fairbanksio/f5oclock-scraper`
-- Second, setup the api to serve posts from the database: `docker run -d --restart=always -p 4000:3000 -e MONGO_URI='mongodb://user:password@localhost/f5oclock' --name f5oclock-api fairbanksio/f5oclock-api`
-- Last, fire up the frontend to view the UI: `docker run -d --restart=always -p 3000:3000 -e REACT_APP_API='https://localhost:4000' --name f5oclock-client fairbanksio/f5oclock-client`
-
-The web client should now be available on port 3000
-
-#### Kubernetes with Helm
-
-This application is designed to be deployed to kubernetes using Helm v3.
-
-1. Create kubernetes secret that contains the Mongo URI connection string for the database where posts will be stored
+1. Create a kubernetes secret that contains the Mongo URI connection string for the database where posts will be stored
 ```sh
 kubectl create secret generic f5oclock-mongouri \
  --from-literal=mongouri="mongodb+srv://USER:PASS@HOSTNAME/DATABASE_NAME?retryWrites=true&w=majority"
 ```
-2. Add helm repo
+2. Add Helm repository
 ```sh
 helm repo add fairbanks-io https://fairbanks-io.github.io/helm-charts/
 ```
-3. Install helm chart for f5oclock and specify ingress values
+3. Install Helm chart for F5oclock and specify ingress values
 ```sh
 helm install f5oclock \
 --set f5oclock-api.ingress.hosts[0].host="API_INGRESS_HOST_NAME" \
