@@ -29,7 +29,8 @@ f5oclock-api:
     enabled: true
     hosts:
     - host: chart-example.local
-      paths: []
+      paths:
+      - "/"
     tls: []
   resources:
     requests:
@@ -70,7 +71,8 @@ f5oclock-client:
     enabled: true
     hosts:
     - host: chart-example.local
-      paths: []
+      paths:
+      - "/"
     tls: []
   resources:
     requests:

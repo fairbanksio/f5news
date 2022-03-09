@@ -41,5 +41,5 @@ helm repo add fairbanks-io https://fairbanks-io.github.io/helm-charts/
 ```
 3. Install helm chart for f5oclock and specify ingress values
 ```sh
-helm install f5oclock --set f5oclock-api.ingress.hosts[0].host="API_INGRESS_HOST_NAME" --set f5oclock-api.ingress.hosts[0].path="/" --set f5oclock-client.apiURL="https://API_INGRESS_HOST_NAME" --set f5oclock-client.ingress.hosts[0].host="CLIENT_INGRESS_HOST_NAME" --set f5oclock-client.ingress.hosts[0].path="/" fairbanks-io/f5oclock
+helm install f5oclock --set f5oclock-api.ingress.hosts[0].host="API_INGRESS_HOST_NAME" --set f5oclock-client.apiURL="https://API_INGRESS_HOST_NAME" --set f5oclock-client.ingress.hosts[0].host="CLIENT_INGRESS_HOST_NAME" fairbanks-io/f5oclock
 ```
