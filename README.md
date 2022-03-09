@@ -18,7 +18,7 @@ A MERN stack based application that scrapes subreddits and asynchronously presen
 
 ### Getting Started
 
-F5Oclock is designed to be deployed to Kubernetes using Helm v3.
+F5oclock is designed to be deployed to Kubernetes using Helm v3.
 
 1. Create a kubernetes secret that contains the Mongo URI connection string for the database where posts will be stored
 ```sh
