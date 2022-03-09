@@ -1,14 +1,11 @@
 name: Release - Chart
 
 on:
-  push:
-    branches:
-      - "master"
-    paths:
-    - 'api/chart/**'
-    - 'client/chart/**'
-    - 'scraper/chart/**'
-
+  workflow_run:
+    workflows: ["API - Release", "Client - Release", "Scraper - Release"]
+    branches: [master]
+    types: 
+      - completed
   workflow_dispatch:
 
 jobs:
