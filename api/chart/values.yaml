@@ -74,3 +74,4 @@ topologySpreadConstraints: []
   #   labelSelector:
   #     matchLabels:
   #       app.kubernetes.io/instance: tiles-tiles-api
+secretName: "f5oclock-mongouri"

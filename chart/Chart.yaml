@@ -1,0 +1,38 @@
+apiVersion: v2
+name: f5oclock
+description: A Helm chart for f5oclock
+
+# A chart can be either an 'application' or a 'library' chart.
+#
+# Application charts are a collection of templates that can be packaged into versioned archives
+# to be deployed.
+#
+# Library charts provide useful utilities or functions for the chart developer. They're included as
+# a dependency of application charts to inject those utilities and functions into the rendering
+# pipeline. Library charts do not define any templates and therefore cannot be deployed.
+type: application
+
+# This is the chart version. This version number should be incremented each time you make changes
+# to the chart and its templates, including the app version.
+# Versions are expected to follow Semantic Versioning (https://semver.org/)
+version: 1.0.0
+
+# This is the version number of the application being deployed. This version number should be
+# incremented each time you make changes to the application. Versions are not expected to
+# follow Semantic Versioning. They should reflect the version the application is using.
+# It is recommended to use it with quotes.
+appVersion: "1.0.0"
+
+dependencies:
+- name: f5oclock-api
+  version: "^1.0.22"
+  repository: "https://fairbanks-io.github.io/helm-charts"
+  condition: f5oclock-api.enabled
+- name: f5oclock-client
+  version: "^0.1.45"
+  repository: "https://fairbanks-io.github.io/helm-charts"
+  condition: f5oclock-client.enabled
+- name: f5oclock-scraper
+  version: "^1.0.20"
+  repository: "https://fairbanks-io.github.io/helm-charts"
+  condition: f5oclock-scraper.enabled
