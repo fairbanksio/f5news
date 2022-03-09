@@ -3,7 +3,7 @@
 ![f5oclock](https://raw.githubusercontent.com/fairbanks-io/f5oclock/master/f5oclock.gif)
 
 ![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/fairbanks-io/f5oclock/Client%20-%20Release?label=Client%20Build>)
-![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/fairbanks-io/f5oclock/API%20-%20Release?label=Api%20Build>)
+![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/fairbanks-io/f5oclock/API%20-%20Release?label=API%20Build>)
 ![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/fairbanks-io/f5oclock/Scraper%20-%20Release?label=Scraper%20Build>)
 ![GitHub top language](https://img.shields.io/github/languages/top/fairbanks-io/f5oclock.svg)
 ![GitHub last commit](https://img.shields.io/github/last-commit/fairbanks-io/f5oclock.svg)
