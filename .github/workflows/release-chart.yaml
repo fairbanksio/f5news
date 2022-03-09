@@ -1,0 +1,40 @@
+name: Release - Chart
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update-chart:
+    name: "Update Chart"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: "actions/checkout@v2"
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Update Chart Version
+        id: update-version
+        run: |
+          # Install bump plugin
+          helm plugin install https://github.com/mbenabda/helm-local-chart-version
+
+          # Bump chart version
+          helm local-chart-version bump -c ./chart -s patch
+
+          # Get new chart version
+          PACKAGE_VERSION=$(helm local-chart-version get -c ./chart)
+
+          # Update dependencies
+          helm dependency update ./chart
+          
+          # Output new version for other steps
+          echo "::set-output name=version::$PACKAGE_VERSION"
+          
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v7.2.1
+        with:
+          message: "Bump chart to: ${{ steps.update-version.outputs.version }}"
+          push: "origin ${{ github.event.repository.default_branch }} --force"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
