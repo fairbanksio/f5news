@@ -1,0 +1,12 @@
+dependencies:
+- name: f5oclock-api
+  repository: https://fairbanks-io.github.io/helm-charts
+  version: 1.0.22
+- name: f5oclock-client
+  repository: https://fairbanks-io.github.io/helm-charts
+  version: 0.1.45
+- name: f5oclock-scraper
+  repository: https://fairbanks-io.github.io/helm-charts
+  version: 1.0.20
+digest: sha256:3204c6786c25205ac832bdf95a40b3dfce2b585a7186b24b9d6fcc5a939db5ee
+generated: "2022-03-08T21:55:36.952570156-06:00"
