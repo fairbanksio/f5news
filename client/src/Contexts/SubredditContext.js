@@ -38,7 +38,9 @@ export const SubredditProvider = (props) => {
     fetch(apiEndpoint + '/subreddits')
     .then((response) => response.json())
     .then((json) => {
-      setSubredditList(json.data)
+      setSubredditList(json.data.sort(function (a, b) {
+        return a.toLowerCase().localeCompare(b.toLowerCase());
+      }))
       setTimeout(() => {setLoading(false)}, 1700);
       setError({show:false})
     })
