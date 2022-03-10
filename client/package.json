@@ -1,6 +1,6 @@
 {
   "name": "f5-client",
-  "version": "0.1.48",
+  "version": "0.1.49",
   "private": true,
   "dependencies": {
     "@chakra-ui/icons": "^1.1.5",
