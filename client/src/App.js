@@ -4,6 +4,7 @@ import {
   Box,
   Flex
 } from '@chakra-ui/react';
+import { BrowserRouter as Router, Routes, Navigate, Route } from 'react-router-dom';
 import MainContent from './Components/MainContent';
 import { RefreshIntervalProvider} from './Contexts/RefreshIntervalContext'
 import { SubredditProvider} from './Contexts/SubredditContext'
@@ -19,39 +20,46 @@ import { MediaModal } from './Components/MediaModal'
 
 const ThemedApp = () => {
   const { theme } = useContext(ThemeContext)
-
   return (
-      <ChakraProvider theme={theme === 'classic' ? ClassicTheme : CustomTheme}>
-        <RefreshIntervalProvider>
-          <SubredditProvider>
-            <ViewModeProvider>
-              <LoadingProvider>
-                <ModalProvider>
-                  <Flex minHeight='100vh' direction='column' p={0}>
-                    <Box>
-                      <Navbar/>
-                    </Box>
-                    <Box flex='1'>
-                      <MediaModal/>
-                      <MainContent/>
-                    </Box>
-                    <Box >
-                      <Footer/>
-                    </Box>
-                  </Flex>
-                </ModalProvider>
-              </LoadingProvider>
-            </ViewModeProvider>
-          </SubredditProvider>
-        </RefreshIntervalProvider>
-      </ChakraProvider>
+    <ChakraProvider theme={theme === 'classic' ? ClassicTheme : CustomTheme}>
+      <RefreshIntervalProvider>
+        <SubredditProvider>
+          <ViewModeProvider>
+            <LoadingProvider>
+              <ModalProvider>
+                <Flex minHeight='100vh' direction='column' p={0}>
+                  <Box>
+                    <Navbar/>
+                  </Box>
+                  <Box flex='1'>
+                    
+                    <MediaModal/>
+                    <MainContent/>
+                  </Box>
+                  <Box >
+                    <Footer/>
+                  </Box>
+                </Flex>
+              </ModalProvider>
+            </LoadingProvider>
+          </ViewModeProvider>
+        </SubredditProvider>
+      </RefreshIntervalProvider>
+    </ChakraProvider>
   )
 }
 
 const App = () => {
+  const defaultDest = localStorage.getItem('subreddit') ? localStorage.getItem('subreddit') : 'politics'
   return (
     <ThemeProvider>
-      <ThemedApp/>
+      <Router>
+        <Routes>
+          <Route path="/r/:subredditPath" element={<ThemedApp/>} />
+          <Route path="*" element={<Navigate to={"/r/" + defaultDest} replace />} />
+        </Routes>
+        
+      </Router>
     </ThemeProvider>
   );
 }

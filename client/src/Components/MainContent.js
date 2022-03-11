@@ -76,20 +76,16 @@ const PostView = () => {
       });;
     
   }
-  // call every interval to api
+  
   useEffect(() => {
     if (refreshInterval && refreshInterval > 0) {
       if(isVisible){
+        fetchPosts()
         const interval = setInterval(fetchPosts, refreshInterval*1000);
         return () => clearInterval(interval);
       }
     }
   }, [refreshInterval, subreddit, isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // call only on load/refresh
-  useEffect(() => {
-    fetchPosts()
-  }, [subreddit, isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Container maxW={maxW} mt={16} pl={padding} pr={padding}>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react'
 import { LoadingContext } from '../Contexts/LoadingContext'
+import { useParams, useNavigate } from 'react-router-dom';
 
 export const SubredditContext = React.createContext({
   subreddit: 'politics',
@@ -8,26 +9,30 @@ export const SubredditContext = React.createContext({
 })
 
 export const SubredditProvider = (props) => {
+  let navigate = useNavigate();
+  let { subredditPath } = useParams();
+
   const { setLoading } = useContext(LoadingContext)
+
   const setSubreddit = (subreddit) => {
     localStorage.setItem('subreddit', subreddit)
     setState({...state, subreddit: subreddit})
+    navigate("/r/"+subreddit, { replace: true });
   }
+
   const setSubredditList = (subreddits) => {
     localStorage.setItem('subredditList', subreddits)
     setState({...state, subredditList: subreddits})
   }
 
   const initState = {
-    subreddit: localStorage.getItem('subreddit') ? localStorage.getItem('subreddit') : 'politics',
+    subreddit: subredditPath? subredditPath: localStorage.getItem('subreddit') ? localStorage.getItem('subreddit') : 'politics',
     subredditList: localStorage.getItem('subredditList') ? localStorage.getItem('subredditList').split(',') : ['politics'],
     setSubreddit: setSubreddit,
     setSubredditList: setSubredditList
   } 
 
   const [state, setState] = useState(initState)
-
-
 
   const [error, setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"}) // eslint-disable-line no-unused-vars
   let apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API
@@ -53,8 +58,6 @@ export const SubredditProvider = (props) => {
   useEffect(() => {
     fetchSubreddits()
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-
 
   return (
     <SubredditContext.Provider value={state}>
