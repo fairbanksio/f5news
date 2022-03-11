@@ -1,10 +1,11 @@
-import React, {useContext} from 'react';
+import React, {useContext, useEffect} from 'react';
 import {
   ChakraProvider,
   Box,
   Flex
 } from '@chakra-ui/react';
-import { BrowserRouter as Router, Routes, Navigate, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Navigate, Route, useLocation } from 'react-router-dom';
+import ReactGA from 'react-ga';
 import MainContent from './Components/MainContent';
 import { RefreshIntervalProvider} from './Contexts/RefreshIntervalContext'
 import { SubredditProvider} from './Contexts/SubredditContext'
@@ -18,8 +19,16 @@ import { LoadingProvider } from './Contexts/LoadingContext'
 import { ModalProvider } from './Contexts/ModalContext'
 import { MediaModal } from './Components/MediaModal'
 
+ReactGA.initialize('G-S20H9JRLT9');
+
 const ThemedApp = () => {
   const { theme } = useContext(ThemeContext)
+  let location = useLocation();
+
+  useEffect(() => {
+    ReactGA.pageview(window.location.pathname + window.location.search);
+  }, [location]);
+
   return (
     <ChakraProvider theme={theme === 'classic' ? ClassicTheme : CustomTheme}>
       <RefreshIntervalProvider>
