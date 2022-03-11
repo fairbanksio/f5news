@@ -2,11 +2,20 @@ import React, {useContext} from 'react';
 import { useColorMode, useColorModeValue, Button, Box, MenuItem} from '@chakra-ui/react';
 import { FaMoon, FaSun } from 'react-icons/fa';
 import {  ThemeContext } from '../Contexts/ThemeContext'
+import ReactGA from 'react-ga4';
 
 export const ColorModeSwitcher = props => {
   const { theme, setTheme } = useContext(ThemeContext)
   const { toggleColorMode } = useColorMode();
   const changeMode = () => {
+    ReactGA.event({
+      category: "visual",
+      action: "changecolormode",
+      label: "colormode", // optional
+      value:  theme === 'classic' ? 0 : 1, // optional, must be a number
+      nonInteraction: false, // optional, true/false
+      transport: "xhr", // optional, beacon/xhr/image
+    });
     toggleColorMode()
     theme === 'classic' ? setTheme('custom') : setTheme('classic')
   }
