@@ -36,7 +36,7 @@ const PrimaryLogo = () => {
 
 const SecondaryLogo = () => {
   return (
-    <Image src='usa.svg' objectFit='scale-down' h='30px' w='30px'/>
+    <Image src='/usa.svg' objectFit='scale-down' h='30px' w='30px'/>
   )
 }
 
