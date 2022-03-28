@@ -1,45 +1,307 @@
-name: "Client - Build"
+name: "CI - Client"
 # SECRETS NEEDED:
 # DOCKER_USERNAME - Container Registry Username (github or dockerhub)
-# DOCKER_ACCESS_TOKEN - Container registry Personal access token with push priveledges
+# DOCKER_ACCESS_TOKEN - Container registry Personal access token with push privileges
+# HELM_CHARTS_PAT - PAT that has access to push to the github based helm charts repo such eg: https://github.com/fairbanksio/helm-charts
 
 on:
-  pull_request:
+  push:
     branches:
       - "master"
+      - "main"
+      - "develop"
     paths:
     - 'client/**'
 
+defaults:
+  run:
+    working-directory: client
+
+env:
+  TERM: 'xterm'
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
 jobs:
-  build:
-    name: "Client - Build"
+  node-lint:
+    name: Lint Node.JS
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./client
-    env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
     steps:
-      - uses: act10ns/slack@v1
-        with:
-          status: starting
+      - name: Checkout code
+        uses: actions/checkout@v2
 
+      - name: Use Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: '16.x'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint Code
+        run: npm run lint
+
+  node-test:
+    name: Run Test Suite
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [14.x, 16.x, 17.x] # https://nodejs.org/en/about/releases/
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Use Node.js v${{ matrix.node-version }}
+        uses: actions/setup-node@v2
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run test suite
+        run: npm run test
+
+  node-audit:
+    name: Critical Vulnerability Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Use Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: '16.x'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for critical vulnerabilities
+        run: npm audit --audit-level=critical
+
+  vuln-report:
+    name: Vulnerability Report
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Run Trivy vulnerability scanner in repo mode
+        working-directory: client
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MODERATE'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        working-directory: client
+        uses: github/codeql-action/upload-sarif@v1
+        with:
+          sarif_file: 'trivy-results.sarif'
+  
+  helm-lint:
+    name: Lint Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Lint Helm chart
+        run: helm lint ./chart
+
+  docker-build:
+    name: Docker Build
+    needs: [vuln-report, node-lint, node-test, node-audit, helm-lint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Define sha_short
+        id: vars
+        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ steps.vars.outputs.sha_short }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+          
+      - name: Set up QEMU
+        id: setup-qemu
+        uses: docker/setup-qemu-action@v1
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1 
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+        
+      - name: Build & Push Base Image
+        id: docker_build
+        working-directory: client
+        uses: docker/build-push-action@v2
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: ./
+          platforms: linux/amd64,linux/arm64,linux/arm
+          file: ./Dockerfile
+          push: true
+          tags: ${{ github.repository }}:${{ steps.vars.outputs.sha_short }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache
+
+  # chart-test:
+  #   name: Validate Helm chart
+  #   needs: docker-build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v2
+
+  #     - name: Define sha_short
+  #       id: vars
+  #       run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+  #     - name: Set up Helm
+  #       uses: azure/setup-helm@v1
+  #       with:
+  #         version: v3.4.0
+
+  #     - name: Update chart image tag
+  #       run: |
+  #         sed -r -i 's/(appVersion:[^*])([[:alnum:].]*.*)/\1${{ steps.vars.outputs.sha_short }}/g' ./chart/Chart.yaml
+
+  #     - name: Create Kind cluster
+  #       uses: helm/kind-action@v1.2.0
+
+  #     - name: Install and Test chart
+  #       run: |
+  #         helm install test-release ./chart --wait --debug
+  #         helm test test-release
+
+  #     - name: Debug Helm Chart
+  #       if: failure() && steps.test-chart.outcome == 'failure'
+  #       run: |
+  #         kubectl get events
+  #         kubectl describe hpa
+  #         kubectl describe deploy
+  #         kubectl describe ing
+  #         kubectl describe pdb
+  #         kubectl describe svc
+  #         kubectl describe serviceaccount
+  #         kubectl describe po
+
+  #         for pod in `kubectl get po -o json |  jq '.items[] | .metadata.name' | sed 's/"//g'` ; do
+  #           echo $pod
+  #           kubectl logs $pod 
+  #         done
+
+  release:
+    name: "Release"
+    needs: [docker-build]
+    runs-on: ubuntu-latest
+    steps:
       - name: Checkout source code
         uses: "actions/checkout@v2"
         with:
           ref: ${{ github.ref }}
 
-      - name: Build & Push Docker Image
+      - name: Bump version and push tag
+        id: bump-tag
+        uses: anothrNick/github-tag-action@1.36.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BRANCHES: "master,main"
+          DEFAULT_BUMP: "patch"
+          INITIAL_VERSION: "1.0.0"
+          SOURCE: client
+
+      - name: Update version in version files
+        id: update-version
+        run: |
+          # Update package.json
+          npm version ${{ steps.bump-tag.outputs.new_tag }} --no-git-tag-version
+          # Update Helm chart version
+          sed -r -i "s/(version:[^*]|appVersion:[^*])([[:alnum:].]*.*)/\1${{ steps.bump-tag.outputs.new_tag }}/g" ./chart/Chart.yaml
+
+      - name: Build Docker Tags
+        id: docker-tags
+        run: |
+          CUR_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          if [[ $CUR_BRANCH = "main" || $CUR_BRANCH = "master" ]]; then
+              TAGS="${{ github.repository }}:${{ steps.bump-tag.outputs.new_tag }},${{ github.repository }}:latest"
+          else
+              TAGS="${{ github.repository }}:${{ steps.bump-tag.outputs.new_tag }}"
+          fi
+          echo "::set-output name=tags::${TAGS}"
+
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ steps.vars.outputs.sha_short }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+          
+      - name: Set up QEMU
+        id: setup-qemu
+        uses: docker/setup-qemu-action@v1
+
+      - name: Set up Docker Buildx
+        id: setup-buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1 
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+        
+      - name: Build & Push Base Image
         id: docker-build
+        working-directory: client
         uses: docker/build-push-action@v2
         with:
-          context: ./client
-          file: ./client/Dockerfile
-          push: false
-          tags: ${{ steps.tag-images.outputs.tags }}
+          builder: ${{ steps.buildx.outputs.name }}
+          context: ./
+          platforms: linux/amd64,linux/arm64,linux/arm
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.docker-tags.outputs.tags }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache
 
-      - uses: act10ns/slack@v1
+      - name: Package and publish Helm Chart
+        id: publish-helm
+        run: |
+          # Setup auth and workspace
+          CLONE_DIR=$(mktemp -d)
+          git config --global user.email "brandon.sorgdrager@gmail.com"
+          git config --global user.name "bsord"
+          git clone "https://${{ secrets.HELM_CHARTS_PAT }}@github.com/fairbanksio/helm-charts.git" "$CLONE_DIR"
+          
+          # Package chart and push commit
+          helm package ./chart
+          cp *.tgz "$CLONE_DIR/_releases/"
+          cd "$CLONE_DIR"
+          git add .
+          git commit --message "Update from https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+          git push -u origin master
+
+      - name: Notify Slack
+        uses: act10ns/slack@v1
         with:
           status: ${{ job.status }}
           steps: ${{ toJson(steps) }}
