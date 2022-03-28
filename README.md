@@ -37,4 +37,3 @@ helm install f5oclock \
 --set f5oclock-client.ingress.hosts[0].host="CLIENT_INGRESS_HOST_NAME" \
 fairbanks-io/f5oclock
 ```
- 
