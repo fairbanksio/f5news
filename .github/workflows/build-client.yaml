@@ -56,6 +56,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
+          cache-dependency-path: client/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -206,4 +207,99 @@ jobs:
   #           kubectl logs $pod 
   #         done
 
-  
+  release:
+    name: "Release"
+    needs: [docker-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: "actions/checkout@v2"
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Bump version and push tag
+        id: bump-tag
+        uses: anothrNick/github-tag-action@1.36.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BRANCHES: "master,main"
+          DEFAULT_BUMP: "patch"
+          INITIAL_VERSION: "2.0.40"
+
+      - name: Update version in version files
+        id: update-version
+        run: |
+          # Update package.json
+          npm version ${{ steps.bump-tag.outputs.new_tag }} --no-git-tag-version
+          # Update Helm chart version
+          sed -r -i "s/(version:[^*]|appVersion:[^*])([[:alnum:].]*.*)/\1${{ steps.bump-tag.outputs.new_tag }}/g" ./chart/Chart.yaml
+
+      - name: Build Docker Tags
+        id: docker-tags
+        run: |
+          CUR_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          if [[ $CUR_BRANCH = "main" || $CUR_BRANCH = "master" ]]; then
+              TAGS="${{ github.repository }}:${{ steps.bump-tag.outputs.new_tag }},${{ github.repository }}:latest"
+          else
+              TAGS="${{ github.repository }}:${{ steps.bump-tag.outputs.new_tag }}"
+          fi
+          echo "::set-output name=tags::${TAGS}"
+
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ steps.vars.outputs.sha_short }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+          
+      - name: Set up QEMU
+        id: setup-qemu
+        uses: docker/setup-qemu-action@v1
+
+      - name: Set up Docker Buildx
+        id: setup-buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1 
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+        
+      - name: Build & Push Base Image
+        id: docker-build
+        uses: docker/build-push-action@v2
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: ./
+          platforms: linux/amd64,linux/arm64,linux/arm
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.docker-tags.outputs.tags }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache
+
+      - name: Package and publish Helm Chart
+        id: publish-helm
+        run: |
+          # Setup auth and workspace
+          CLONE_DIR=$(mktemp -d)
+          git config --global user.email "brandon.sorgdrager@gmail.com"
+          git config --global user.name "bsord"
+          git clone "https://${{ secrets.HELM_CHARTS_PAT }}@github.com/fairbanksio/helm-charts.git" "$CLONE_DIR"
+          
+          # Package chart and push commit
+          helm package ./chart
+          cp *.tgz "$CLONE_DIR/_releases/"
+          cd "$CLONE_DIR"
+          git add .
+          git commit --message "Update from https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+          git push -u origin master
+
+      - name: Notify Slack
+        uses: act10ns/slack@v1
+        with:
+          status: ${{ job.status }}
+          steps: ${{ toJson(steps) }}
+        if: always()
