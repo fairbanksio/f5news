@@ -17,7 +17,7 @@ import ListView from './ListView'
 import { usePageVisibility } from 'react-page-visibility';
 
 
-let apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API
+let apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API? window.REACT_APP_API: "https://localhost"
 apiEndpoint = apiEndpoint.replace(/\/$/, '')
 
 const gtThan5MinsAgo = (date) => {

@@ -35,7 +35,7 @@ export const SubredditProvider = (props) => {
   const [state, setState] = useState(initState)
 
   const [error, setError] = useState({level: 'warning', show: false, title: 'Warning:', message: "There was a problem"}) // eslint-disable-line no-unused-vars
-  let apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API
+  let apiEndpoint = process.env.REACT_APP_API ? process.env.REACT_APP_API : window.REACT_APP_API? window.REACT_APP_API: "https://localhost"
   apiEndpoint = apiEndpoint.replace(/\/$/, '')
 
   const fetchSubreddits = () => {
