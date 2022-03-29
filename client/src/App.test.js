@@ -10,11 +10,11 @@ Object.defineProperty(window, 'matchMedia', {
   value: matchMedia,
 });
 
-test('renders learn react link', () => {
+test('renders F5 News header', () => {
   render(<StrictMode>
     <ColorModeScript />
     <App />
   </StrictMode>);
-  const linkElement = screen.getByText(/F5 News/i);
-  expect(linkElement).toBeInTheDocument();
+  const headerText = screen.getByText(/F5 News/i);
+  expect(headerText).toBeInTheDocument();
 });
