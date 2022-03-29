@@ -224,6 +224,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_BRANCHES: "master,main"
           DEFAULT_BUMP: "patch"
+          SOURCE: "client"
           INITIAL_VERSION: "2.0.40"
 
       - name: Update version in version files
