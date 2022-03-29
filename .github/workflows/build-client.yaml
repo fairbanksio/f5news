@@ -239,9 +239,9 @@ jobs:
         run: |
           CUR_BRANCH=$(git rev-parse --abbrev-ref HEAD)
           if [[ $CUR_BRANCH = "main" || $CUR_BRANCH = "master" ]]; then
-              TAGS="${{ github.repository }}:${{ steps.bump-tag.outputs.new_tag }},${{ github.repository }}:latest"
+              TAGS="${{ github.repository }}-client:${{ steps.bump-tag.outputs.new_tag }},${{ github.repository }}-client:latest"
           else
-              TAGS="${{ github.repository }}:${{ steps.bump-tag.outputs.new_tag }}"
+              TAGS="${{ github.repository }}-client:${{ steps.bump-tag.outputs.new_tag }}"
           fi
           echo "::set-output name=tags::${TAGS}"
 
@@ -272,9 +272,9 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           builder: ${{ steps.buildx.outputs.name }}
-          context: ./
+          context: ./client
           platforms: linux/amd64,linux/arm64,linux/arm
-          file: ./Dockerfile
+          file: ./client/Dockerfile
           push: true
           tags: ${{ steps.docker-tags.outputs.tags }}
           cache-from: type=local,src=/tmp/.buildx-cache
