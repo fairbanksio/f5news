@@ -1,12 +1,12 @@
 dependencies:
 - name: f5oclock-api
   repository: file://../api/chart
-  version: 1.0.22
+  version: 1.0.27
 - name: f5oclock-client
   repository: file://../client/chart
-  version: 0.1.41
+  version: 0.1.57
 - name: f5oclock-scraper
   repository: file://../scraper/chart
-  version: 1.0.18
-digest: sha256:fc919804841a58b44b55fcb275688aa7c466fbd48c3f3a0b583c088da8135ca3
-generated: "2022-03-09T11:36:12.473116431-06:00"
+  version: 1.0.21
+digest: sha256:8fc1fb116191e0a6d5995fe36f7ef6f375f2aff5a5f07e5ebf8469efd23decef
+generated: "2022-05-10T02:50:44.046712118Z"

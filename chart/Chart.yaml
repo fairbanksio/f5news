@@ -4,16 +4,16 @@ dependencies:
 - condition: f5oclock-api.enabled
   name: f5oclock-api
   repository: file://../api/chart
-  version: "^1.0.21"
+  version: ^1.0.21
 - condition: f5oclock-client.enabled
   name: f5oclock-client
   repository: file://../client/chart
-  version: "^0.1.41"
+  version: ^0.1.41
 - condition: f5oclock-scraper.enabled
   name: f5oclock-scraper
   repository: file://../scraper/chart
-  version: "^1.0.18"
+  version: ^1.0.18
 description: A Helm chart for f5oclock
 name: f5oclock
 type: application
-version: 1.0.1
+version: 1.0.16
