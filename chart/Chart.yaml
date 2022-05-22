@@ -16,4 +16,4 @@ dependencies:
 description: A Helm chart for f5oclock
 name: f5oclock
 type: application
-version: 1.0.17
+version: 1.0.18
