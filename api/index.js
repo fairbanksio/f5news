@@ -32,6 +32,6 @@ app.use(express.json());
 
 // Routes
 app.use('/', api);
- 
+
 // Listen
 app.listen(PORT, console.log(`Server started on port ${PORT}`)); // eslint-disable-line no-console
