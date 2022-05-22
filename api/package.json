@@ -1,6 +1,6 @@
 {
   "name": "f5oclock-api",
-  "version": "1.0.29",
+  "version": "1.0.30",
   "description": "API backend for F5oclock",
   "main": "index.js",
   "scripts": {
