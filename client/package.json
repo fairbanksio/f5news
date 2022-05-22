@@ -12,6 +12,7 @@
     "@testing-library/user-event": "^12.8.3",
     "framer-motion": "^4.1.17",
     "javascript-time-ago": "^2.3.13",
+    "mock-match-media": "^0.3.0",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
     "react-ga4": "^1.4.1",
@@ -26,7 +27,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "lint": "echo 'no linting defined'"
   },
   "eslintConfig": {
     "extends": "react-app"
