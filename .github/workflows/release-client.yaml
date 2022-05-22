@@ -76,17 +76,6 @@ jobs:
           push: true
           tags: ${{ steps.tag-images.outputs.tags }}
 
-      - name: Push Helm Chart to Github Container Registry
-        id: push-helm-github
-        uses: bsord/helm-push@v4
-        with:
-          useOCIRegistry: true
-          registry-url: https://ghcr.io/fairbanks-io/f5oclock-client
-          username: fairbanksio
-          access-token: ${{ secrets.GITHUB_TOKEN }}
-          force: true
-          chart-folder: ./client/chart
-
       - name: Initiate Helm sync
         id: helm-sync
         uses: benc-uk/workflow-dispatch@v1
