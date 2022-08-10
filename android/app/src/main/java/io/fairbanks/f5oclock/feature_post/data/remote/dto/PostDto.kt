@@ -35,6 +35,7 @@ data class PostDto(
             author = author,
             commentCount = commentCount,
             commentLink = commentLink,
+            created_utc = created_utc,
             domain = domain,
             fetchedAt = fetchedAt,
             sub = sub,
@@ -45,4 +46,5 @@ data class PostDto(
             url = url
         )
     }
+
 }
