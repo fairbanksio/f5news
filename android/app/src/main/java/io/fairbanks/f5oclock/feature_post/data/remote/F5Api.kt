@@ -9,4 +9,8 @@ interface F5Api {
     suspend fun getPosts(
         @Path("subreddit") subreddit: String
     ): PostResponseDto
+
+    companion object {
+        const val BASE_URL = "https://api.f5.news"
+    }
 }
