@@ -31,6 +31,7 @@ data class PostDto(
 ) {
     fun toPost(): Post {
         return Post(
+            _id = _id,
             author = author,
             commentCount = commentCount,
             commentLink = commentLink,

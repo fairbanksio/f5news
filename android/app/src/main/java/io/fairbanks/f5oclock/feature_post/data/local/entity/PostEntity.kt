@@ -18,10 +18,12 @@ data class PostEntity(
     val upvoteCount: Int,
     val upvote_ratio: Double,
     val url: String,
+    val _id: String,
     @PrimaryKey val id: Int? = null,
 ) {
     fun toPost(): Post {
         return Post(
+            _id = _id,
             author = author,
             commentCount = commentCount,
             commentLink = commentLink,
