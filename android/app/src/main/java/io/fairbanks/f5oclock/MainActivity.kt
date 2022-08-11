@@ -10,6 +10,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 
@@ -44,6 +48,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+
             Scaffold(
                 scaffoldState = scaffoldState,
                 content = {
@@ -56,20 +61,33 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxSize()
                         ){
+                            TopAppBar(
+                                elevation = 4.dp,
+                                title = {
+                                    Text("F5 News")
+                                },
+                                backgroundColor =  MaterialTheme.colors.primarySurface
+                                , actions = {
+                                    SubredditDropdown(
+                                        items = listOf(
+                                            //eventually get this from API via baseurl/subreddits
+                                            "politics",
+                                            "all",
+                                            "news",
+                                            "worldnews",
+                                            "UkrainianConflict",
+                                            "CryptoCurrency"
+                                        ),
+                                        selected = viewModel.sub.value,
+                                        onSubredditSelect = viewModel::onSelectSub
+                                    )
 
-                            SubredditDropdown(
-                                items = listOf(
-                                    //eventually get this from API via baseurl/subreddits
-                                    "politics",
-                                    "all",
-                                    "news",
-                                    "worldnews",
-                                    "UkrainianConflict",
-                                    "CryptoCurrency"
-                                ),
-                                selected = viewModel.sub.value,
-                                onSubredditSelect = viewModel::onSelectSub
-                            )
+                                    IconButton(onClick = {/* Do Something*/ }) {
+                                        Icon(Icons.Filled.Settings, null)
+                                    }
+                                })
+
+
 
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize()

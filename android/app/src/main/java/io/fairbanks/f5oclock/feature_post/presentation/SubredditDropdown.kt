@@ -5,7 +5,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,16 +32,21 @@ fun SubredditDropdown(
         .wrapContentSize(Alignment.TopStart)
     ) {
 
-        Text(
-            items[selectedIndex] + " \\/",
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(
-                    onClick = { expanded = true }
-                )
-                .background(Color.Gray)
-                .padding(16.dp)
-        )
+        TextButton(
+            onClick = { expanded = true },
+            colors = ButtonDefaults.textButtonColors(
+                contentColor = Color.White
+            )
+        ) {
+
+            Text(text="r/" + items[selectedIndex])
+            
+            Icon(
+                imageVector = Icons.Filled.ArrowDropDown,
+                contentDescription = "Localized description",
+                Modifier.padding(end = 8.dp)
+            )
+        }
 
         DropdownMenu(
             expanded = expanded,
