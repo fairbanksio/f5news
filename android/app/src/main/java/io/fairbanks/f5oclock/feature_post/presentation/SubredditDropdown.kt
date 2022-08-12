@@ -40,7 +40,7 @@ fun SubredditDropdown(
         ) {
 
             Text(text="r/" + items[selectedIndex])
-            
+
             Icon(
                 imageVector = Icons.Filled.ArrowDropDown,
                 contentDescription = "Localized description",

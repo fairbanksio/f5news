@@ -33,8 +33,8 @@ class PostRepositoryImpl (
             val remotePosts = remotePostsResponse.posts
 
 
-            //clear all posts out of local db, that were returned by api (clear cache)
-            postDao.deletePosts(remotePosts.map {it._id})
+            //clear all posts previously cached for the sub
+            postDao.deletePosts(sub)
 
             // insert newly aquired posts
             postDao.insertPosts(remotePosts.map {it.toPostEntity()})

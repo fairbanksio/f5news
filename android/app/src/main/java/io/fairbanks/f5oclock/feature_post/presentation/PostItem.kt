@@ -3,9 +3,7 @@ package io.fairbanks.f5oclock.feature_post.presentation
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
 import androidx.compose.runtime.Composable
@@ -15,9 +13,9 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat.startActivity
+import io.fairbanks.f5oclock.core.util.TimeAgo
 import io.fairbanks.f5oclock.feature_post.domain.model.Post
 
 
@@ -60,10 +58,13 @@ fun PostItem(
                 append(" upvotes")
             }
         )
+
+        val timeAgo: String? = TimeAgo().covertTimeToText((post.created_utc * 1000L))
         Text(
-            text = post.commentLink,
+            text = timeAgo!!,
             fontSize = 10.sp
         )
+
     }
 
 }
