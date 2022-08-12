@@ -35,7 +35,6 @@ class PostViewModel @Inject constructor (
         _sub.value = selectedSub
         selectSubJob?.cancel()
         selectSubJob = viewModelScope.launch {
-            delay(500L)
             getPosts(selectedSub)
                 .onEach { result ->
                     when(result) {
