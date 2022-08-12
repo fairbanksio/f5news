@@ -1,4 +1,4 @@
-package de.jensklingenberg.jetpackcomposeplayground.mysamples.github.material.dropdown
+
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -33,27 +33,20 @@ fun SubredditDropdown(
     ) {
 
         TextButton(
-            onClick = { expanded = true },
-            colors = ButtonDefaults.textButtonColors(
-                contentColor = Color.White
-            )
+            onClick = { expanded = true }
         ) {
 
             Text(text="r/" + items[selectedIndex])
 
             Icon(
                 imageVector = Icons.Filled.ArrowDropDown,
-                contentDescription = "Localized description",
-                Modifier.padding(end = 8.dp)
+                contentDescription = "Localized description"
             )
         }
 
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier
-                .background(Color.LightGray)
-
+            onDismissRequest = { expanded = false }
         ) {
             items.forEachIndexed { index, s ->
                 DropdownMenuItem(onClick = {
