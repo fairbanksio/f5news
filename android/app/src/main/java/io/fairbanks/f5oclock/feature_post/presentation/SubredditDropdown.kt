@@ -30,17 +30,23 @@ fun SubredditDropdown(
 
     Box(modifier = Modifier
         .wrapContentSize(Alignment.TopStart)
+        .padding(end=5.dp)
     ) {
 
         TextButton(
-            onClick = { expanded = true }
+            onClick = { expanded = true },
+            colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondaryVariant)
         ) {
 
-            Text(text="r/" + items[selectedIndex])
+            Text(
+                text="r/" + items[selectedIndex],
+                color = MaterialTheme.colors.onSurface
+            )
 
             Icon(
                 imageVector = Icons.Filled.ArrowDropDown,
-                contentDescription = "Localized description"
+                contentDescription = "Localized description",
+                tint = MaterialTheme.colors.onSurface
             )
         }
 

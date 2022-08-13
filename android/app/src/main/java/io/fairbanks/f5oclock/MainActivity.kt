@@ -70,8 +70,7 @@ class MainActivity : ComponentActivity() {
                                     elevation = 4.dp,
                                     title = {
                                         Text("F5 News")
-                                    },
-                                    backgroundColor =  MaterialTheme.colors.primarySurface
+                                    }
                                     , actions = {
                                         SubredditDropdown(
                                             items = listOf(
@@ -87,7 +86,8 @@ class MainActivity : ComponentActivity() {
                                             onSubredditSelect = viewModel::onSelectSub
                                         )
 
-                                    })
+                                    }
+                                )
 
 
 
@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
 
                                         if(i < state.posts.size -1){
 
-                                            Divider(color = Color(0xFF2d3748))
+                                            Divider(color = MaterialTheme.colors.secondaryVariant)
                                         }
                                     }
                                 }

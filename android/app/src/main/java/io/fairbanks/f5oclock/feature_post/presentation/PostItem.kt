@@ -28,17 +28,18 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat.startActivity
+import io.fairbanks.f5oclock.ExtendedTheme
 import io.fairbanks.f5oclock.core.util.TimeAgo
 import io.fairbanks.f5oclock.feature_post.domain.model.Post
 
 @Composable
 fun bgColorFromUpvotes(upvotes: Int) : Color {
     if(upvotes in 100..250){
-        return Color(0xFF161938)
+        return ExtendedTheme.colors.trending
     } else if (upvotes in 251..500){
-        return Color(0xFF16284f)
+        return ExtendedTheme.colors.hot
     } else  if (upvotes >= 501){
-        return Color(0xFF1a365d)
+        return ExtendedTheme.colors.f5oclock
     }
 
     return MaterialTheme.colors.background
