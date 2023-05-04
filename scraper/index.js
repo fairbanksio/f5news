@@ -116,7 +116,7 @@ const fetchPosts = () => {
       console.log(`Currently using ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB of memory \n`), // eslint-disable-line no-console
     )
     .catch(() => {
-      console.warn(`Error Fetching Posts @ ${Date.now()}. This may be due to a timeout from Reddit.`); // eslint-disable-line no-console
+      console.warn(`Error Fetching Posts @ ${Date.now()}. This may be due to a timeout from Reddit or you are being blocked by Reddit.`); // eslint-disable-line no-console
       mongoose.disconnect();
     })
     .done();
