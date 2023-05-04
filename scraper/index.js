@@ -102,7 +102,13 @@ const insertNewPosts = (newPosts) => {
 };
 
 const fetchPosts = () => {
-  rp({ uri: redditUrl, timeout: 4000 })
+  rp({
+    uri: redditUrl,
+    timeout: 4000,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/38.0.2125.111 Safari/537.36'
+    }
+  })
     .then(parseHtmlJson)
     .then(insertNewPosts)
     .then(

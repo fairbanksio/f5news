@@ -8,7 +8,6 @@ import java.util.concurrent.TimeUnit
 class TimeAgo {
     fun covertTimeToText(dataDate: Long): String? {
         var convTime: String? = null
-        val suffix = "Ago"
 
         val pasTime = Date(dataDate)
         val nowTime = Date()
@@ -18,21 +17,21 @@ class TimeAgo {
         val hour: Long = TimeUnit.MILLISECONDS.toHours(dateDiff)
         val day: Long = TimeUnit.MILLISECONDS.toDays(dateDiff)
         if (second < 60) {
-            convTime = "$second Seconds $suffix"
+            convTime = second.toString() + "s"
         } else if (minute < 60) {
-            convTime = "$minute Minutes $suffix"
+            convTime = minute.toString() + "m"
         } else if (hour < 24) {
-            convTime = "$hour Hours $suffix"
+            convTime = hour.toString() + "h"
         } else if (day >= 7) {
             convTime = if (day > 360) {
-                (day / 360).toString() + " Years " + suffix
+                (day / 360).toString() + "y"
             } else if (day > 30) {
-                (day / 30).toString() + " Months " + suffix
+                (day / 30).toString() + "mo"
             } else {
-                (day / 7).toString() + " Week " + suffix
+                (day / 7).toString() + "w"
             }
         } else if (day < 7) {
-            convTime = "$day Days $suffix"
+            convTime = day.toString() + "d"
         }
 
         return convTime

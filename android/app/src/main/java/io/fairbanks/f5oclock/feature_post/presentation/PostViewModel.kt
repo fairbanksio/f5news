@@ -44,12 +44,17 @@ class PostViewModel @Inject constructor (
                                 isLoading = false
                             )
                         }
+
                         is Resource.Error -> {
                             _state.value = state.value.copy(
                                 posts = result.data ?: emptyList(),
                                 isLoading = false
                             )
+                            _eventFlow.emit(UIEvent.ShowSnackBar(
+                                result.message ?: "Unknown error"
+                            ))
                         }
+
                         is Resource.Loading -> {
                             _state.value = state.value.copy(
                                 posts = result.data ?: emptyList(),
