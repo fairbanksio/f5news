@@ -40,7 +40,6 @@ exports.getPostsBySubreddit = async (subreddit) => {
   }
 };
 
-
 exports.getPostTitlesBySubreddit = async (subreddit) => {
   try {
     const utcDate = Math.floor(new Date().getTime() / 1000);
