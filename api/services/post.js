@@ -39,3 +39,31 @@ exports.getPostsBySubreddit = async (subreddit) => {
     throw new Error(error.message);
   }
 };
+
+
+exports.getPostTitlesBySubreddit = async (subreddit) => {
+  try {
+    const utcDate = Math.floor(new Date().getTime() / 1000);
+    // Depending on time per day 30 minute and 60 minute searches in database
+    const timeAdjust = () => {
+      const today = new Date().getUTCHours();
+      if (today >= 11 && today <= 23) {
+        return '7200'; // 2 Hours
+      }
+      return '14400'; // 4 Hours
+    };
+    const searchTime = utcDate - timeAdjust();
+
+    return await Post.find({
+      created_utc: { $gt: searchTime },
+      upvoteCount: { $gt: 5 },
+      sub: subreddit
+    })
+      .sort({ upvoteCount: -1, created_utc: 1 })
+      .limit(20)
+      .select({ "title": 1, "_id": 0});
+  }
+  catch (error) {
+    throw new Error(error.message);
+  }
+};
