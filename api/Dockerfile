@@ -1,4 +1,4 @@
-FROM node:16-slim as base
+FROM node:20-slim as base
 ENV NODE=ENV=production
 ENV TINI_VERSION v0.18.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini

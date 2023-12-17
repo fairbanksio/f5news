@@ -1,5 +1,5 @@
 # Base
-FROM node:16-slim as base
+FROM node:20-slim as base
 RUN apt-get update; apt-get install wget gpg -y
 ENV NODE_ENV=production
 ENV TINI_VERSION v0.19.0
