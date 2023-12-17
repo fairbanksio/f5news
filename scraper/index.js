@@ -137,7 +137,8 @@ const fetchPosts = () => {
           ).toFixed(2)} MB of memory \n`
         ) // eslint-disable-line no-console
       )
-      .catch(() => {
+      .catch((error) => {
+        console.error("error during fetch", error); // eslint-disable-line no-console
         console.warn(
           `Error Fetching Posts @ ${Date.now()}. This may be due to a timeout from Reddit.`
         ); // eslint-disable-line no-console
