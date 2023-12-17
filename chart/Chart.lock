@@ -7,6 +7,6 @@ dependencies:
   version: 0.1.60
 - name: f5oclock-scraper
   repository: file://../scraper/chart
-  version: 1.0.23
-digest: sha256:29b80b619d1a0123fc631794e96720212ecdc43d68478c3068792a154c5fd6d5
-generated: "2023-05-14T21:55:04.038013027Z"
+  version: 1.0.24
+digest: sha256:e663381604d10e0b957cabae8463e7064f28cf77fe77d7acaaed9cf5044f8ba9
+generated: "2023-12-17T17:47:24.776985952Z"
