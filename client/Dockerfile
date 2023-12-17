@@ -1,4 +1,4 @@
-FROM node:16-slim as base
+FROM node:20-slim as base
 ENV NODE_ENV=production
 EXPOSE 3000
 RUN mkdir /app && chown -R node:node /app
