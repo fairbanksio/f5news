@@ -18,3 +18,23 @@ variable "mongodb_atlas_org_id" {
     type        = string
     description = "MongoDB Atlas Organization ID"
 }
+
+variable "reddit_client_id" {
+    type        = string
+    description = "Reddit app client id"
+}
+
+variable "reddit_secret_key" {
+    type        = string
+    description = "Reddit app secret key"
+}
+
+variable "reddit_username" {
+    type        = string
+    description = "reddit username of developer of reddit app"
+}
+
+variable "reddit_password" {
+    type        = string
+    description = "reddit password of developer of reddit app"
+}

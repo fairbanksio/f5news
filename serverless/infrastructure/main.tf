@@ -186,3 +186,31 @@ resource "aws_s3_bucket_policy" "primary_domain_cdn_bucket_policy" {
     }
   )
 }
+
+resource "aws_ssm_parameter" "reddit_client_id" {
+  name = "reddit_client_id"
+  type = "SecureString"
+  value = var.reddit_client_id
+  description = "Reddit app client id"
+}
+
+resource "aws_ssm_parameter" "reddit_secret_key" {
+  name = "reddit_secret_key"
+  type = "SecureString"
+  value = var.reddit_secret_key
+  description = "Reddit secret key"
+}
+
+resource "aws_ssm_parameter" "reddit_username" {
+  name = "reddit_username"
+  type = "SecureString"
+  value = var.reddit_username
+  description = "Reddit username of developer of reddit app"
+}
+
+resource "aws_ssm_parameter" "reddit_password" {
+  name = "reddit_password"
+  type = "SecureString"
+  value = var.reddit_password
+  description = "Reddit password of developer of reddit app"
+}

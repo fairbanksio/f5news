@@ -84,7 +84,7 @@ const insertNewPosts = (newPosts, subreddit) => {
 module.exports.fetchPosts = async (event) => {
   console.log(event);
   const subreddit = event.subreddit || "politics";
-  const redditUrl = `https://www.reddit.com/r/${subreddit}/rising.json`;
+  const redditUrl = `https://oauth.reddit.com/r/${subreddit}/rising`;
   console.log(redditUrl);
 
   await mongoose.connect();
@@ -94,8 +94,10 @@ module.exports.fetchPosts = async (event) => {
   };
 
   // reddit api auth
-  var username = "f5news";
-  var password = "";
+  var username = process.env["REDDIT_USERNAME"];
+  var password = process.env["REDDIT_PASSWORD"];
+  var client_id = process.env["REDDIT_CLIENT_ID"];
+  var client_secret = process.env["REDDIT_SECRET_KEY"];
 
   var details = {
     username: username,
@@ -110,24 +112,35 @@ module.exports.fetchPosts = async (event) => {
   }
   formBody = formBody.join("&");
 
-  await fetch("https://www.reddit.com/api/v1/access_token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-      Authorization: "Basic " + btoa(username + ":" + password),
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    },
-    body: formBody,
-  })
+  const access_token = await fetch(
+    "https://www.reddit.com/api/v1/access_token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        Authorization: "Basic " + btoa(client_id + ":" + client_secret),
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+      body: formBody,
+    }
+  )
     .then((response) => {
       return response.json();
     })
     .then((json) => {
       console.log("json", json);
+      return json.access_token;
     });
 
-  await fetch(redditUrl, { method: "GET", headers: headers })
+  await fetch(redditUrl, {
+    method: "GET",
+    headers: {
+      Authorization: "bearer " + access_token,
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 f5",
+    },
+  })
     .then((response) => {
       console.log("response", response);
       console.log("response", response.body);
