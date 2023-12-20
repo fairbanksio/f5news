@@ -1,0 +1,55 @@
+{
+  "name": "f5-client",
+  "version": "0.1.57",
+  "private": true,
+  "dependencies": {
+    "@chakra-ui/icons": "^1.1.5",
+    "@chakra-ui/react": "^1.8.3",
+    "@emotion/react": "^11.8.1",
+    "@emotion/styled": "^11.8.1",
+    "@testing-library/jest-dom": "^5.16.2",
+    "@testing-library/react": "^10.4.9",
+    "@testing-library/user-event": "^12.8.3",
+    "framer-motion": "^4.1.17",
+    "javascript-time-ago": "^2.3.13",
+    "mock-match-media": "^0.3.0",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
+    "react-ga4": "^1.4.1",
+    "react-icons": "^3.11.0",
+    "react-page-visibility": "^6.4.0",
+    "react-player": "^2.9.0",
+    "react-router-dom": "^6.2.2",
+    "react-scripts": "5.0.0",
+    "web-vitals": "^0.2.4"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-ssm": "^3.433.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "lint": "echo 'no linting defined'",
+    "deploy": "npm run build && npm run upload-to-s3 && npm run invalidate-cache",
+    "upload-to-s3": "node ./deployment/deploy-to-s3.js",
+    "invalidate-cache": "node ./deployment/invalidate-cache.js",
+    "generate-config": "node ./deployment/generate-config.js"
+  },
+  "eslintConfig": {
+    "extends": "react-app"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
