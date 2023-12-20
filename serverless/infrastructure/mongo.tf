@@ -6,7 +6,7 @@ locals  {
     cluster_instance_size_name = "M0"
     provider_name = "TENANT"
     backing_provider_name = "AWS"
-    atlas_region = "US_WEST_2"
+    atlas_region = "US_EAST_1"
 }
 
 resource "mongodbatlas_project" "atlas-project" {

@@ -11,7 +11,7 @@ const input = {
 const command = new GetParameterCommand(input);
 client.send(command).then(data => {
   const api_domain = `api.${data.Parameter.Value}`;
-  const config = `window.REACT_APP_API_DOMAIN="${api_domain}"`;
+  const config = `window.REACT_APP_API="${api_domain}"`;
   try {
     fs.writeFileSync('public/config.js', config);
     console.log('config written to public/config.js');

@@ -1,1 +1,1 @@
-window.REACT_APP_API_DOMAIN="api.f5.news"
+window.REACT_APP_API = 'api.f5.news';

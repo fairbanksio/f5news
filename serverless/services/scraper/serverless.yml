@@ -4,7 +4,7 @@ frameworkVersion: "3"
 provider:
   name: aws
   runtime: nodejs20.x
-  region: us-west-2
+  region: us-east-1
   environment:
     MONGO_CONNECTION_STRING: ${ssm:/primary_db_connection_string}
     REDDIT_CLIENT_ID: ${ssm:/reddit_client_id}

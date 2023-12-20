@@ -50,7 +50,7 @@ resource "aws_ssm_parameter" "primary_domain_name" {
 
 # Create S3 Bucket for CDN
 resource "aws_s3_bucket" "primary_domain_cdn" {
-  bucket = "${aws_route53_zone.primary_domain.name}-cdn"
+  bucket = "${aws_route53_zone.primary_domain.name}-client-cdn"
   force_destroy = true
 }
 

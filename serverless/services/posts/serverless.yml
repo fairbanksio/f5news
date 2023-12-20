@@ -1,0 +1,37 @@
+service: posts
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: us-east-1
+  environment:
+    MONGO_CONNECTION_STRING: ${ssm:/primary_db_connection_string}
+
+plugins:
+  - serverless-domain-manager
+
+custom:
+  customDomain:
+    domainName: "api.${ssm:/primary_domain_name}"
+    certificateArn: ${ssm:/primary_domain_cert_arn}
+    basePath: "posts"
+    createRoute53Record: true
+    createRoute53IPv6Record: true
+    endpointType: "regional"
+    securityPolicy: tls_1_2
+    apiType: rest
+    autoDomain: true
+
+functions:
+  getPostsBySubreddit:
+    timeout: 30
+    handler: index.get_posts_by_subreddit
+    logRetentionInDays: 30
+    events:
+      - http:
+          path: /{subreddit}
+          method: get
+          cors:
+            origin: "*"
+            headers: "*"
