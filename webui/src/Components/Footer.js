@@ -6,7 +6,7 @@ import {
   Icon,
   useBreakpointValue,
 } from '@chakra-ui/react';
-import { FaGithub } from 'react-icons/fa';
+import { FaSmileBeam } from 'react-icons/fa';
 
 export default function Footer() {
   const maxW = useBreakpointValue({
@@ -38,10 +38,10 @@ export default function Footer() {
       </Text>
       <Stack direction={'row'} spacing={6}>
         <Link
-          href="https://github.com/Fairbanks-io/f5-client/issues/new"
+          href="https://www.buymeacoffee.com/f5news"
           isExternal
         >
-          Request a subreddit <Icon as={FaGithub} mx="2px" />
+          Help Support F5 News <Icon as={FaSmileBeam} mx="2px" />
         </Link>
       </Stack>
     </Container>
