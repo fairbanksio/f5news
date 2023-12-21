@@ -9,9 +9,9 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "serverless-domain-manager": "^7.1.2"
+    "serverless-domain-manager": "^7.3.3"
   },
   "dependencies": {
-    "mongoose": "^7.6.3"
+    "mongoose": "^7.6.7"
   }
 }
