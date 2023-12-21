@@ -1,0 +1,36 @@
+service: scraper
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  environment:
+    MONGO_CONNECTION_STRING: ${ssm:/primary_db_connection_string}
+    REDDIT_CLIENT_ID: ${ssm:/reddit_client_id}
+    REDDIT_SECRET_KEY: ${ssm:/reddit_secret_key}
+    REDDIT_USERNAME: ${ssm:/reddit_username}
+    REDDIT_PASSWORD: ${ssm:/reddit_password}
+
+functions:
+  fetchPosts:
+    timeout: 30
+    memorySize: 256
+    handler: index.fetchPosts
+    logRetentionInDays: 7
+    events:
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
+            subreddit: politics
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
+            subreddit: worldnews
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
+            subreddit: news

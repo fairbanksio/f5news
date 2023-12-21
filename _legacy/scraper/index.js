@@ -116,38 +116,34 @@ const insertNewPosts = (newPosts) => {
 };
 
 const fetchPosts = () => {
-  try {
-    rp({
-      uri: redditUrl,
-      timeout: 4000,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/38.0.2125.111 Safari/537.36",
-      },
+  rp({
+    uri: redditUrl,
+    timeout: 4000,
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+  })
+    .then(parseHtmlJson)
+    .then(insertNewPosts)
+    .then(
+      console.log(`Saved New Posts @ ${Date.now()}`), // eslint-disable-line no-console
+      console.log(
+        `Currently using ${(
+          process.memoryUsage().heapUsed /
+          1024 /
+          1024
+        ).toFixed(2)} MB of memory \n`
+      ) // eslint-disable-line no-console
+    )
+    .catch((error) => {
+      console.error("error during fetch", error); // eslint-disable-line no-console
+      console.warn(
+        `Error Fetching Posts @ ${Date.now()}. This may be due to a timeout from Reddit.`
+      ); // eslint-disable-line no-console
+      mongoose.disconnect();
     })
-      .then(parseHtmlJson)
-      .then(insertNewPosts)
-      .then(
-        console.log(`Saved New Posts @ ${Date.now()}`), // eslint-disable-line no-console
-        console.log(
-          `Currently using ${(
-            process.memoryUsage().heapUsed /
-            1024 /
-            1024
-          ).toFixed(2)} MB of memory \n`
-        ) // eslint-disable-line no-console
-      )
-      .catch((error) => {
-        console.error("error during fetch", error); // eslint-disable-line no-console
-        console.warn(
-          `Error Fetching Posts @ ${Date.now()}. This may be due to a timeout from Reddit.`
-        ); // eslint-disable-line no-console
-        mongoose.disconnect();
-      })
-      .done();
-  } catch (error) {
-    console.log("error during fetch:", error); // eslint-disable-line no-console
-  }
+    .done();
 };
 
 mongoose.connection.on("connected", () => {

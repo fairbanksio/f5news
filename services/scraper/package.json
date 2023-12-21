@@ -1,0 +1,34 @@
+{
+  "name": "f5oclock-scraper",
+  "version": "1.0.21",
+  "description": "Scheduled job for scraping reddit posts and storing in MongoDB",
+  "main": "index.js",
+  "dependencies": {
+    "mongoose": "^7.6.3",
+    "node-fetch": "^2.7.0",
+    "q": "^1.5.1",
+    "request": "^2.88.2",
+    "request-promise": "^4.2.6",
+    "saslprep": "^1.0.3"
+  },
+  "devDependencies": {
+    "eslint": "^8.8.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.22.1",
+    "nodemon": "^2.0.7",
+    "serverless-domain-manager": "^7.1.2"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fairbanksio/f5oclock.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/fairbanksio/f5oclock/issues"
+  },
+  "homepage": "https://github.com/fairbanksio/f5oclock#readme"
+}
