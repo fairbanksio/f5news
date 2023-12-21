@@ -21,3 +21,6 @@
 
 notes:
 running terraform destroy then quickly running terraform apply to 'rebuild' may fail because it takes aws a long time to free up the s3 bucket name as it ahs to be globally unique. if you do this, you will have to change the s3 cdn name in terraform main.tf when doing apply or wait an indeterminant amount of time if you want to use the same name
+
+todo:
+document the prerequisite steps required for setting up the terraform workspace/variables and aws account setup prior to being able to use this repo
