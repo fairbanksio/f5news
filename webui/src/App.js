@@ -42,7 +42,6 @@ const ThemedApp = () => {
                     <Navbar/>
                   </Box>
                   <Box flex='1'>
-                    
                     <MediaModal/>
                     <MainContent/>
                   </Box>

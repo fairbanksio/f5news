@@ -76,9 +76,10 @@ const PostView = () => {
           setLoading(false);
         }, 1700);
         setError({ show: false });
-
+        
         if (gtThan5MinsAgo(findLatestFetch(json.data))) {
           console.log('delayed');
+          /*
           setError({
             level: 'warning',
             show: true,
@@ -86,6 +87,7 @@ const PostView = () => {
             message:
               "Content may be out of date.. This may be due to Reddit's API experiencing issues.",
           });
+          */
         }
       })
       .catch(error => {
