@@ -92,6 +92,7 @@ resource "aws_s3_bucket_website_configuration" "primary_domain_cdn_hosting_confi
   index_document {
     suffix = "index.html"
   }
+  
 }
 
 resource "aws_acm_certificate_validation" "primary_domain_cert_validation" {
@@ -145,6 +146,12 @@ resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
   }
+  custom_error_response {
+    error_code          = 404
+    response_code       = 200
+    response_page_path  = "/"
+  }
+
 }
 
 
