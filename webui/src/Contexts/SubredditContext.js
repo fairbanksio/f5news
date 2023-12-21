@@ -40,7 +40,7 @@ export const SubredditProvider = props => {
 
   const [state, setState] = useState(initState);
 
-  const [error, setError] = useState({
+  const [_error, setError] = useState({
     level: 'warning',
     show: false,
     title: 'Warning:',
