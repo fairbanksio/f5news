@@ -67,7 +67,6 @@ const App = () => {
           <Route path="/r/:subredditPath" element={<ThemedApp/>} />
           <Route path="*" element={<Navigate to={"/r/" + defaultDest} replace />} />
         </Routes>
-        
       </Router>
     </ThemeProvider>
   );
