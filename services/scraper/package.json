@@ -4,7 +4,7 @@
   "description": "Scheduled job for scraping reddit posts and storing in MongoDB",
   "main": "index.js",
   "dependencies": {
-    "mongoose": "^7.6.3",
+    "mongoose": "^7.6.7",
     "node-fetch": "^2.7.0",
     "q": "^1.5.1",
     "request": "^2.88.2",
@@ -12,11 +12,11 @@
     "saslprep": "^1.0.3"
   },
   "devDependencies": {
-    "eslint": "^8.8.0",
+    "eslint": "^8.56.0",
     "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-plugin-import": "^2.22.1",
-    "nodemon": "^2.0.7",
-    "serverless-domain-manager": "^7.1.2"
+    "eslint-plugin-import": "^2.29.1",
+    "nodemon": "^2.0.22",
+    "serverless-domain-manager": "^7.3.3"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
