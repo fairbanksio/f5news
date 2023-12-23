@@ -1,0 +1,72 @@
+WAFRegionalWebACL:
+  Type: "AWS::WAFv2::WebACL"
+  Properties:
+    Name: "ApiGateway-HTTP-WebAppFirewall-${sls:stage}"
+    DefaultAction:
+      Allow: {}
+    Scope: REGIONAL
+    VisibilityConfig:
+      CloudWatchMetricsEnabled: True
+      MetricName: webACL
+      SampledRequestsEnabled: True
+    Rules:
+      - Name: AWS-AWSManagedRulesCommonRuleSet
+        OverrideAction:
+          None: {}
+        Priority: 1
+        Statement:
+          ManagedRuleGroupStatement:
+            Name: AWSManagedRulesCommonRuleSet
+            VendorName: AWS
+        VisibilityConfig:
+          CloudWatchMetricsEnabled: True
+          MetricName: AWSManagedRulesCommonRuleSet
+          SampledRequestsEnabled: True
+      - Name: AWS-AWSManagedRulesKnownBadInputsRuleSet
+        OverrideAction:
+          None: {}
+        Priority: 2
+        Statement:
+          ManagedRuleGroupStatement:
+            Name: AWSManagedRulesKnownBadInputsRuleSet
+            VendorName: AWS
+        VisibilityConfig:
+          CloudWatchMetricsEnabled: True
+          MetricName: AWSManagedRulesKnownBadInputsRuleSet
+          SampledRequestsEnabled: True
+      - Name: AWS-AWSManagedRulesAmazonIpReputationList
+        OverrideAction:
+          None: {}
+        Priority: 3
+        Statement:
+          ManagedRuleGroupStatement:
+            Name: AWSManagedRulesAmazonIpReputationList
+            VendorName: AWS
+        VisibilityConfig:
+          CloudWatchMetricsEnabled: True
+          MetricName: AWSManagedRulesAmazonIpReputationList
+          SampledRequestsEnabled: True
+      - Name: AWS-AWSManagedRulesAnonymousIpList
+        OverrideAction:
+          None: {}
+        Priority: 3
+        Statement:
+          ManagedRuleGroupStatement:
+            Name: AWSManagedRulesAnonymousIpList
+            VendorName: AWS
+        VisibilityConfig:
+          CloudWatchMetricsEnabled: True
+          MetricName: AWSManagedRulesAnonymousIpList
+          SampledRequestsEnabled: True
+      - Name: Custom-BlanketRateLimiting
+        Action:
+          Block: {}
+        Priority: 5
+        Statement:
+          RateBasedStatement:
+            AggregateKeyType: IP
+            Limit: 10000
+        VisibilityConfig:
+          CloudWatchMetricsEnabled: True
+          MetricName: BlanketRateLimiting
+          SampledRequestsEnabled: True

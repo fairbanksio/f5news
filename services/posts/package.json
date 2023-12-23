@@ -12,6 +12,7 @@
     "serverless-domain-manager": "^7.1.2"
   },
   "dependencies": {
-    "mongoose": "^7.6.3"
+    "mongoose": "^7.6.3",
+    "serverless-associate-waf": "^1.2.1"
   }
 }
