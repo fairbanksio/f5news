@@ -10,6 +10,7 @@ provider:
 
 plugins:
   - serverless-domain-manager
+  - serverless-associate-waf
 
 custom:
   customDomain:
@@ -22,6 +23,10 @@ custom:
     securityPolicy: tls_1_2
     apiType: rest
     autoDomain: true
+    # Associate WAF Web ACL with API Gateway of current stack
+    associateWaf:
+      name: ${self:resources.Resources.WAFRegionalWebACL.Properties.Name}
+      version: Regional #(optional) Regional | V2
 
 functions:
   getPostsBySubreddit:
@@ -35,3 +40,9 @@ functions:
           cors:
             origin: "*"
             headers: "*"
+
+# CloudFormation Resources
+# Create WAF Regional Web ACL
+resources:
+  Resources:
+    WAFRegionalWebACL: ${file(./resources/waf.yml):WAFRegionalWebACL}
