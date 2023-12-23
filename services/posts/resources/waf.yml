@@ -49,7 +49,7 @@ WAFRegionalWebACL:
       - Name: AWS-AWSManagedRulesAnonymousIpList
         OverrideAction:
           None: {}
-        Priority: 3
+        Priority: 4
         Statement:
           ManagedRuleGroupStatement:
             Name: AWSManagedRulesAnonymousIpList
@@ -65,7 +65,7 @@ WAFRegionalWebACL:
         Statement:
           RateBasedStatement:
             AggregateKeyType: IP
-            Limit: 10000
+            Limit: 1000
         VisibilityConfig:
           CloudWatchMetricsEnabled: True
           MetricName: BlanketRateLimiting
