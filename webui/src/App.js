@@ -42,7 +42,6 @@ const ThemedApp = () => {
                     <Navbar/>
                   </Box>
                   <Box flex='1'>
-                    
                     <MediaModal/>
                     <MainContent/>
                   </Box>
@@ -68,7 +67,6 @@ const App = () => {
           <Route path="/r/:subredditPath" element={<ThemedApp/>} />
           <Route path="*" element={<Navigate to={"/r/" + defaultDest} replace />} />
         </Routes>
-        
       </Router>
     </ThemeProvider>
   );
