@@ -1,0 +1,34 @@
+service: browser
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+
+plugins:
+  - serverless-domain-manager
+
+custom:
+  customDomain:
+    domainName: "api.${ssm:/primary_domain_name}"
+    certificateArn: ${ssm:/primary_domain_cert_arn}
+    basePath: "browser"
+    createRoute53Record: true
+    createRoute53IPv6Record: true
+    endpointType: "regional"
+    securityPolicy: tls_1_2
+    apiType: rest
+    autoDomain: true
+
+functions:
+  getArticle:
+    timeout: 90
+    handler: index.handler
+    logRetentionInDays: 30
+    events:
+      - http:
+          path: /get-article
+          method: post
+          cors:
+            origin: "*"
+            headers: "*"
