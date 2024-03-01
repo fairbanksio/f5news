@@ -35,4 +35,4 @@ jobs:
     # Run Plan
     - name: Terraform Plan
       working-directory: 'infrastructure'
-      run: terraform plan -target=digitalocean_kubernetes_cluster.k8s
+      run: terraform plan
