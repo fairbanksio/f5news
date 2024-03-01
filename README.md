@@ -1,6 +1,6 @@
 # F5oclock
 
-<img src="f5oclock.png" width='65%'>
+<img src="f5oclock.png">
 
 <!-- ![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/fairbanks-io/f5oclock/.github/workflows/Client%20-%20Release?label=Client%20Build>)
 ![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/fairbanks-io/f5oclock/.github/workflows/API%20-%20Release?label=API%20Build>)
@@ -10,7 +10,7 @@
 ![GitHub last commit](https://img.shields.io/github/last-commit/fairbanks-io/f5oclock.svg)
 ![License](https://img.shields.io/github/license/fairbanks-io/f5oclock.svg?style=flat)
 
-A MERN stack based application that scrapes subreddits and asynchronously presents it to the user.
+Trending news site built with AWS Lambdas that monitor web trends, storing data in a cloud-hosted MongoDB and presenting it to users via an AWS-hosted React UI.
 
 ### Live Demo
 
