@@ -41,6 +41,9 @@ jobs:
     name: 'Serverless'
     needs: infrastructure
     runs-on: ubuntu-latest
+    strategy:
+    matrix:
+      node-version: ['18.x']
 
     # Required for Github-AWS OIDC to work
     permissions:
@@ -60,3 +63,42 @@ jobs:
         aws-region: us-east-1
         role-to-assume: arn:aws:iam::633025216388:role/GithubActions-Fairbanksio-F5oclock
         role-duration-seconds: 1200 # Optional duration, 20 minutes in this case
+
+    # Install Nodejs
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@v3
+      with:
+        node-version: 20.x
+
+    # Deploy Posts Service
+    - run: npm ci
+      name: "Posts Service - Install dependencies"
+      working-directory: 'services/posts'
+
+    - name: "Posts Service - Deploy"
+      uses: serverless/github-action@v3.2
+      with:
+        args: deploy
+      working-directory: 'services/posts'
+
+    # Deploy Scraper Service
+    - run: npm ci
+      name: "Scraper Service - Install dependencies"
+      working-directory: 'services/scraper'
+
+    - name: "Scraper Service - Deploy"
+      uses: serverless/github-action@v3.2
+      with:
+        args: deploy
+      working-directory: 'services/scraper'
+
+    # Deploy Subreddits Service
+    - run: npm ci
+      name: "Subreddits Service - Install dependencies"
+      working-directory: 'services/subreddits'
+
+    - name: "Subreddits Service - Deploy"
+      uses: serverless/github-action@v3.2
+      with:
+        args: deploy
+      working-directory: 'services/subreddits'
