@@ -42,6 +42,11 @@ jobs:
     needs: terraform
     runs-on: ubuntu-latest
 
+    # Required for Github-AWS OIDC to work
+    permissions:
+      id-token: write
+      contents: read
+
     # Checkout the repository to the GitHub Actions runner
     steps:
     - name: Checkout
