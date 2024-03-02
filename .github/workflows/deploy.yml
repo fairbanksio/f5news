@@ -30,13 +30,9 @@ jobs:
       working-directory: 'infrastructure'
       run: terraform fmt -check
 
-    # Run Plan
-    - name: Terraform Plan
-      working-directory: 'infrastructure'
-      run: terraform plan
-
     # Build cluster first
     - name: Terraform Apply
+      working-directory: 'infrastructure'
       run: terraform apply -auto-approve
 
   services:
