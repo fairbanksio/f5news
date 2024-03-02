@@ -9,3 +9,6 @@
 
 ### Readme
 - [ ] Create a new UI GIF
+
+### Other
+- [ ] Remove `_legacy/` folder
