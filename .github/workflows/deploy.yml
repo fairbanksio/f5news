@@ -4,7 +4,6 @@ on:
   push:
     branches:
     - master
-  pull_request:
 
 jobs:
   infrastructure:
@@ -32,10 +31,9 @@ jobs:
       working-directory: 'infrastructure'
       run: terraform fmt -check
 
-    # Run Plan
-    - name: Terraform Plan
-      working-directory: 'infrastructure'
-      run: terraform plan
+    # Build cluster first
+    - name: Terraform Apply
+      run: terraform apply -auto-approve
 
   services:
     name: 'Serverless'
