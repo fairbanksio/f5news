@@ -4,7 +4,6 @@ on:
   push:
     branches:
     - master
-
 jobs:
   infrastructure:
     name: 'Infrastructure'
@@ -30,6 +29,11 @@ jobs:
     - name: Terraform Format
       working-directory: 'infrastructure'
       run: terraform fmt -check
+
+    # Run Plan
+    - name: Terraform Plan
+      working-directory: 'infrastructure'
+      run: terraform plan
 
     # Build cluster first
     - name: Terraform Apply
