@@ -53,6 +53,8 @@ export const SubredditProvider = props => {
       : 'https://localhost';
   apiEndpoint = 'https://' + apiEndpoint.replace(/\/$/, '');
 
+  console.log(error)
+
   const fetchSubreddits = () => {
     setLoading(true);
     fetch(apiEndpoint + '/subreddits')
