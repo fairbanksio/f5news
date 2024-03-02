@@ -7,8 +7,8 @@ on:
   pull_request:
 
 jobs:
-  terraform:
-    name: 'Terraform'
+  infrastructure:
+    name: 'Infrastructure'
     runs-on: ubuntu-latest
 
     # Checkout the repository to the GitHub Actions runner
@@ -39,7 +39,7 @@ jobs:
 
   services:
     name: 'Serverless'
-    needs: terraform
+    needs: infrastructure
     runs-on: ubuntu-latest
 
     # Required for Github-AWS OIDC to work
