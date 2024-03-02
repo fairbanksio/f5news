@@ -4,7 +4,6 @@ on:
   push:
     branches:
     - master
-  pull_request:
 
 jobs:
   infrastructure:
@@ -32,10 +31,9 @@ jobs:
       working-directory: 'infrastructure'
       run: terraform fmt -check
 
-    # Run Plan
-    - name: Terraform Plan
-      working-directory: 'infrastructure'
-      run: terraform plan
+    # Build cluster first
+    - name: Terraform Apply
+      run: terraform apply -auto-approve
 
   services:
     name: 'Serverless'
@@ -55,8 +53,86 @@ jobs:
     # Configure AWS Credentials
     # Basically run 'aws configure' as you would from local CLI
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-region: us-east-1
         role-to-assume: arn:aws:iam::633025216388:role/GithubActions-Fairbanksio-F5oclock
         role-duration-seconds: 1200 # Optional duration, 20 minutes in this case
+
+    # Install Nodejs
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.x
+
+    # Deploy Posts Service
+    - run: npm ci
+      name: "Posts Service - Install dependencies"
+      working-directory: 'services/posts'
+
+    - name: "Posts Service - Deploy"
+      uses: serverless/github-action@v3.2
+      with:
+        args: -c "cd ./services/posts && serverless deploy"
+        entrypoint: /bin/sh
+
+    # Deploy Scraper Service
+    - run: npm ci
+      name: "Scraper Service - Install dependencies"
+      working-directory: 'services/scraper'
+
+    - name: "Scraper Service - Deploy"
+      uses: serverless/github-action@v3.2
+      with:
+        args: -c "cd ./services/scraper && serverless deploy"
+        entrypoint: /bin/sh
+
+    # Deploy Subreddits Service
+    - run: npm ci
+      name: "Subreddits Service - Install dependencies"
+      working-directory: 'services/subreddits'
+
+    - name: "Subreddits Service - Deploy"
+      uses: serverless/github-action@v3.2
+      with:
+        args: -c "cd ./services/subreddits && serverless deploy"
+        entrypoint: /bin/sh
+
+  webapp:
+    name: 'Web App'
+    needs: services
+    runs-on: ubuntu-latest
+
+    # Required for Github-AWS OIDC to work
+    permissions:
+      id-token: write
+      contents: read
+
+    # Checkout the repository to the GitHub Actions runner
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # Configure AWS Credentials
+    # Basically run 'aws configure' as you would from local CLI
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: us-east-1
+        role-to-assume: arn:aws:iam::633025216388:role/GithubActions-Fairbanksio-F5oclock
+        role-duration-seconds: 1200 # Optional duration, 20 minutes in this case
+
+    # Install Nodejs
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.x
+
+    # Deploy Posts Service
+    - run: npm ci
+      name: "Install dependencies"
+      working-directory: 'webui'
+
+    - run: npm run deploy
+      name: "Deploy"
+      working-directory: 'webui'
