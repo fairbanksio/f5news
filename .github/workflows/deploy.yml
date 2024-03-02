@@ -7,8 +7,8 @@ on:
   pull_request:
 
 jobs:
-  terraform:
-    name: 'Terraform'
+  infrastructure:
+    name: 'Infrastructure'
     runs-on: ubuntu-latest
 
     # Checkout the repository to the GitHub Actions runner
@@ -36,3 +36,27 @@ jobs:
     - name: Terraform Plan
       working-directory: 'infrastructure'
       run: terraform plan
+
+  services:
+    name: 'Serverless'
+    needs: infrastructure
+    runs-on: ubuntu-latest
+
+    # Required for Github-AWS OIDC to work
+    permissions:
+      id-token: write
+      contents: read
+
+    # Checkout the repository to the GitHub Actions runner
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # Configure AWS Credentials
+    # Basically run 'aws configure' as you would from local CLI
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-region: us-east-1
+        role-to-assume: arn:aws:iam::633025216388:role/GithubActions-Fairbanksio-F5oclock
+        role-duration-seconds: 1200 # Optional duration, 20 minutes in this case
