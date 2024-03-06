@@ -1,6 +1,6 @@
 # F5oclock
 
-<img src="f5oclock.png">
+<img src="demo.gif">
 
 <!-- ![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/fairbanks-io/f5oclock/.github/workflows/Client%20-%20Release?label=Client%20Build>)
 ![GitHub Workflow Status](<https://img.shields.io/github/workflow/status/fairbanks-io/f5oclock/.github/workflows/API%20-%20Release?label=API%20Build>)
