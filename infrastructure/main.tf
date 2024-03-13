@@ -4,8 +4,8 @@ resource "aws_route53_zone" "primary_domain" {
 }
 
 resource "aws_acm_certificate" "primary_domain_cert" {
-  provider = aws.us-east-1
-  domain_name = aws_route53_zone.primary_domain.name
+  provider          = aws.us-east-1
+  domain_name       = aws_route53_zone.primary_domain.name
   validation_method = "DNS"
   subject_alternative_names = [
     aws_route53_zone.primary_domain.name,
@@ -35,29 +35,29 @@ resource "aws_route53_record" "primary_domain_cert_validation_records" {
 }
 
 resource "aws_ssm_parameter" "primary_domain_cert_arn" {
-  name = "primary_domain_cert_arn"
-  type = "String"
-  value = aws_acm_certificate.primary_domain_cert.arn
+  name        = "primary_domain_cert_arn"
+  type        = "String"
+  value       = aws_acm_certificate.primary_domain_cert.arn
   description = "Certificate ARN for primary domain"
 }
 
 resource "aws_ssm_parameter" "primary_domain_name" {
-  name = "primary_domain_name"
-  type = "String"
-  value = var.primary_domain
+  name        = "primary_domain_name"
+  type        = "String"
+  value       = var.primary_domain
   description = "DNS name of primary domain"
 }
 
 # Create S3 Bucket for CDN
 resource "aws_s3_bucket" "primary_domain_cdn" {
-  bucket = "${aws_route53_zone.primary_domain.name}-client-cdn"
+  bucket        = "${aws_route53_zone.primary_domain.name}-client-cdn"
   force_destroy = true
 }
 
 resource "aws_ssm_parameter" "primary_domain_cdn" {
-  name = "primary_domain_cdn"
-  type = "String"
-  value = aws_s3_bucket.primary_domain_cdn.id
+  name        = "primary_domain_cdn"
+  type        = "String"
+  value       = aws_s3_bucket.primary_domain_cdn.id
   description = "Bucket ID of primary domain CDN"
 }
 
@@ -92,11 +92,11 @@ resource "aws_s3_bucket_website_configuration" "primary_domain_cdn_hosting_confi
   index_document {
     suffix = "index.html"
   }
-  
+
 }
 
 resource "aws_acm_certificate_validation" "primary_domain_cert_validation" {
-  provider = aws.us-east-1
+  provider                = aws.us-east-1
   certificate_arn         = aws_acm_certificate.primary_domain_cert.arn
   validation_record_fqdns = [for record in aws_route53_record.primary_domain_cert_validation_records : record.fqdn]
 }
@@ -104,7 +104,7 @@ resource "aws_acm_certificate_validation" "primary_domain_cert_validation" {
 resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
   enabled         = true
   is_ipv6_enabled = true
-  depends_on = [ aws_acm_certificate_validation.primary_domain_cert_validation ]
+  depends_on      = [aws_acm_certificate_validation.primary_domain_cert_validation]
   origin {
     domain_name = aws_s3_bucket_website_configuration.primary_domain_cdn_hosting_config.website_endpoint
     origin_id   = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
@@ -123,7 +123,7 @@ resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
 
   viewer_certificate {
     acm_certificate_arn = aws_acm_certificate.primary_domain_cert.arn
-    ssl_support_method = "sni-only"
+    ssl_support_method  = "sni-only"
   }
 
   aliases = [
@@ -147,9 +147,9 @@ resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
     target_origin_id       = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
   }
   custom_error_response {
-    error_code          = 404
-    response_code       = 200
-    response_page_path  = "/"
+    error_code         = 404
+    response_code      = 200
+    response_page_path = "/"
   }
 
 }
@@ -157,27 +157,27 @@ resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
 
 
 resource "aws_ssm_parameter" "primary_domain_cdn_distribution" {
-  name = "primary_domain_cdn_distribution"
-  type = "String"
-  value = aws_cloudfront_distribution.primary_domain_cdn_distribution.id
+  name        = "primary_domain_cdn_distribution"
+  type        = "String"
+  value       = aws_cloudfront_distribution.primary_domain_cdn_distribution.id
   description = "Distribution ID for primary CDN cloudfront distribution"
 }
 
 resource "aws_route53_record" "pimary_domain_cdn_cname" {
-    zone_id = aws_route53_zone.primary_domain.id
-    name = var.primary_domain
-    type = "A"
+  zone_id = aws_route53_zone.primary_domain.id
+  name    = var.primary_domain
+  type    = "A"
 
-    alias {
-        name = aws_cloudfront_distribution.primary_domain_cdn_distribution.domain_name
-        zone_id = aws_cloudfront_distribution.primary_domain_cdn_distribution.hosted_zone_id
-        evaluate_target_health = false
-    }
+  alias {
+    name                   = aws_cloudfront_distribution.primary_domain_cdn_distribution.domain_name
+    zone_id                = aws_cloudfront_distribution.primary_domain_cdn_distribution.hosted_zone_id
+    evaluate_target_health = false
+  }
 }
 
 resource "aws_s3_bucket_policy" "primary_domain_cdn_bucket_policy" {
-  bucket = aws_s3_bucket.primary_domain_cdn.id
-  depends_on = [ aws_s3_bucket_acl.primary_domain_cdn_acl ]
+  bucket     = aws_s3_bucket.primary_domain_cdn.id
+  depends_on = [aws_s3_bucket_acl.primary_domain_cdn_acl]
   policy = jsonencode(
     {
       "Version" : "2012-10-17",
@@ -195,29 +195,29 @@ resource "aws_s3_bucket_policy" "primary_domain_cdn_bucket_policy" {
 }
 
 resource "aws_ssm_parameter" "reddit_client_id" {
-  name = "reddit_client_id"
-  type = "SecureString"
-  value = var.reddit_client_id
+  name        = "reddit_client_id"
+  type        = "SecureString"
+  value       = var.reddit_client_id
   description = "Reddit app client id"
 }
 
 resource "aws_ssm_parameter" "reddit_secret_key" {
-  name = "reddit_secret_key"
-  type = "SecureString"
-  value = var.reddit_secret_key
+  name        = "reddit_secret_key"
+  type        = "SecureString"
+  value       = var.reddit_secret_key
   description = "Reddit secret key"
 }
 
 resource "aws_ssm_parameter" "reddit_username" {
-  name = "reddit_username"
-  type = "SecureString"
-  value = var.reddit_username
+  name        = "reddit_username"
+  type        = "SecureString"
+  value       = var.reddit_username
   description = "Reddit username of developer of reddit app"
 }
 
 resource "aws_ssm_parameter" "reddit_password" {
-  name = "reddit_password"
-  type = "SecureString"
-  value = var.reddit_password
+  name        = "reddit_password"
+  type        = "SecureString"
+  value       = var.reddit_password
   description = "Reddit password of developer of reddit app"
 }

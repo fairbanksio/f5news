@@ -13,7 +13,7 @@ const fetchedPost = new mongoose.Schema({
   fetchedAt: {
     type: Date,
     default: new Date(),
-    expires: 18000,
+    expires: 31536000,
   },
   is_video: Boolean,
   media: Object,
