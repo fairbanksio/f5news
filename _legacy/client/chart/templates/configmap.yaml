@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ .Release.Name }}-configmap
-data:
-  config.js: |
-    window.REACT_APP_API="{{ .Values.apiURL }}"
-    window.REACT_APP_LIST_SUBS="{{ .Values.listsubsURL }}"
