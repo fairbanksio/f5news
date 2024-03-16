@@ -1,4 +1,5 @@
 
 .DS_Store
 mlruns
+models
 resources/data-analysis/.env
