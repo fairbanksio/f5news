@@ -1,3 +1,4 @@
+# Define local variables for project configuration
 locals {
   project_name               = "f5-news"
   whitelisted_ips            = "0.0.0.0/0"
@@ -9,18 +10,20 @@ locals {
   atlas_region               = "US_EAST_1"
 }
 
+# Create a MongoDB Atlas project
 resource "mongodbatlas_project" "atlas-project" {
   org_id = var.mongodb_atlas_org_id
   name   = local.project_name
 }
 
-# Create a Database Password
+# Generate a random password for the database user
 resource "random_password" "db-user-password" {
   length           = 16
   special          = true
   override_special = "^&*"
 }
 
+# Create a database user in MongoDB Atlas
 resource "mongodbatlas_database_user" "db-user" {
   username           = "user-1"
   password           = random_password.db-user-password.result
@@ -32,11 +35,13 @@ resource "mongodbatlas_database_user" "db-user" {
   }
 }
 
+# Configure IP Whitelisting for MongoDB Atlas
 resource "mongodbatlas_project_ip_access_list" "ip" {
   project_id = mongodbatlas_project.atlas-project.id
   cidr_block = local.whitelisted_ips
 }
 
+# Create a MongoDB Atlas cluster
 resource "mongodbatlas_cluster" "atlas_cluster" {
   project_id   = mongodbatlas_project.atlas-project.id
   name         = "${local.project_name}-${local.environment}-cluster"
@@ -44,18 +49,16 @@ resource "mongodbatlas_cluster" "atlas_cluster" {
 
   mongo_db_major_version = local.mongodb_version
 
-  # Provider Settings "block"
   provider_region_name        = local.atlas_region
   provider_name               = local.provider_name
   backing_provider_name       = local.backing_provider_name
   provider_instance_size_name = local.cluster_instance_size_name
-
 }
 
-
+# Store the primary database connection string in AWS SSM Parameter Store
 resource "aws_ssm_parameter" "primary_db_connection_string" {
   name        = "primary_db_connection_string"
   type        = "SecureString"
   value       = "${replace(mongodbatlas_cluster.atlas_cluster.connection_strings[0].standard_srv, "mongodb+srv://", "mongodb+srv://${mongodbatlas_database_user.db-user.username}:${coalesce(nonsensitive(mongodbatlas_database_user.db-user.password), "null")}@")}/${local.project_name}-db"
-  description = "Connection String for primary mongo db"
+  description = "MongoDB Connection String"
 }

@@ -1,8 +1,9 @@
-
+# Create Route53 hosted zone for the primary domain
 resource "aws_route53_zone" "primary_domain" {
   name = var.primary_domain
 }
 
+# Create ACM certificate for the primary domain
 resource "aws_acm_certificate" "primary_domain_cert" {
   provider          = aws.us-east-1
   domain_name       = aws_route53_zone.primary_domain.name
@@ -17,6 +18,7 @@ resource "aws_acm_certificate" "primary_domain_cert" {
   }
 }
 
+# Create Route53 records for ACM certificate validation
 resource "aws_route53_record" "primary_domain_cert_validation_records" {
   for_each = {
     for dvo in aws_acm_certificate.primary_domain_cert.domain_validation_options : dvo.domain_name => {
@@ -34,6 +36,7 @@ resource "aws_route53_record" "primary_domain_cert_validation_records" {
   zone_id         = aws_route53_zone.primary_domain.zone_id
 }
 
+# Store ACM certificate ARN in SSM Parameter Store
 resource "aws_ssm_parameter" "primary_domain_cert_arn" {
   name        = "primary_domain_cert_arn"
   type        = "String"
@@ -41,6 +44,7 @@ resource "aws_ssm_parameter" "primary_domain_cert_arn" {
   description = "Certificate ARN for primary domain"
 }
 
+# Store primary domain name in SSM Parameter Store
 resource "aws_ssm_parameter" "primary_domain_name" {
   name        = "primary_domain_name"
   type        = "String"
@@ -54,6 +58,7 @@ resource "aws_s3_bucket" "primary_domain_cdn" {
   force_destroy = true
 }
 
+# Store S3 Bucket ID of CDN in SSM Parameter Store
 resource "aws_ssm_parameter" "primary_domain_cdn" {
   name        = "primary_domain_cdn"
   type        = "String"
@@ -61,13 +66,15 @@ resource "aws_ssm_parameter" "primary_domain_cdn" {
   description = "Bucket ID of primary domain CDN"
 }
 
-# Allow public access
+# Allow public access to the S3 Bucket
 resource "aws_s3_bucket_ownership_controls" "primary_domain_cdn_ownership_controls" {
   bucket = aws_s3_bucket.primary_domain_cdn.id
   rule {
     object_ownership = "BucketOwnerPreferred"
   }
 }
+
+# Configure public access block settings for the S3 Bucket
 resource "aws_s3_bucket_public_access_block" "primary_domain_cdn_access_block" {
   bucket = aws_s3_bucket.primary_domain_cdn.id
 
@@ -76,6 +83,8 @@ resource "aws_s3_bucket_public_access_block" "primary_domain_cdn_access_block" {
   ignore_public_acls      = false
   restrict_public_buckets = false
 }
+
+# Set ACL for the S3 Bucket to public-read
 resource "aws_s3_bucket_acl" "primary_domain_cdn_acl" {
   depends_on = [
     aws_s3_bucket_ownership_controls.primary_domain_cdn_ownership_controls,
@@ -86,6 +95,7 @@ resource "aws_s3_bucket_acl" "primary_domain_cdn_acl" {
   acl    = "public-read"
 }
 
+# Configure S3 Bucket for website hosting
 resource "aws_s3_bucket_website_configuration" "primary_domain_cdn_hosting_config" {
   bucket = aws_s3_bucket.primary_domain_cdn.id
 
@@ -95,12 +105,14 @@ resource "aws_s3_bucket_website_configuration" "primary_domain_cdn_hosting_confi
 
 }
 
+# Validate ACM certificate
 resource "aws_acm_certificate_validation" "primary_domain_cert_validation" {
   provider                = aws.us-east-1
   certificate_arn         = aws_acm_certificate.primary_domain_cert.arn
   validation_record_fqdns = [for record in aws_route53_record.primary_domain_cert_validation_records : record.fqdn]
 }
 
+# Create CloudFront distribution for the CDN
 resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
   enabled         = true
   is_ipv6_enabled = true
@@ -154,8 +166,7 @@ resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
 
 }
 
-
-
+# Store CloudFront distribution ID in SSM Parameter Store
 resource "aws_ssm_parameter" "primary_domain_cdn_distribution" {
   name        = "primary_domain_cdn_distribution"
   type        = "String"
@@ -163,6 +174,7 @@ resource "aws_ssm_parameter" "primary_domain_cdn_distribution" {
   description = "Distribution ID for primary CDN cloudfront distribution"
 }
 
+# Create Route53 record for the CloudFront distribution
 resource "aws_route53_record" "pimary_domain_cdn_cname" {
   zone_id = aws_route53_zone.primary_domain.id
   name    = var.primary_domain
@@ -175,6 +187,7 @@ resource "aws_route53_record" "pimary_domain_cdn_cname" {
   }
 }
 
+# Configure S3 Bucket policy for public access
 resource "aws_s3_bucket_policy" "primary_domain_cdn_bucket_policy" {
   bucket     = aws_s3_bucket.primary_domain_cdn.id
   depends_on = [aws_s3_bucket_acl.primary_domain_cdn_acl]
@@ -194,30 +207,31 @@ resource "aws_s3_bucket_policy" "primary_domain_cdn_bucket_policy" {
   )
 }
 
+# Store Reddit app details in SSM Parameter Store
 resource "aws_ssm_parameter" "reddit_client_id" {
   name        = "reddit_client_id"
   type        = "SecureString"
   value       = var.reddit_client_id
-  description = "Reddit app client id"
+  description = "Reddit app client ID"
 }
 
 resource "aws_ssm_parameter" "reddit_secret_key" {
   name        = "reddit_secret_key"
   type        = "SecureString"
   value       = var.reddit_secret_key
-  description = "Reddit secret key"
+  description = "Reddit app secret key"
 }
 
 resource "aws_ssm_parameter" "reddit_username" {
   name        = "reddit_username"
   type        = "SecureString"
   value       = var.reddit_username
-  description = "Reddit username of developer of reddit app"
+  description = "Username tied to the Reddit app developer account"
 }
 
 resource "aws_ssm_parameter" "reddit_password" {
   name        = "reddit_password"
   type        = "SecureString"
   value       = var.reddit_password
-  description = "Reddit password of developer of reddit app"
+  description = "Password for Reddit app developer account"
 }
