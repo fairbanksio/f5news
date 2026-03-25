@@ -53,12 +53,16 @@ export const SubredditProvider = props => {
       : 'https://localhost';
   apiEndpoint = 'https://' + apiEndpoint.replace(/\/$/, '');
 
-  console.log(error)
-
   const fetchSubreddits = () => {
     setLoading(true);
     fetch(apiEndpoint + '/subreddits')
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Failed to fetch subreddits: ${response.status}`);
+        }
+
+        return response.json();
+      })
       .then(json => {
         setSubredditList(
           json.data.sort(function (a, b) {
@@ -71,11 +75,15 @@ export const SubredditProvider = props => {
         setError({ show: false });
       })
       .catch(error => {
+        console.error('Failed to refresh subreddit list.', {
+          error: error.message,
+          endpoint: apiEndpoint + '/subreddits',
+        });
         setError({
           level: 'error',
           show: true,
           title: 'Ooops:',
-          message: 'There was a problem fetching new posts. Retrying..',
+          message: 'There was a problem fetching subreddits. Retrying..',
         });
         setLoading(false);
       });
