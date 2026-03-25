@@ -43,6 +43,34 @@ const findLatestFetch = posts => {
   return latestFetch;
 };
 
+const getValidatedPosts = json => {
+  if (!json || !Array.isArray(json.data)) {
+    throw new Error('Invalid posts payload');
+  }
+
+  return json.data;
+};
+
+const logDelayedPosts = (subreddit, posts) => {
+  const latestFetch = findLatestFetch(posts);
+  const latestFetchIso = latestFetch ? new Date(latestFetch).toISOString() : null;
+
+  console.warn('Posts look stale relative to the expected refresh window.', {
+    subreddit,
+    postCount: posts.length,
+    latestFetchedAt: latestFetchIso,
+    expectedFreshWithinSeconds: 120,
+  });
+};
+
+const logPostFetchFailure = (error, subreddit) => {
+  console.error('Failed to refresh posts. Keeping the last successful results until the next valid response.', {
+    subreddit,
+    error: error.message,
+    endpoint: apiEndpoint + '/posts/' + subreddit.replace(/\+/g, '%2b'),
+  });
+};
+
 const PostView = () => {
   const isVisible = usePageVisibility();
   const { refreshInterval } = useContext(RefreshIntervalContext);
@@ -69,28 +97,28 @@ const PostView = () => {
   const fetchPosts = () => {
     setLoading(true);
     fetch(apiEndpoint + '/posts/' + subreddit.replace(/\+/g, '%2b'))
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Failed to fetch posts: ${response.status}`);
+        }
+
+        return response.json();
+      })
       .then(json => {
-        setPosts(json.data);
+        const nextPosts = getValidatedPosts(json);
+        setPosts(nextPosts);
+        setError({ show: false });
+
         setTimeout(() => {
           setLoading(false);
         }, 1700);
-        setError({ show: false });
-        
-        if (gtThan5MinsAgo(findLatestFetch(json.data))) {
-          console.log('delayed');
-          /*
-          setError({
-            level: 'warning',
-            show: true,
-            title: 'Delayed Posts:',
-            message:
-              "Content may be out of date.. This may be due to Reddit's API experiencing issues.",
-          });
-          */
+
+        if (nextPosts.length > 0 && gtThan5MinsAgo(findLatestFetch(nextPosts))) {
+          logDelayedPosts(subreddit, nextPosts);
         }
       })
       .catch(error => {
+        logPostFetchFailure(error, subreddit);
         setError({
           level: 'error',
           show: true,
