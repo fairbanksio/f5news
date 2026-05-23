@@ -7,6 +7,7 @@ import {
   AlertTitle,
   AlertDescription,
   Box,
+  Text,
 } from '@chakra-ui/react';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext';
 import { SubredditContext } from '../Contexts/SubredditContext';
@@ -21,7 +22,15 @@ let apiEndpoint = process.env.REACT_APP_API
   : window.REACT_APP_API
     ? window.REACT_APP_API
     : 'https://localhost';
-apiEndpoint = 'https://' + apiEndpoint.replace(/\/$/, '');
+apiEndpoint = apiEndpoint.replace(/\/$/, '');
+apiEndpoint = /^https?:\/\//.test(apiEndpoint) ? apiEndpoint : 'https://' + apiEndpoint;
+
+const postsApiEndpoint = process.env.REACT_APP_POSTS_API
+  ? process.env.REACT_APP_POSTS_API.replace(/\/$/, '')
+  : apiEndpoint + '/posts';
+
+const getPostsUrl = subreddit =>
+  postsApiEndpoint + '/' + subreddit.replace(/\+/g, '%2b');
 
 const gtThan5MinsAgo = date => {
   const FIVE_MINS = 1000 * 60 * 2;
@@ -67,7 +76,7 @@ const logPostFetchFailure = (error, subreddit) => {
   console.error('Failed to refresh posts. Keeping the last successful results until the next valid response.', {
     subreddit,
     error: error.message,
-    endpoint: apiEndpoint + '/posts/' + subreddit.replace(/\+/g, '%2b'),
+    endpoint: getPostsUrl(subreddit),
   });
 };
 
@@ -96,7 +105,7 @@ const PostView = () => {
 
   const fetchPosts = () => {
     setLoading(true);
-    fetch(apiEndpoint + '/posts/' + subreddit.replace(/\+/g, '%2b'))
+    fetch(getPostsUrl(subreddit))
       .then(response => {
         if (!response.ok) {
           throw new Error(`Failed to fetch posts: ${response.status}`);
