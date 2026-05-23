@@ -7,19 +7,17 @@
     "mongoose": "^7.6.7",
     "node-fetch": "^2.7.0",
     "q": "^1.5.1",
-    "request": "^2.88.2",
-    "request-promise": "^4.2.6",
     "saslprep": "^1.0.3"
   },
   "devDependencies": {
     "eslint": "^8.56.0",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.29.1",
-    "nodemon": "^2.0.22",
-    "serverless-domain-manager": "^7.3.3"
+    "nodemon": "^3.1.14",
+    "serverless": "^3.40.0"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "repository": {
     "type": "git",
