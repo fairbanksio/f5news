@@ -5,7 +5,7 @@ const net = require("net");
 const fetch = require("node-fetch");
 
 const DEFAULT_MAX_BYTES = 512 * 1024;
-const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
@@ -238,6 +238,26 @@ const extractMetaImage = (html, pageUrl) => {
   return preferred ? toAbsoluteImageUrl(preferred.content, pageUrl) : "";
 };
 
+const mapWithConcurrency = async (items, concurrency, mapper) => {
+  const limit = Math.max(1, concurrency || 1);
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker())
+  );
+
+  return results;
+};
+
 const readResponseBody = async (response, maxBytes) => {
   if (!response.body || typeof response.body.on !== "function") {
     const text = await response.text();
@@ -424,7 +444,12 @@ const imageSource = async (data, options = {}) => {
 
   const fetchArticleImageImpl =
     options.fetchArticleImageImpl || fetchArticleImage;
-  const articleImage = await fetchArticleImageImpl(articleUrl, options);
+  let articleImage = "";
+  try {
+    articleImage = await fetchArticleImageImpl(articleUrl, options);
+  } catch (error) {
+    articleImage = "";
+  }
 
   return articleImage || data.thumbnail || "";
 };
@@ -435,6 +460,7 @@ module.exports = {
   hasUsableThumbnail,
   imageSource,
   isSafeHttpUrl,
+  mapWithConcurrency,
   makeSafeLookup,
   redditImageSource,
   selectPublicAddress,

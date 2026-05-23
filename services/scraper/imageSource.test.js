@@ -8,6 +8,7 @@ const {
   makeSafeLookup,
   imageSource,
   isSafeHttpUrl,
+  mapWithConcurrency,
   selectPublicAddress,
 } = require("./imageSource");
 
@@ -60,6 +61,33 @@ test("fetchArticleImage extracts twitter image from fetched article HTML", async
   });
 
   assert.equal(image, "https://publisher.example/image.jpg");
+});
+
+test("fetchArticleImage uses a short default metadata timeout", async () => {
+  let requestTimeout;
+
+  await fetchArticleImage("https://publisher.example/story", {
+    resolveHostname: async () => [{ address: "93.184.216.34" }],
+    fetchImpl: async (url, options) => {
+      requestTimeout = options.timeout;
+      return {
+        ok: true,
+        status: 200,
+        headers: {
+          get: (name) => {
+            if (name.toLowerCase() === "content-type") {
+              return "text/html; charset=utf-8";
+            }
+            return null;
+          },
+        },
+        text: async () =>
+          '<meta property="og:image" content="https://publisher.example/image.jpg">',
+      };
+    },
+  });
+
+  assert.equal(requestTimeout, 3000);
 });
 
 test("fetchArticleImage extracts early metadata from oversized article HTML", async () => {
@@ -118,6 +146,38 @@ test("imageSource fetches article metadata when Reddit image fields are empty", 
   );
 
   assert.equal(image, "https://publisher.example/og.jpg");
+});
+
+test("imageSource falls back when article metadata fetch rejects", async () => {
+  const image = await imageSource(
+    {
+      thumbnail: "default",
+      url: "https://publisher.example/story",
+    },
+    {
+      fetchArticleImageImpl: async () => {
+        throw new Error("publisher blocked metadata request");
+      },
+    }
+  );
+
+  assert.equal(image, "default");
+});
+
+test("mapWithConcurrency caps concurrently running work", async () => {
+  let active = 0;
+  let maxActive = 0;
+
+  const results = await mapWithConcurrency([1, 2, 3, 4, 5], 2, async (value) => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active -= 1;
+    return value * 2;
+  });
+
+  assert.deepEqual(results, [2, 4, 6, 8, 10]);
+  assert.equal(maxActive, 2);
 });
 
 test("isSafeHttpUrl rejects unsupported schemes", async () => {

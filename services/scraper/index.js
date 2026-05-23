@@ -3,56 +3,67 @@ const mongoose = require("./db");
 const fetch = require("node-fetch");
 mongoose.Promise = Q.Promise;
 const newPost = require("./models/newPost");
-const { imageSource } = require("./imageSource");
+const { imageSource, mapWithConcurrency } = require("./imageSource");
+
+const IMAGE_SOURCE_CONCURRENCY = 10;
 
 const insertNewPosts = (newPosts, subreddit) => {
   console.log("inserting new posts:", newPosts); // eslint-disable-line no-console
   let insertPromises = [];
   // Fill array with promises
-  newPosts.forEach((value) => {
-    insertPromises.push(
-      imageSource(value.data).then((thumbnail) =>
-        newPost.findOneAndUpdate(
-          {
-            title: value.data.title,
-            author: value.data.author,
-            created_utc: value.data.created_utc,
-          },
-          {
-            title: value.data.title,
-            domain: value.data.domain,
-            url: value.data.url,
-            commentLink: value.data.permalink,
-            thumbnail,
-            author: value.data.author,
-            created_utc: value.data.created_utc,
-            upvoteCount: value.data.ups,
-            commentCount: value.data.num_comments,
-            fetchedAt: new Date(),
-            post_hint: value.data.post_hint,
-            is_video: value.data.is_video,
-            media: value.data.media,
-            is_gallery: value.data.is_gallery,
-            gallery_data: value.data.gallery_data,
-            media_metadata: value.data.media_metadata,
-            is_self: value.data.is_self,
-            selftext: value.data.selftext,
-            selftext_html: value.data.selftext_html,
-            upvote_ratio: value.data.upvote_ratio,
-            rpan_video: value.data.rpan_video,
-            sub: subreddit,
-          },
-          { upsert: true }
-        )
-      )
-    );
-  });
+  insertPromises = mapWithConcurrency(
+    newPosts,
+    IMAGE_SOURCE_CONCURRENCY,
+    async (value) => {
+      let thumbnail = value.data.thumbnail || "";
+      try {
+        thumbnail = await imageSource(value.data);
+      } catch (error) {
+        console.warn(
+          `Error resolving post image source @ ${Date.now()}: ${error}`
+        ); // eslint-disable-line no-console
+      }
 
-  return Q.all(insertPromises)
+      return newPost.findOneAndUpdate(
+        {
+          title: value.data.title,
+          author: value.data.author,
+          created_utc: value.data.created_utc,
+        },
+        {
+          title: value.data.title,
+          domain: value.data.domain,
+          url: value.data.url,
+          commentLink: value.data.permalink,
+          thumbnail,
+          author: value.data.author,
+          created_utc: value.data.created_utc,
+          upvoteCount: value.data.ups,
+          commentCount: value.data.num_comments,
+          fetchedAt: new Date(),
+          post_hint: value.data.post_hint,
+          is_video: value.data.is_video,
+          media: value.data.media,
+          is_gallery: value.data.is_gallery,
+          gallery_data: value.data.gallery_data,
+          media_metadata: value.data.media_metadata,
+          is_self: value.data.is_self,
+          selftext: value.data.selftext,
+          selftext_html: value.data.selftext_html,
+          upvote_ratio: value.data.upvote_ratio,
+          rpan_video: value.data.rpan_video,
+          sub: subreddit,
+        },
+        { upsert: true }
+      );
+    }
+  );
+
+  return insertPromises
     .catch((e) => {
       console.warn(`Error Inserting Posts @ ${Date.now()}: ${e}`); // eslint-disable-line no-console
     })
-    .fin(() => {
+    .finally(() => {
       insertPromises = null;
     });
 };
