@@ -3,3 +3,4 @@
 mlruns
 models
 resources/data-analysis/.env
+.env
