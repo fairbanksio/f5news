@@ -21,9 +21,9 @@ module.exports.get_posts_by_subreddit = async (event) => {
   const timeAdjust = () => {
     const today = new Date().getUTCHours();
     if (today >= 11 && today <= 23) {
-      return "7200"; // 2 Hours
+      return "14400"; // 4 Hours
     }
-    return "14400"; // 4 Hours
+    return "28800"; // 8 Hours
   };
   const searchTime = utcDate - timeAdjust();
 
