@@ -3,6 +3,18 @@ import ReactPlayer from 'react-player'
 import {ModalContext} from '../Contexts/ModalContext'
 import {useContext} from 'react'
 
+const getThumbnailSrc = (thumbnail) => {
+  if (
+    typeof thumbnail !== 'string' ||
+    thumbnail.trim() === '' ||
+    ['default', 'self', 'spoiler'].includes(thumbnail)
+  ) {
+    return '/placeholder.png';
+  }
+
+  return thumbnail;
+};
+
 export const MediaModal = () => {
   const {modalData, setModalData} = useContext(ModalContext)
 
@@ -63,7 +75,7 @@ export const MediaModal = () => {
             <ModalBody p={0} >
               <Center maxW='container.xl'>
                 <Box position='relative'>
-                  <Image src={modalData.thumbnail === 'default' || modalData.thumbnail === 'self' || modalData.thumbnail === 'spoiler'? './placeholder.png' : modalData.thumbnail}  objectFit='contain' maxH='90vh' minW='50%'/>
+                  <Image src={getThumbnailSrc(modalData.thumbnail)} objectFit='contain' maxH='90vh' minW='50%'/>
                   <ModalCloseButton />
                 </Box>
               </Center>
