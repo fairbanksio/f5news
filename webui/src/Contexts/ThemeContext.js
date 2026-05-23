@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 
 export const ThemeContext = React.createContext({
-  theme: 'classic',
+  theme: 'custom',
   setTheme: () => {}
 })
 
@@ -13,7 +13,7 @@ export const ThemeProvider = (props) => {
   }
 
   const initState = {
-    theme: localStorage.getItem('theme') ? localStorage.getItem('theme') : 'classic',
+    theme: localStorage.getItem('theme') ? localStorage.getItem('theme') : 'custom',
     setTheme: setTheme
   } 
 
