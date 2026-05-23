@@ -151,7 +151,18 @@ const PostView = () => {
         </Box>
       ) : null}
 
-      {viewMode === 'list' ? (
+      {!error.show && posts.length === 0 ? (
+        <Box
+          mt={12}
+          px={4}
+          py={6}
+          textAlign="center"
+        >
+          <Text color="gray.500" fontSize="md" fontWeight="semibold">
+            Nothing notable is happening, surely everything is fine.
+          </Text>
+        </Box>
+      ) : viewMode === 'list' ? (
         <ListView posts={posts} />
       ) : (
         <GridView posts={posts} />

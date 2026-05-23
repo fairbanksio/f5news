@@ -91,6 +91,9 @@ describe('MainContent', () => {
       expect(screen.queryByText('Existing headline')).not.toBeInTheDocument();
     });
 
+    expect(
+      screen.getByText('Nothing notable is happening, surely everything is fine.')
+    ).toBeInTheDocument();
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
