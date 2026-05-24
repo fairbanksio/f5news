@@ -39,6 +39,8 @@ jobs:
     name: 'Serverless'
     needs: infrastructure
     runs-on: ubuntu-latest
+    env:
+      SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
 
     # Required for Github-AWS OIDC to work
     permissions:
@@ -95,9 +97,6 @@ jobs:
     - run: npx serverless deploy
       name: "Subreddits Service - Deploy"
       working-directory: 'services/subreddits'
-      env:
-        SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
-        SERVERLESS_LICENSE_KEY: ${{ secrets.SERVERLESS_LICENSE_KEY }}
 
   webapp:
     name: 'Web App'
