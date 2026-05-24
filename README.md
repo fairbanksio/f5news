@@ -21,4 +21,4 @@ Trending news site built with AWS Lambdas that monitor web trends, storing data 
 
 ### Support
 
-Help keep F5 News independent and ad-free: [Buy me a coffee](https://www.buymeacoffee.com/f5news).
+Help keep F5.news independent and ad-free: [Buy me a coffee](https://www.buymeacoffee.com/f5news).
