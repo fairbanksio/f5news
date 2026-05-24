@@ -1,4 +1,4 @@
-import React, {useContext, useEffect} from 'react';
+import React, {useEffect} from 'react';
 import {
   ChakraProvider,
   Box,
@@ -10,10 +10,9 @@ import MainContent from './Components/MainContent';
 import { RefreshIntervalProvider} from './Contexts/RefreshIntervalContext'
 import { SubredditProvider} from './Contexts/SubredditContext'
 import CustomTheme from './Themes/CustomTheme'
-import ClassicTheme from './Themes/ClassicTheme'
 import Footer from './Components/Footer';
 import Navbar from './Components/Navbar';
-import { ThemeProvider, ThemeContext } from './Contexts/ThemeContext'
+import { ThemeProvider } from './Contexts/ThemeContext'
 import { ViewModeProvider } from './Contexts/ViewModeContext'
 import { LoadingProvider } from './Contexts/LoadingContext'
 import { ModalProvider } from './Contexts/ModalContext'
@@ -23,7 +22,6 @@ import { MediaModal } from './Components/MediaModal'
 
 const ThemedApp = () => {
   ReactGA.initialize('G-S20H9JRLT9');
-  const { theme } = useContext(ThemeContext)
   let location = useLocation();
 
   useEffect(() => {
@@ -31,7 +29,7 @@ const ThemedApp = () => {
   }, [location]);
 
   return (
-    <ChakraProvider theme={theme === 'classic' ? ClassicTheme : CustomTheme}>
+    <ChakraProvider theme={CustomTheme}>
       <RefreshIntervalProvider>
         <SubredditProvider>
           <ViewModeProvider>

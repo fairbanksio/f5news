@@ -25,11 +25,12 @@ import { SubredditContext } from '../Contexts/SubredditContext'
 import { LoadingContext } from '../Contexts/LoadingContext'
 import { ColorModeSwitcher, ColorModeSwitcherMenuItem } from './ColorModeSwitcher';
 import { ViewModeSwitcher, ViewModeSwitcherMenuItem } from './ViewModeSwitcher';
+import { SupportButton, SupportMenuItem } from './SupportLink';
 
 const PrimaryLogo = () => {
   return (
     <>
-      <Text fontSize={'xl'}>&#128293;</Text>
+      <Text textStyle='brand' aria-hidden='true'>&#128293;</Text>
     </>
   )
 }
@@ -40,6 +41,8 @@ const SecondaryLogo = () => {
   )
 }
 
+export const getRefreshIntervalMenuValue = refreshInterval => String(refreshInterval);
+
 export default function Nav() {
   const { refreshInterval, setRefreshInterval } = useContext(RefreshIntervalContext)
   const { subreddit, setSubreddit, subredditList } = useContext(SubredditContext)
@@ -48,6 +51,7 @@ export default function Nav() {
   const mobileMode = useBreakpointValue({base: true, sm: true, md: false})
   const maxMenuWidth = useBreakpointValue({base: '50vw', sm: '50vw', md: '40vw', lg: '30vw'})
   const maxW = useBreakpointValue({base: 'container.xl', sm: 'container.xl', md: 'container.xl', xl: 'container.xl', '2xl': '1600px'})
+  const refreshIntervalMenuValue = getRefreshIntervalMenuValue(refreshInterval);
   return (
 
     <Box position='fixed' width={'100%'} bg='navbar' style={{zIndex:'1'}}>
@@ -56,10 +60,17 @@ export default function Nav() {
       
         <Flex h={12} alignItems={'center'} justifyContent={'space-between'} pr={mobileMode?2:0} pl={mobileMode?2:0} >
 
-          <Box maxH='40px' onClick={(e)=>{setLogo(!logo)}}>
+          <Box
+            maxH='40px'
+            onClick={(e)=>{setLogo(!logo)}}
+            role='button'
+            tabIndex={0}
+            aria-label='Toggle F5 News logo'
+            onKeyDown={(e)=>{if (e.key === 'Enter' || e.key === ' ') { setLogo(!logo); }}}
+          >
             <Stack direction={['row']}>
               {logo? <PrimaryLogo/> : <SecondaryLogo/>}
-              <Text float='left' fontSize={'xl'} ml='2'>F5 News</Text>
+              <Text color='textPrimary' textStyle='brand' ml='2'>F5 News</Text>
             </Stack>
           </Box>
           
@@ -67,24 +78,32 @@ export default function Nav() {
             <Stack direction={'row'} spacing={2}>
 
               <Menu>
-                <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />}  maxW={maxMenuWidth}><Text isTruncated>r/{subreddit}</Text></MenuButton>
+                <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />} maxW={maxMenuWidth}>
+                  <Text isTruncated textStyle='control'>r/{subreddit}</Text>
+                </MenuButton>
                 <MenuList>
                   {subredditList.map((subreddit, key) => {
-                    return(<MenuItem  key={key} onClick={(e)=>{setSubreddit(subreddit); window.scrollTo(0, 0)}} maxW={maxMenuWidth}><Tooltip label={subreddit} ><Text isTruncated>{subreddit}</Text></Tooltip></MenuItem>)
+                    return(
+                      <MenuItem key={key} onClick={(e)=>{setSubreddit(subreddit); window.scrollTo(0, 0)}} maxW={maxMenuWidth}>
+                        <Tooltip label={subreddit}>
+                          <Text isTruncated textStyle='control'>{subreddit}</Text>
+                        </Tooltip>
+                      </MenuItem>
+                    )
                   })}
                 </MenuList>
               </Menu>
 
               { mobileMode ?
                 <Menu>
-                  <MenuButton as={IconButton} size={'sm'} icon={<SettingsIcon />}/>
+                  <MenuButton as={IconButton} size={'sm'} icon={<SettingsIcon />} aria-label='Open display settings'/>
                   <MenuList>
 
-                    <MenuOptionGroup defaultValue={refreshInterval} value={refreshInterval} title='Interval' type='radio'>
-                      <MenuItemOption value={30} onClick={(e)=>{setRefreshInterval(30)}}>30s</MenuItemOption>
-                      <MenuItemOption value={60} onClick={(e)=>{setRefreshInterval(60)}}>1m</MenuItemOption>
-                      <MenuItemOption value={120} onClick={(e)=>{setRefreshInterval(120)}}>2m</MenuItemOption>
-                      <MenuItemOption value={600} onClick={(e)=>{setRefreshInterval(600)}}>5m</MenuItemOption>
+                    <MenuOptionGroup defaultValue={refreshIntervalMenuValue} value={refreshIntervalMenuValue} title='Interval' type='radio'>
+                      <MenuItemOption value='30' onClick={(e)=>{setRefreshInterval(30)}}>30s</MenuItemOption>
+                      <MenuItemOption value='60' onClick={(e)=>{setRefreshInterval(60)}}>1m</MenuItemOption>
+                      <MenuItemOption value='120' onClick={(e)=>{setRefreshInterval(120)}}>2m</MenuItemOption>
+                      <MenuItemOption value='600' onClick={(e)=>{setRefreshInterval(600)}}>5m</MenuItemOption>
                     </MenuOptionGroup>
 
                     <MenuDivider />
@@ -96,6 +115,10 @@ export default function Nav() {
                     
                     <ColorModeSwitcherMenuItem/>
 
+                    <MenuDivider />
+
+                    <SupportMenuItem/>
+
                     
                       
                   </MenuList>
@@ -104,7 +127,9 @@ export default function Nav() {
                 <>
                   <Menu>
 
-                    <MenuButton as={Button} size={'sm'} rightIcon={<RepeatIcon />}>{refreshInterval}s</MenuButton>
+                    <MenuButton as={Button} size={'sm'} rightIcon={<RepeatIcon />}>
+                      <Text as='span' textStyle='control'>{refreshInterval}s</Text>
+                    </MenuButton>
 
                     <MenuList>
                       <MenuItem onClick={(e)=>{setRefreshInterval(30)}}>30s</MenuItem>
@@ -118,6 +143,8 @@ export default function Nav() {
                   <ViewModeSwitcher />
                     
                   <ColorModeSwitcher />
+
+                  <SupportButton />
                   
                 </>
               }

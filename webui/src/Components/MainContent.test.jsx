@@ -8,7 +8,7 @@ import { ViewModeContext } from '../Contexts/ViewModeContext';
 import { LoadingContext } from '../Contexts/LoadingContext';
 const { matchMedia } = require('mock-match-media');
 
-jest.mock('react-page-visibility', () => ({
+vi.mock('react-page-visibility', () => ({
   usePageVisibility: () => true,
 }));
 
@@ -19,19 +19,19 @@ Object.defineProperty(window, 'matchMedia', {
 
 const renderMainContent = () =>
   render(
-    <LoadingContext.Provider value={{ loading: false, setLoading: jest.fn() }}>
+    <LoadingContext.Provider value={{ loading: false, setLoading: vi.fn() }}>
       <RefreshIntervalContext.Provider
-        value={{ refreshInterval: 1, setRefreshInterval: jest.fn() }}
+        value={{ refreshInterval: 1, setRefreshInterval: vi.fn() }}
       >
         <SubredditContext.Provider
           value={{
             subreddit: 'politics',
             subredditList: ['politics'],
-            setSubreddit: jest.fn(),
+            setSubreddit: vi.fn(),
           }}
         >
           <ViewModeContext.Provider
-            value={{ viewMode: 'list', setViewMode: jest.fn() }}
+            value={{ viewMode: 'list', setViewMode: vi.fn() }}
           >
             <MainContent />
           </ViewModeContext.Provider>
@@ -42,13 +42,13 @@ const renderMainContent = () =>
 
 describe('MainContent', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
-    jest.runOnlyPendingTimers();
-    jest.useRealTimers();
-    jest.resetAllMocks();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.resetAllMocks();
   });
 
   test('clears posts when a refresh returns a valid empty response', async () => {
@@ -82,7 +82,7 @@ describe('MainContent', () => {
     expect(screen.getByText('Existing headline')).toBeInTheDocument();
 
     await act(async () => {
-      jest.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -95,6 +95,66 @@ describe('MainContent', () => {
       screen.getByText('Nothing notable is happening, surely everything is fine.')
     ).toBeInTheDocument();
     expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('does not show the empty state while the first refresh is still loading', async () => {
+    global.fetch = vi.fn(
+      () =>
+        new Promise(() => {
+          // Keep the first request pending so the loading state is observable.
+        })
+    );
+
+    await act(async () => {
+      renderMainContent();
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.queryByText('Nothing notable is happening, surely everything is fine.')
+    ).not.toBeInTheDocument();
+  });
+
+  test('renders posts in descending upvote order even when the API response is unsorted', async () => {
+    const lowerPost = {
+      title: 'Lower upvote headline',
+      url: 'https://example.com/lower',
+      commentCount: 12,
+      upvoteCount: 42,
+      created_utc: Math.floor(Date.now() / 1000),
+      domain: 'example.com',
+      commentLink: '/r/politics/comments/lower/example',
+    };
+    const higherPost = {
+      title: 'Higher upvote headline',
+      url: 'https://example.com/higher',
+      commentCount: 24,
+      upvoteCount: 420,
+      created_utc: Math.floor(Date.now() / 1000),
+      domain: 'example.com',
+      commentLink: '/r/politics/comments/higher/example',
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [lowerPost, higherPost] }),
+    });
+
+    await act(async () => {
+      renderMainContent();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const renderedTitles = screen
+      .getAllByRole('link', { name: /upvote headline/i })
+      .map(link => link.textContent)
+      .filter(Boolean);
+
+    expect(renderedTitles).toEqual([
+      'Higher upvote headline',
+      'Lower upvote headline',
+    ]);
   });
 
   test('keeps the last successful posts when a refresh payload is invalid', async () => {
@@ -132,7 +192,7 @@ describe('MainContent', () => {
     expect(screen.getByText('Existing headline')).toBeInTheDocument();
 
     await act(async () => {
-      jest.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
       await Promise.resolve();
       await Promise.resolve();
     });

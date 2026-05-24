@@ -18,11 +18,6 @@ const getThumbnailSrc = (thumbnail) => {
 export const MediaModal = () => {
   const {modalData, setModalData} = useContext(ModalContext)
 
-  const htmlDecode = (content) => {
-    let e = document.createElement('div');
-    e.innerHTML = content;
-    return e.childNodes.length === 0 ? "" : e.childNodes[0].nodeValue;
-  }
   return (
     <>
       {modalData && modalData.is_video?
@@ -76,25 +71,6 @@ export const MediaModal = () => {
               <Center maxW='container.xl'>
                 <Box position='relative'>
                   <Image src={getThumbnailSrc(modalData.thumbnail)} objectFit='contain' maxH='90vh' minW='50%'/>
-                  <ModalCloseButton />
-                </Box>
-              </Center>
-            </ModalBody>
-          </ModalContent>
-        </Modal>
-
-      :
-      null
-    }
-
-    {modalData && modalData.post_hint === 'rich:video' ?
-        <Modal onClose={(e)=>{setModalData(null)}} isOpen={true} isCentered blockScrollOnMount={false}>
-          <ModalOverlay />
-          <ModalContent maxW='container.xl' maxH='100vh' bg='none' w='auto'>
-            <ModalBody p={0} >
-              <Center maxW='container.xl'>
-                <Box position='relative'>
-                  <Box dangerouslySetInnerHTML={{__html: htmlDecode(modalData.media.oembed.html)}} w='100%'/>
                   <ModalCloseButton />
                 </Box>
               </Center>

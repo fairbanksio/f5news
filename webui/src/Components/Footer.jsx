@@ -3,10 +3,9 @@ import {
   Stack,
   Text,
   Link,
-  Icon,
   useBreakpointValue,
 } from '@chakra-ui/react';
-import { FaSmileBeam } from 'react-icons/fa';
+import { SupportMessage } from './SupportLink';
 
 export default function Footer() {
   const maxW = useBreakpointValue({
@@ -26,24 +25,17 @@ export default function Footer() {
       justify={{ base: 'center', md: 'space-between' }}
       align={{ base: 'center', md: 'center' }}
     >
-      <Text>
+      <Text textStyle="utility" color="footerLink">
         Maintained with &#10084; by{' '}
-        <Link href="https://github.com/bsord" isExternal>
+        <Link href="https://github.com/bsord" color="footerLink" isExternal>
           bsord
         </Link>{' '}
         and{' '}
-        <Link href="https://fairbanks.io" isExternal>
+        <Link href="https://fairbanks.io" color="footerLink" isExternal>
           jonfairbanks
         </Link>
       </Text>
-      <Stack direction={'row'} spacing={6}>
-        <Link
-          href="https://www.buymeacoffee.com/f5news"
-          isExternal
-        >
-          Help Support F5 News <Icon as={FaSmileBeam} mx="2px" />
-        </Link>
-      </Stack>
+      <SupportMessage textAlign={{ base: 'center', md: 'right' }} />
     </Container>
   );
 }

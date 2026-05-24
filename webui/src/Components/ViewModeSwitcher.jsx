@@ -1,5 +1,5 @@
 import React,{useContext} from 'react';
-import { Button, MenuItem, Box} from '@chakra-ui/react';
+import { Button, MenuItem, Box, Text} from '@chakra-ui/react';
 import { BsGridFill, BsListUl } from 'react-icons/bs';
 import { ViewModeContext } from '../Contexts/ViewModeContext'
 import ReactGA from 'react-ga4';
@@ -33,7 +33,12 @@ export const ViewModeSwitcher = props => {
   }
 
   return (
-    <Button onClick={(e)=>{switchViewMode()}} size={'sm'}>
+    <Button
+      onClick={(e)=>{switchViewMode()}}
+      size={'sm'}
+      aria-label={viewMode === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
+      textStyle='control'
+    >
       {viewMode === 'grid'? <BsListUl /> : <BsGridFill/>}
     </Button>
   );
@@ -51,7 +56,7 @@ export const ViewModeSwitcherMenuItem = props => {
   return (
     <MenuItem onClick={(e)=>{switchViewMode()}} >
       <Box as={viewMode === 'grid'? BsListUl : BsGridFill} ml={0} mr={2}/> 
-      <span>{viewMode === 'grid'? 'List view' : 'Grid view'}</span>
+      <Text as='span' textStyle='control'>{viewMode === 'grid'? 'List view' : 'Grid view'}</Text>
     </MenuItem>
   );
 };

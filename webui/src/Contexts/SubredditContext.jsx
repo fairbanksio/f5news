@@ -1,12 +1,20 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { LoadingContext } from '../Contexts/LoadingContext';
 import { useParams, useNavigate } from 'react-router-dom';
+import {
+  getRuntimeConfigValue,
+  normalizeApiEndpoint as normalizeEndpoint,
+} from '../runtimeConfig';
 
 export const SubredditContext = React.createContext({
   subreddit: 'politics',
   subredditList: [],
   setSubreddit: () => {},
 });
+
+export const normalizeApiEndpoint = endpoint => {
+  return normalizeEndpoint(endpoint);
+};
 
 export const SubredditProvider = props => {
   let navigate = useNavigate();
@@ -46,12 +54,9 @@ export const SubredditProvider = props => {
     title: 'Warning:',
     message: 'There was a problem',
   }); // eslint-disable-line no-unused-vars
-  let apiEndpoint = process.env.REACT_APP_API
-    ? process.env.REACT_APP_API
-    : window.REACT_APP_API
-      ? window.REACT_APP_API
-      : 'https://localhost';
-  apiEndpoint = 'https://' + apiEndpoint.replace(/\/$/, '');
+  const apiEndpoint = normalizeApiEndpoint(
+    getRuntimeConfigValue('REACT_APP_API') || 'https://localhost'
+  );
 
   const fetchSubreddits = () => {
     setLoading(true);

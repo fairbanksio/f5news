@@ -16,17 +16,12 @@ import { LoadingContext } from '../Contexts/LoadingContext';
 import GridView from './GridView';
 import ListView from './ListView';
 import { usePageVisibility } from 'react-page-visibility';
+import { getRuntimeConfigValue, normalizeApiEndpoint } from '../runtimeConfig';
 
-let apiEndpoint = process.env.REACT_APP_API
-  ? process.env.REACT_APP_API
-  : window.REACT_APP_API
-    ? window.REACT_APP_API
-    : 'https://localhost';
-apiEndpoint = apiEndpoint.replace(/\/$/, '');
-apiEndpoint = /^https?:\/\//.test(apiEndpoint) ? apiEndpoint : 'https://' + apiEndpoint;
+const apiEndpoint = normalizeApiEndpoint(getRuntimeConfigValue('REACT_APP_API') || 'https://localhost');
 
-const postsApiEndpoint = process.env.REACT_APP_POSTS_API
-  ? process.env.REACT_APP_POSTS_API.replace(/\/$/, '')
+const postsApiEndpoint = getRuntimeConfigValue('REACT_APP_POSTS_API')
+  ? getRuntimeConfigValue('REACT_APP_POSTS_API').replace(/\/$/, '')
   : apiEndpoint + '/posts';
 
 const getPostsUrl = subreddit =>
@@ -60,6 +55,17 @@ const getValidatedPosts = json => {
   return json.data;
 };
 
+export const sortPostsByUpvotes = posts =>
+  [...posts].sort((a, b) => {
+    const upvoteDiff = Number(b.upvoteCount || 0) - Number(a.upvoteCount || 0);
+
+    if (upvoteDiff !== 0) {
+      return upvoteDiff;
+    }
+
+    return Number(a.created_utc || 0) - Number(b.created_utc || 0);
+  });
+
 const logDelayedPosts = (subreddit, posts) => {
   const latestFetch = findLatestFetch(posts);
   const latestFetchIso = latestFetch ? new Date(latestFetch).toISOString() : null;
@@ -88,6 +94,7 @@ const PostView = () => {
   const { setLoading } = useContext(LoadingContext);
 
   const [posts, setPosts] = useState([]);
+  const [hasLoadedPosts, setHasLoadedPosts] = useState(false);
   const [error, setError] = useState({
     level: 'warning',
     show: false,
@@ -114,8 +121,9 @@ const PostView = () => {
         return response.json();
       })
       .then(json => {
-        const nextPosts = getValidatedPosts(json);
+        const nextPosts = sortPostsByUpvotes(getValidatedPosts(json));
         setPosts(nextPosts);
+        setHasLoadedPosts(true);
         setError({ show: false });
 
         setTimeout(() => {
@@ -160,14 +168,14 @@ const PostView = () => {
         </Box>
       ) : null}
 
-      {!error.show && posts.length === 0 ? (
+      {!error.show && hasLoadedPosts && posts.length === 0 ? (
         <Box
-          mt={12}
+          mt={{ base: 14, md: 16 }}
           px={4}
-          py={6}
+          py={8}
           textAlign="center"
         >
-          <Text color="gray.500" fontSize="md" fontWeight="semibold">
+          <Text color="textPrimary" textStyle="emptyState">
             Nothing notable is happening, surely everything is fine.
           </Text>
         </Box>
