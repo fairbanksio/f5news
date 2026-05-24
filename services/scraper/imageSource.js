@@ -7,8 +7,22 @@ const fetch = require("node-fetch");
 const DEFAULT_MAX_BYTES = 512 * 1024;
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_MAX_REDIRECTS = 3;
-const DEFAULT_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
+const DEFAULT_MAX_TRANSIENT_RETRIES = 1;
+const DEFAULT_ARTICLE_HEADERS = {
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Cache-Control": "no-cache",
+  Pragma: "no-cache",
+  "Upgrade-Insecure-Requests": "1",
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+};
+
+const TRANSIENT_RESPONSE_STATUSES = new Set([403, 429, 500, 502, 503, 504]);
+
+const canRetryTransientFailure = (retryCount, maxRetries) =>
+  retryCount < maxRetries;
 
 const hasUsableThumbnail = (thumbnail) => {
   return (
@@ -311,6 +325,21 @@ const readResponseBody = async (response, maxBytes) => {
   });
 };
 
+const destroyResponseBody = (response) => {
+  if (!response || !response.body) {
+    return;
+  }
+
+  if (typeof response.body.destroy === "function") {
+    response.body.destroy();
+    return;
+  }
+
+  if (typeof response.body.cancel === "function") {
+    response.body.cancel();
+  }
+};
+
 const withTimeout = async (operation, timeoutMs, onTimeout) => {
   let timeout;
 
@@ -333,11 +362,15 @@ const fetchArticleImage = async (url, options = {}) => {
   const maxBytes = options.maxBytes || DEFAULT_MAX_BYTES;
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
   const maxRedirects = options.maxRedirects || DEFAULT_MAX_REDIRECTS;
+  const maxTransientRetries =
+    options.maxTransientRetries ?? DEFAULT_MAX_TRANSIENT_RETRIES;
   const resolveHostname = options.resolveHostname || dns.lookup;
   const agent = makeSafeAgent(resolveHostname);
   let nextUrl = url;
+  let redirectCount = 0;
+  let transientRetryCount = 0;
 
-  for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
+  while (redirectCount <= maxRedirects) {
     if (!(await isSafeHttpUrl(nextUrl, { resolveHostname }))) {
       return "";
     }
@@ -348,10 +381,7 @@ const fetchArticleImage = async (url, options = {}) => {
     try {
       const response = await withTimeout(
         fetchImpl(nextUrl, {
-          headers: {
-            Accept: "text/html,application/xhtml+xml",
-            "User-Agent": DEFAULT_USER_AGENT,
-          },
+          headers: DEFAULT_ARTICLE_HEADERS,
           agent,
           redirect: "manual",
           signal: controller.signal,
@@ -362,24 +392,42 @@ const fetchArticleImage = async (url, options = {}) => {
       );
 
       if (!response) {
+        if (
+          canRetryTransientFailure(transientRetryCount, maxTransientRetries)
+        ) {
+          transientRetryCount += 1;
+          continue;
+        }
         return "";
       }
 
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location");
         if (!location) {
+          destroyResponseBody(response);
           return "";
         }
         nextUrl = new URL(location, nextUrl).toString();
+        destroyResponseBody(response);
+        redirectCount += 1;
         continue;
       }
 
       if (!response.ok) {
+        destroyResponseBody(response);
+        if (
+          TRANSIENT_RESPONSE_STATUSES.has(response.status) &&
+          canRetryTransientFailure(transientRetryCount, maxTransientRetries)
+        ) {
+          transientRetryCount += 1;
+          continue;
+        }
         return "";
       }
 
       const contentType = response.headers.get("content-type") || "";
       if (contentType && !contentType.toLowerCase().includes("text/html")) {
+        destroyResponseBody(response);
         return "";
       }
 
@@ -394,6 +442,10 @@ const fetchArticleImage = async (url, options = {}) => {
 
       return extractMetaImage(html, nextUrl);
     } catch (error) {
+      if (canRetryTransientFailure(transientRetryCount, maxTransientRetries)) {
+        transientRetryCount += 1;
+        continue;
+      }
       return "";
     } finally {
       clearTimeout(timeout);
@@ -411,7 +463,10 @@ const redditImageSource = (data) => {
   if (data.preview) {
     if (data.preview.images) {
       if (data.preview.images.length > 0) {
-        return data.preview.images[0].source.url.replace(/amp;/g, "");
+        const image = data.preview.images[0];
+        if (image.source && image.source.url) {
+          return image.source.url.replace(/amp;/g, "");
+        }
       }
     }
   }
@@ -420,9 +475,12 @@ const redditImageSource = (data) => {
     if (data.gallery_data) {
       if (data.gallery_data.items) {
         if (data.gallery_data.items.length > 0) {
-          return data.media_metadata[
-            data.gallery_data.items[0].media_id
-          ].s.u.replace(/amp;/g, "");
+          const media =
+            data.media_metadata &&
+            data.media_metadata[data.gallery_data.items[0].media_id];
+          if (media && media.s && media.s.u) {
+            return media.s.u.replace(/amp;/g, "");
+          }
         }
       }
     }

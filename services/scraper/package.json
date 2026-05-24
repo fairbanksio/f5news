@@ -3,10 +3,12 @@
   "version": "1.0.21",
   "description": "Scheduled job for scraping reddit posts and storing in MongoDB",
   "main": "index.js",
+  "engines": {
+    "node": "24.x"
+  },
   "dependencies": {
-    "mongoose": "^7.6.7",
+    "mongoose": "^9.6.2",
     "node-fetch": "^2.7.0",
-    "q": "^1.5.1",
     "saslprep": "^1.0.3"
   },
   "devDependencies": {
@@ -14,7 +16,7 @@
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.29.1",
     "nodemon": "^3.1.14",
-    "serverless": "^3.40.0"
+    "serverless": "^4.36.1"
   },
   "scripts": {
     "test": "node --test"

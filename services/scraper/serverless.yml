@@ -1,9 +1,9 @@
 service: scraper
-frameworkVersion: "3"
+frameworkVersion: "4"
 
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs24.x
   region: us-east-1
   environment:
     MONGO_CONNECTION_STRING: ${env:MONGO_CONNECTION_STRING, ssm:/primary_db_connection_string}
