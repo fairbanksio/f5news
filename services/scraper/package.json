@@ -12,13 +12,14 @@
     "saslprep": "^1.0.3"
   },
   "devDependencies": {
-    "eslint": "^8.56.0",
+    "eslint": "^8.57.1",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.29.1",
     "nodemon": "^3.1.14",
     "serverless": "^4.36.1"
   },
   "scripts": {
+    "lint": "eslint . --ext .js --max-warnings=0",
     "test": "node --test"
   },
   "repository": {

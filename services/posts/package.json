@@ -7,11 +7,13 @@
     "node": "24.x"
   },
   "scripts": {
+    "lint": "eslint . --ext .js --max-warnings=0",
     "test": "node --test"
   },
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "eslint": "^8.57.1",
     "serverless": "^4.36.1",
     "serverless-domain-manager": "^10.1.0",
     "serverless-offline": "^14.7.0"
