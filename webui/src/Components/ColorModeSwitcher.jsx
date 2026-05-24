@@ -1,18 +1,18 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { useColorMode, useColorModeValue, Button, Box, MenuItem, Text} from '@chakra-ui/react';
 import { FaMoon, FaSun } from 'react-icons/fa';
-import ReactGA from 'react-ga4';
+import { SubredditContext } from '../Contexts/SubredditContext';
+import { trackColorModeChange } from '../analytics';
 
 export const ColorModeSwitcher = props => {
-  const { toggleColorMode } = useColorMode();
+  const { colorMode, toggleColorMode } = useColorMode();
+  const { subreddit } = useContext(SubredditContext);
   const changeMode = () => {
-    ReactGA.event({
-      category: "visual",
-      action: "changecolormode",
-      label: "colormode", // optional
-      value: 1, // optional, must be a number
-      nonInteraction: false, // optional, true/false
-      transport: "xhr", // optional, beacon/xhr/image
+    trackColorModeChange({
+      fromMode: colorMode,
+      toMode: colorMode === 'light' ? 'dark' : 'light',
+      subreddit,
+      surface: 'desktop',
     });
     toggleColorMode()
   }
@@ -27,8 +27,15 @@ export const ColorModeSwitcher = props => {
 };
 
 export const ColorModeSwitcherMenuItem = props => {
-  const { toggleColorMode } = useColorMode();
+  const { colorMode, toggleColorMode } = useColorMode();
+  const { subreddit } = useContext(SubredditContext);
   const changeMode = () => {
+    trackColorModeChange({
+      fromMode: colorMode,
+      toMode: colorMode === 'light' ? 'dark' : 'light',
+      subreddit,
+      surface: 'mobile',
+    });
     toggleColorMode()
   }
   

@@ -3,6 +3,15 @@ import { fireEvent, screen } from '@testing-library/react';
 import { render } from '../test-utils';
 import { ModalContext } from '../Contexts/ModalContext';
 import { PostCard, getHeatTone, neutralCardTone } from './PostCard';
+import { trackPostSelection } from '../analytics';
+
+vi.mock('../analytics', () => ({
+  trackPostSelection: vi.fn(),
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 const post = {
   title: 'Existing headline',
@@ -84,6 +93,28 @@ describe('PostCard', () => {
     ).toHaveLength(2);
     expect(screen.getAllByLabelText(/open reddit comments for existing headline/i).length).toBeGreaterThan(0);
     expect(screen.getByText('example.com')).toBeInTheDocument();
+  });
+
+  test('tracks article and Reddit content selections', () => {
+    renderPostCard(vi.fn());
+
+    fireEvent.click(screen.getByRole('link', { name: 'Existing headline' }));
+    fireEvent.click(screen.getAllByRole('link', { name: /open reddit comments/i }).at(-1));
+
+    expect(trackPostSelection).toHaveBeenCalledWith({
+      contentType: 'article',
+      post,
+      position: 1,
+      subreddit: 'politics',
+      viewMode: 'grid',
+    });
+    expect(trackPostSelection).toHaveBeenCalledWith({
+      contentType: 'reddit_comments',
+      post,
+      position: 1,
+      subreddit: 'politics',
+      viewMode: 'grid',
+    });
   });
 
   test('colors the card surface instead of rendering a heat badge', () => {

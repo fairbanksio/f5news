@@ -7,14 +7,15 @@ import {
   ViewModeSwitcher,
   ViewModeSwitcherMenuItem,
 } from './ViewModeSwitcher';
-import ReactGA from 'react-ga4';
+import { trackViewModeChange } from '../analytics';
 
-vi.mock('react-ga4', () => ({
-  default: {
-    event: vi.fn(),
-  },
-  event: vi.fn(),
+vi.mock('../analytics', () => ({
+  trackViewModeChange: vi.fn(),
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 test('switches from grid to list and records analytics', () => {
   const setViewMode = vi.fn();
@@ -28,12 +29,12 @@ test('switches from grid to list and records analytics', () => {
   fireEvent.click(screen.getByRole('button', { name: /switch to list view/i }));
 
   expect(setViewMode).toHaveBeenCalledWith('list');
-  expect(ReactGA.event).toHaveBeenCalledWith(
-    expect.objectContaining({
-      action: 'changeviewmode',
-      value: 0,
-    })
-  );
+  expect(trackViewModeChange).toHaveBeenCalledWith({
+    fromMode: 'grid',
+    toMode: 'list',
+    subreddit: 'politics',
+    surface: 'desktop',
+  });
 });
 
 test('switches from list to grid from the desktop control', () => {
@@ -48,11 +49,12 @@ test('switches from list to grid from the desktop control', () => {
   fireEvent.click(screen.getByRole('button', { name: /switch to grid view/i }));
 
   expect(setViewMode).toHaveBeenCalledWith('grid');
-  expect(ReactGA.event).toHaveBeenCalledWith(
-    expect.objectContaining({
-      value: 1,
-    })
-  );
+  expect(trackViewModeChange).toHaveBeenCalledWith({
+    fromMode: 'list',
+    toMode: 'grid',
+    subreddit: 'politics',
+    surface: 'desktop',
+  });
 });
 
 test('switches view mode from the mobile settings menu item', () => {

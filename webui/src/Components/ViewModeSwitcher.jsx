@@ -2,34 +2,22 @@ import React,{useContext} from 'react';
 import { Button, MenuItem, Box, Text} from '@chakra-ui/react';
 import { BsGridFill, BsListUl } from 'react-icons/bs';
 import { ViewModeContext } from '../Contexts/ViewModeContext'
-import ReactGA from 'react-ga4';
+import { SubredditContext } from '../Contexts/SubredditContext';
+import { trackViewModeChange } from '../analytics';
 
 export const ViewModeSwitcher = props => {
   const { viewMode, setViewMode } = useContext(ViewModeContext)
-// Send a custom event
+  const { subreddit } = useContext(SubredditContext);
 
   const switchViewMode = () => {
-    if(viewMode === 'grid'){
-      setViewMode('list')
-      ReactGA.event({
-        category: "visual",
-        action: "changeviewmode",
-        label: "viewmode", // optional
-        value: 0, // optional, must be a number
-        nonInteraction: false, // optional, true/false
-        transport: "xhr", // optional, beacon/xhr/image
-      });
-    } else {
-      setViewMode('grid')
-      ReactGA.event({
-        category: "visual",
-        action: "changeviewmode",
-        label: "viewmode", // optional
-        value: 1, // optional, must be a number
-        nonInteraction: false, // optional, true/false
-        transport: "xhr", // optional, beacon/xhr/image
-      });
-    }
+    const nextViewMode = viewMode === 'grid' ? 'list' : 'grid';
+    setViewMode(nextViewMode)
+    trackViewModeChange({
+      fromMode: viewMode,
+      toMode: nextViewMode,
+      subreddit,
+      surface: 'desktop',
+    });
   }
 
   return (
@@ -46,12 +34,16 @@ export const ViewModeSwitcher = props => {
 
 export const ViewModeSwitcherMenuItem = props => {
   const { viewMode, setViewMode } = useContext(ViewModeContext)
+  const { subreddit } = useContext(SubredditContext);
   const switchViewMode = () => {
-    if(viewMode === 'grid'){
-      setViewMode('list')
-    } else {
-      setViewMode('grid')
-    }
+    const nextViewMode = viewMode === 'grid' ? 'list' : 'grid';
+    setViewMode(nextViewMode)
+    trackViewModeChange({
+      fromMode: viewMode,
+      toMode: nextViewMode,
+      subreddit,
+      surface: 'mobile',
+    });
   }
   return (
     <MenuItem onClick={(e)=>{switchViewMode()}} >

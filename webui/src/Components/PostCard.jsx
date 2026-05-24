@@ -18,6 +18,9 @@ import { timeAgoShort } from '../Util/FormattedTime'
 import { FaVideo, FaLink, FaImage, FaImages, FaComment, FaRedditAlien } from 'react-icons/fa'
 import {ModalContext} from '../Contexts/ModalContext'
 import {useContext} from 'react'
+import { SubredditContext } from '../Contexts/SubredditContext';
+import { ViewModeContext } from '../Contexts/ViewModeContext';
+import { trackPostSelection } from '../analytics';
 
 const getThumbnailSrc = (thumbnail) => {
   if (
@@ -213,6 +216,8 @@ export const neutralCardTone = {
 
 export const PostCard = ({post, elId}) => {
   const {setModalData} = useContext(ModalContext)
+  const { subreddit } = useContext(SubredditContext);
+  const { viewMode } = useContext(ViewModeContext);
   const title = cleanTitle(post.title);
   const sourceLabel = getSourceLabel(post);
   const media = getPostMedia(post);
@@ -228,6 +233,17 @@ export const PostCard = ({post, elId}) => {
   const metaColor = useColorModeValue(neutralCardTone.light.metaColor, neutralCardTone.dark.metaColor);
   const titleHoverColor = useColorModeValue(neutralCardTone.light.titleHoverColor, neutralCardTone.dark.titleHoverColor);
   const redditUrl = 'https://reddit.com' + post.commentLink;
+  const position = elId + 1;
+
+  const trackSelection = contentType => {
+    trackPostSelection({
+      contentType,
+      post,
+      position,
+      subreddit,
+      viewMode,
+    });
+  };
 
   const previewMedia = () => {
     if (media.canPreview) {
@@ -307,6 +323,7 @@ export const PostCard = ({post, elId}) => {
             aria-label={`Open Reddit comments for ${title}`}
             textStyle='meta'
             noOfLines={1}
+            onClick={() => trackSelection('reddit_comments')}
           >
             {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull; {timeAgoShort(post.created_utc)}
           </Link>
@@ -322,6 +339,7 @@ export const PostCard = ({post, elId}) => {
               textStyle='cardTitle'
               noOfLines={3}
               _hover={{color: titleHoverColor, textDecoration: 'none'}}
+              onClick={() => trackSelection('article')}
             >
               {title}
             </Link>
@@ -338,6 +356,7 @@ export const PostCard = ({post, elId}) => {
             aria-label={`Open article: ${title}`}
             id={"external-action-url-"+elId}
             _hover={{textDecoration: 'none'}}
+            onClick={() => trackSelection('article')}
           >
             Article
           </Button>
@@ -364,6 +383,7 @@ export const PostCard = ({post, elId}) => {
             id={"reddit-action-url-"+elId}
             variant='ghost'
             _hover={{textDecoration: 'none'}}
+            onClick={() => trackSelection('reddit_comments')}
           >
             Comments
           </Button>

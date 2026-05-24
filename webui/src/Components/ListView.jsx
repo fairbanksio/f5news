@@ -18,6 +18,9 @@ import {
 import { LinkIcon, ChatIcon, ArrowUpIcon, TimeIcon } from '@chakra-ui/icons'
 import { timeAgoShort } from '../Util/FormattedTime'
 import { getHeatTone } from './PostCard';
+import { useContext } from 'react';
+import { SubredditContext } from '../Contexts/SubredditContext';
+import { trackPostSelection } from '../analytics';
 
 const getHeatBorderColor = (upvoteCount, colorMode) => {
   return getHeatTone(upvoteCount)?.borderColor[colorMode] || 'transparent';
@@ -28,6 +31,7 @@ const getHeatRowBg = (upvoteCount, colorMode) => {
 };
 
 const ListView = ({posts}) => {
+  const { subreddit } = useContext(SubredditContext);
   const mobileMode = useBreakpointValue({base: true, sm: true, md: false})
   const showHeaderLabels = useBreakpointValue({base: false, md: true})
   const noOfLines = useBreakpointValue({base: 3, sm: 1})
@@ -87,6 +91,16 @@ const ListView = ({posts}) => {
             {
             posts.map((post, i) => {
               const title = post.title.replace(/amp;/g,'');
+              const position = i + 1;
+              const trackSelection = contentType => {
+                trackPostSelection({
+                  contentType,
+                  post,
+                  position,
+                  subreddit,
+                  viewMode: 'list',
+                });
+              };
               return [
                   <Tr
                     key={i}
@@ -100,7 +114,7 @@ const ListView = ({posts}) => {
                     {mobileMode?null:<Td>{timeAgoShort(post.created_utc)}</Td>}
                     <Td>
                       <Tooltip label={title} openDelay={500} placement='bottom-start'>
-                        <Link href={post.url} isExternal color='link' id={"external-url-"+i}>
+                        <Link href={post.url} isExternal color='link' id={"external-url-"+i} onClick={() => trackSelection('article')}>
                           <Text noOfLines={noOfLines} textStyle='listTitle'>{title}</Text>
                         </Link>
                       </Tooltip>
@@ -120,6 +134,7 @@ const ListView = ({posts}) => {
                           icon={<ChatIcon/>}
                           size='sm'
                           variant='ghost'
+                          onClick={() => trackSelection('reddit_comments')}
                         />
                       </Tooltip>
                       <Tooltip label='Open article'>
@@ -133,6 +148,7 @@ const ListView = ({posts}) => {
                           icon={<LinkIcon/>}
                           size='sm'
                           variant='ghost'
+                          onClick={() => trackSelection('article')}
                         />
                       </Tooltip>
                     </Td>
