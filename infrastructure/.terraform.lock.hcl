@@ -4,6 +4,7 @@
 provider "registry.terraform.io/hashicorp/aws" {
   version = "5.22.0"
   hashes = [
+    "h1:XuU3tsGzElMt4Ti8SsM05pFllNMwSC4ScUxcfsOS140=",
     "h1:s5D2g7z2dt8mqIwnQAjyE6NZWEirfRxt7kLsmslY5Ls=",
     "zh:09b8475cd519c945423b1e1183b71a4209dd2927e0d289a88c5abeecb53c1753",
     "zh:2448e0c3ce9b991a5dd70f6a42d842366a6a2460cf63b31fb9bc5d2cc92ced19",
@@ -26,6 +27,7 @@ provider "registry.terraform.io/hashicorp/aws" {
 provider "registry.terraform.io/hashicorp/random" {
   version = "3.5.1"
   hashes = [
+    "h1:IL9mSatmwov+e0+++YX2V6uel+dV6bn+fC/cnGDK3Ck=",
     "h1:VSnd9ZIPyfKHOObuQCaKfnjIHRtR7qTw19Rz8tJxm+k=",
     "zh:04e3fbd610cb52c1017d282531364b9c53ef72b6bc533acb2a90671957324a64",
     "zh:119197103301ebaf7efb91df8f0b6e0dd31e6ff943d231af35ee1831c599188d",
@@ -45,6 +47,7 @@ provider "registry.terraform.io/hashicorp/random" {
 provider "registry.terraform.io/mongodb/mongodbatlas" {
   version = "1.12.2"
   hashes = [
+    "h1:BgIzp8EgfrxG4ZezZvNmpvWWRFujQiFphdlslQnrQH4=",
     "h1:VXILFa5xBQBi5eI5LXOwz3yk96JP2iBV1BdDLNWVJw0=",
     "zh:0ddc1d6963b0e218f73b7ab2a66dbcc6ef7f040effa812d86bd0ffc429f07e0d",
     "zh:572ba2fc4b81471621a0d5c6ea0553311f6518cd9966a6a876c29d22867fb8a9",

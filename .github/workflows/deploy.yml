@@ -17,7 +17,7 @@ jobs:
     # Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
     - uses: hashicorp/setup-terraform@v3
       with:
-        terraform_version: "1.1.7"
+        terraform_version: "1.15.4"
         cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
@@ -60,43 +60,44 @@ jobs:
         role-duration-seconds: 1200 # Optional duration, 20 minutes in this case
 
     # Install Nodejs
-    - name: Use Node.js 20.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v4
       with:
-        node-version: 20.x
+        node-version: 24.x
 
     # Deploy Posts Service
     - run: npm ci
       name: "Posts Service - Install dependencies"
       working-directory: 'services/posts'
 
-    - name: "Posts Service - Deploy"
-      uses: serverless/github-action@v3.2
-      with:
-        args: -c "cd ./services/posts && serverless deploy"
-        entrypoint: /bin/sh
+    - run: npx serverless deploy
+      name: "Posts Service - Deploy"
+      working-directory: 'services/posts'
 
     # Deploy Scraper Service
     - run: npm ci
       name: "Scraper Service - Install dependencies"
       working-directory: 'services/scraper'
 
-    - name: "Scraper Service - Deploy"
-      uses: serverless/github-action@v3.2
-      with:
-        args: -c "cd ./services/scraper && serverless deploy"
-        entrypoint: /bin/sh
+    - run: npx serverless deploy
+      name: "Scraper Service - Deploy"
+      working-directory: 'services/scraper'
 
     # Deploy Subreddits Service
     - run: npm ci
       name: "Subreddits Service - Install dependencies"
       working-directory: 'services/subreddits'
 
-    - name: "Subreddits Service - Deploy"
-      uses: serverless/github-action@v3.2
-      with:
-        args: -c "cd ./services/subreddits && serverless deploy"
-        entrypoint: /bin/sh
+    - run: npm run test:coverage
+      name: "Subreddits Service - Test"
+      working-directory: 'services/subreddits'
+
+    - run: npx serverless deploy
+      name: "Subreddits Service - Deploy"
+      working-directory: 'services/subreddits'
+      env:
+        SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
+        SERVERLESS_LICENSE_KEY: ${{ secrets.SERVERLESS_LICENSE_KEY }}
 
   webapp:
     name: 'Web App'
@@ -123,10 +124,10 @@ jobs:
         role-duration-seconds: 1200 # Optional duration, 20 minutes in this case
 
     # Install Nodejs
-    - name: Use Node.js 20.x
+    - name: Use Node.js 24.x
       uses: actions/setup-node@v4
       with:
-        node-version: 20.x
+        node-version: 24.x
 
     # Deploy Posts Service
     - run: npm ci

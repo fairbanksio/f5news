@@ -3,7 +3,7 @@ locals {
   project_name               = "f5-news"
   whitelisted_ips            = "0.0.0.0/0"
   environment                = "dev"
-  mongodb_version            = "7.0"
+  mongodb_version            = "8.0"
   cluster_instance_size_name = "M0"
   provider_name              = "TENANT"
   backing_provider_name      = "AWS"

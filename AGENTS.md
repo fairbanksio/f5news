@@ -15,15 +15,14 @@ Service layout:
 - `services/posts`: read API for posts by subreddit
 - `services/subreddits`: read API for available subreddits
 - `services/scraper`: scheduled job that fetches Reddit data into MongoDB
-- `services/browser`: Puppeteer-based article extraction endpoint
 
 ## Toolchain and Prerequisites
 
 Use the versions implied by CI unless a task explicitly requires something else:
 
-- Node.js 20.x for CI-compatible installs and deploys
+- Node.js 24.x for CI-compatible installs and deploys
 - npm
-- Terraform `1.1.7`
+- Terraform `1.15.4`
 - AWS credentials with access to SSM, S3, CloudFront, Route53, Lambda, and related deploy resources
 - Terraform Cloud token for infrastructure apply
 - MongoDB Atlas API credentials for Terraform
@@ -50,9 +49,6 @@ cd /Users/jonfairbanks/Documents/GitHub/f5oclock/services/subreddits
 npm ci
 
 cd /Users/jonfairbanks/Documents/GitHub/f5oclock/services/scraper
-npm ci
-
-cd /Users/jonfairbanks/Documents/GitHub/f5oclock/services/browser
 npm ci
 ```
 
@@ -175,7 +171,6 @@ Equivalent pattern applies to:
 
 - `services/subreddits`
 - `services/scraper`
-- `services/browser`
 
 ### Infrastructure
 
@@ -226,8 +221,8 @@ Main branch deploy flow:
 
 CI uses:
 
-- Terraform `1.1.7`
-- Node `20.x`
+- Terraform `1.15.4`
+- Node `24.x`
 - GitHub OIDC to assume an AWS role
 
 When changing deploy logic, keep local commands aligned with the workflow.

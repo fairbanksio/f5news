@@ -1,0 +1,94 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  infrastructure:
+    name: Infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.4"
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        working-directory: infrastructure
+        run: terraform init -backend=false
+
+      - name: Terraform Format
+        working-directory: infrastructure
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        working-directory: infrastructure
+        run: terraform validate
+
+  services:
+    name: Services
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - services/posts
+          - services/scraper
+          - services/subreddits
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: ${{ matrix.service }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: npm ci
+
+      - name: Test
+        working-directory: ${{ matrix.service }}
+        run: npm test
+
+  webui:
+    name: Web UI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: webui
+        run: npm ci
+
+      - name: Test
+        working-directory: webui
+        run: CI=true npm test -- --watchAll=false
+
+      - name: Build
+        working-directory: webui
+        run: npm run build

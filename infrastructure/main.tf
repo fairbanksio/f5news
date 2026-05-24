@@ -154,7 +154,7 @@ resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
     cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6"
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
-    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
   }
