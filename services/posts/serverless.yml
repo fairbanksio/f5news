@@ -1,9 +1,9 @@
 service: posts
-frameworkVersion: "3"
+frameworkVersion: "4"
 
 provider:
   name: aws
-  runtime: nodejs18.x
+  runtime: nodejs24.x
   region: us-east-1
   environment:
     MONGO_CONNECTION_STRING: ${env:MONGO_CONNECTION_STRING, ssm:/primary_db_connection_string}
@@ -34,5 +34,9 @@ functions:
           path: /{subreddit}
           method: get
           cors:
-            origin: "*"
-            headers: "*"
+            origins:
+              - https://f5.news
+              - https://www.f5.news
+            headers:
+              - Content-Type
+              - Origin
