@@ -7,14 +7,15 @@ provider:
   region: us-east-1
   environment:
     MONGO_CONNECTION_STRING: ${ssm:/primary_db_connection_string}
+    PRIMARY_DOMAIN_NAME: ${env:PRIMARY_DOMAIN_NAME, ssm:/primary_domain_name}
 
 plugins:
   - serverless-domain-manager
 
 custom:
   customDomain:
-    domainName: "api.${ssm:/primary_domain_name}"
-    certificateArn: ${ssm:/primary_domain_cert_arn}
+    domainName: "api.${env:PRIMARY_DOMAIN_NAME, ssm:/primary_domain_name}"
+    certificateArn: ${env:PRIMARY_DOMAIN_CERT_ARN, ssm:/primary_domain_cert_arn}
     basePath: "subreddits"
     createRoute53Record: true
     createRoute53IPv6Record: true
@@ -34,8 +35,8 @@ functions:
           method: get
           cors:
             origins:
-              - https://f5.news
-              - https://www.f5.news
+              - https://${env:PRIMARY_DOMAIN_NAME, ssm:/primary_domain_name}
+              - https://www.${env:PRIMARY_DOMAIN_NAME, ssm:/primary_domain_name}
             headers:
               - Content-Type
               - Origin
