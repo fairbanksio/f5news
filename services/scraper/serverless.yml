@@ -1,16 +1,16 @@
 service: scraper
-frameworkVersion: "3"
+frameworkVersion: "4"
 
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs24.x
   region: us-east-1
   environment:
-    MONGO_CONNECTION_STRING: ${ssm:/primary_db_connection_string}
-    REDDIT_CLIENT_ID: ${ssm:/reddit_client_id}
-    REDDIT_SECRET_KEY: ${ssm:/reddit_secret_key}
-    REDDIT_USERNAME: ${ssm:/reddit_username}
-    REDDIT_PASSWORD: ${ssm:/reddit_password}
+    MONGO_CONNECTION_STRING: ${env:MONGO_CONNECTION_STRING, ssm:/primary_db_connection_string}
+    REDDIT_CLIENT_ID: ${env:REDDIT_CLIENT_ID, ssm:/reddit_client_id}
+    REDDIT_SECRET_KEY: ${env:REDDIT_SECRET_KEY, ssm:/reddit_secret_key}
+    REDDIT_USERNAME: ${env:REDDIT_USERNAME, ssm:/reddit_username}
+    REDDIT_PASSWORD: ${env:REDDIT_PASSWORD, ssm:/reddit_password}
 
 functions:
   fetchPosts:
@@ -34,3 +34,28 @@ functions:
           enabled: true
           input:
             subreddit: news
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
+            subreddit: technology
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
+            subreddit: science
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
+            subreddit: environment
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
+            subreddit: business
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
+            subreddit: StockMarket

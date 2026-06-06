@@ -1,20 +1,22 @@
 service: posts
-frameworkVersion: "3"
+frameworkVersion: "4"
 
 provider:
   name: aws
-  runtime: nodejs18.x
+  runtime: nodejs24.x
   region: us-east-1
   environment:
-    MONGO_CONNECTION_STRING: ${ssm:/primary_db_connection_string}
+    MONGO_CONNECTION_STRING: ${env:MONGO_CONNECTION_STRING, ssm:/primary_db_connection_string}
+    PRIMARY_DOMAIN_NAME: ${env:PRIMARY_DOMAIN_NAME, ssm:/primary_domain_name}
 
 plugins:
+  - serverless-offline
   - serverless-domain-manager
 
 custom:
   customDomain:
-    domainName: "api.${ssm:/primary_domain_name}"
-    certificateArn: ${ssm:/primary_domain_cert_arn}
+    domainName: "api.${env:PRIMARY_DOMAIN_NAME, ssm:/primary_domain_name}"
+    certificateArn: ${env:PRIMARY_DOMAIN_CERT_ARN, ssm:/primary_domain_cert_arn}
     basePath: "posts"
     createRoute53Record: true
     createRoute53IPv6Record: true
@@ -33,5 +35,9 @@ functions:
           path: /{subreddit}
           method: get
           cors:
-            origin: "*"
-            headers: "*"
+            origins:
+              - https://${env:PRIMARY_DOMAIN_NAME, ssm:/primary_domain_name}
+              - https://www.${env:PRIMARY_DOMAIN_NAME, ssm:/primary_domain_name}
+            headers:
+              - Content-Type
+              - Origin

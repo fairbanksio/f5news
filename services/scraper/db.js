@@ -11,6 +11,10 @@ exports.connect = async function () {
         serverSelectionTimeoutMS: 5000,
       })
       .then(() => mongoose)
+      .catch((error) => {
+        conn = null
+        throw error
+      })
 
     // `await`ing connection after assigning to the `conn` variable
     // to avoid multiple function calls creating new connections
