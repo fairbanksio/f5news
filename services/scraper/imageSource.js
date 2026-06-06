@@ -456,10 +456,6 @@ const fetchArticleImage = async (url, options = {}) => {
 };
 
 const redditImageSource = (data) => {
-  if (hasUsableThumbnail(data.thumbnail)) {
-    return data.thumbnail.replace(/amp;/g, "");
-  }
-
   if (data.preview) {
     if (data.preview.images) {
       if (data.preview.images.length > 0) {
@@ -484,6 +480,10 @@ const redditImageSource = (data) => {
         }
       }
     }
+  }
+
+  if (hasUsableThumbnail(data.thumbnail)) {
+    return data.thumbnail.replace(/amp;/g, "");
   }
 
   return "";
