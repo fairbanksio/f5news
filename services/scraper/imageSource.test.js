@@ -478,6 +478,35 @@ test("fetchArticleImage tolerates early-return responses without bodies", async 
   assert.equal(image, "");
 });
 
+test("imageSource uses Reddit preview image before low-resolution thumbnail", async () => {
+  const image = await imageSource(
+    {
+      thumbnail:
+        "https://external-preview.redd.it/story.jpeg?width=140&height=93&auto=webp",
+      preview: {
+        images: [
+          {
+            source: {
+              url: "https://external-preview.redd.it/story.jpeg?auto=webp&amp;s=fullsize",
+            },
+          },
+        ],
+      },
+      url: "https://publisher.example/story",
+    },
+    {
+      fetchArticleImageImpl: async () => {
+        throw new Error("article metadata should not be fetched");
+      },
+    }
+  );
+
+  assert.equal(
+    image,
+    "https://external-preview.redd.it/story.jpeg?auto=webp&s=fullsize"
+  );
+});
+
 test("imageSource uses Reddit thumbnail before article metadata fallback", async () => {
   const image = await imageSource(
     {
