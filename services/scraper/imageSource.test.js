@@ -123,6 +123,25 @@ test("fetchArticleImage extracts twitter image from fetched article HTML", async
   assert.equal(image, "https://publisher.example/image.jpg");
 });
 
+test("fetchArticleImage accepts node-fetch default export module shape", async () => {
+  const image = await fetchArticleImage("https://publisher.example/story", {
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    fetchImpl: {
+      default: async () => ({
+        ok: true,
+        status: 200,
+        headers: createHeaders({
+          "content-type": "text/html; charset=utf-8",
+        }),
+        text: async () =>
+          '<meta property="og:image" content="https://publisher.example/default-export.jpg">',
+      }),
+    },
+  });
+
+  assert.equal(image, "https://publisher.example/default-export.jpg");
+});
+
 test("fetchArticleImage uses a short default metadata timeout", async () => {
   let requestTimeout;
 

@@ -1,6 +1,7 @@
 const mongoose = require("./db");
 const fetch = require("node-fetch");
 const newPost = require("./models/newPost");
+const { normalizeFetch } = require("./fetchInterop");
 const {
   hasUsableThumbnail,
   imageSource,
@@ -90,6 +91,8 @@ const createFetchPosts = ({
   mongooseClient = mongoose,
   newPostModel = newPost,
 } = {}) => {
+  const normalizedFetch = normalizeFetch(fetchImpl);
+
   return async (event) => {
     logger.log(event);
     const subreddit = event.subreddit || "politics";
@@ -117,7 +120,7 @@ const createFetchPosts = ({
     }
     formBody = formBody.join("&");
 
-    const access_token = await fetchImpl(
+    const access_token = await normalizedFetch(
       "https://www.reddit.com/api/v1/access_token",
       {
         method: "POST",
@@ -137,7 +140,7 @@ const createFetchPosts = ({
         return json.access_token;
       });
 
-    await fetchImpl(redditUrl, {
+    await normalizedFetch(redditUrl, {
       method: "GET",
       headers: {
         Authorization: "bearer " + access_token,
