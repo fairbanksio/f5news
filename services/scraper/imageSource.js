@@ -3,6 +3,7 @@ const http = require("http");
 const https = require("https");
 const net = require("net");
 const fetch = require("node-fetch");
+const { normalizeFetch } = require("./fetchInterop");
 
 const DEFAULT_MAX_BYTES = 512 * 1024;
 const DEFAULT_TIMEOUT_MS = 3000;
@@ -358,7 +359,7 @@ const withTimeout = async (operation, timeoutMs, onTimeout) => {
 };
 
 const fetchArticleImage = async (url, options = {}) => {
-  const fetchImpl = options.fetchImpl || fetch;
+  const fetchImpl = normalizeFetch(options.fetchImpl || fetch);
   const maxBytes = options.maxBytes || DEFAULT_MAX_BYTES;
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
   const maxRedirects = options.maxRedirects || DEFAULT_MAX_REDIRECTS;
