@@ -109,6 +109,70 @@ test("fetchPosts stores subreddit posts with resolved thumbnails", async () => {
   assert.deepEqual(writes[1][2], { upsert: false });
 });
 
+test("fetchPosts stores full Reddit preview images instead of tiny thumbnails", async () => {
+  const posts = [
+    {
+      data: {
+        title: "Preview Story",
+        author: "author",
+        created_utc: 1710000000,
+        thumbnail:
+          "https://external-preview.redd.it/story.jpeg?width=140&height=93&auto=webp",
+        preview: {
+          images: [
+            {
+              source: {
+                url: "https://external-preview.redd.it/story.jpeg?auto=webp&amp;s=fullsize",
+              },
+            },
+          ],
+        },
+        domain: "example.com",
+        url: "https://example.com/story",
+        permalink: "/r/news/comments/story",
+        ups: 42,
+        num_comments: 7,
+        post_hint: "link",
+        is_video: false,
+        media: null,
+        is_gallery: false,
+        gallery_data: null,
+        media_metadata: null,
+        is_self: false,
+        selftext: "",
+        selftext_html: null,
+        upvote_ratio: 0.91,
+        rpan_video: null,
+      },
+    },
+  ];
+  const { fetchImpl } = createFetcher({ posts });
+  const writes = [];
+  const handler = createFetchPosts({
+    fetchImpl,
+    logger: createLogger(),
+    mongooseClient: {
+      connect: async () => {},
+    },
+    newPostModel: {
+      findOneAndUpdate: async (...args) => {
+        writes.push(args);
+      },
+    },
+  });
+
+  await handler({ subreddit: "news" });
+
+  assert.equal(writes.length, 2);
+  assert.equal(writes[0][1].$set.thumbnail, undefined);
+  assert.equal(
+    writes[1][1].$set.thumbnail,
+    "https://external-preview.redd.it/story.jpeg?auto=webp&s=fullsize"
+  );
+  assert.equal(writes[1][1].$set.thumbnail.includes("width=140"), false);
+  assert.equal(writes[1][1].$set.thumbnail.includes("height=93"), false);
+});
+
 test("fetchPosts writes post records before resolving article thumbnails", async () => {
   const thumbnail = createDeferred();
   const posts = [

@@ -27,10 +27,14 @@ const postsApiEndpoint = getRuntimeConfigValue('REACT_APP_POSTS_API')
 const getPostsUrl = subreddit =>
   postsApiEndpoint + '/' + subreddit.replace(/\+/g, '%2b');
 
-const gtThan5MinsAgo = date => {
-  const FIVE_MINS = 1000 * 60 * 2;
-  const fiveMinsAgo = Date.now() - FIVE_MINS;
-  return new Date(date).getTime() < fiveMinsAgo;
+const SCRAPER_REFRESH_INTERVAL_MS = 1000 * 60 * 5;
+const SCRAPER_FRESHNESS_GRACE_MS = 1000 * 60 * 2;
+const STALE_POSTS_THRESHOLD_MS =
+  SCRAPER_REFRESH_INTERVAL_MS + SCRAPER_FRESHNESS_GRACE_MS;
+
+const isOlderThanExpectedScraperWindow = date => {
+  const latestExpectedFetch = Date.now() - STALE_POSTS_THRESHOLD_MS;
+  return new Date(date).getTime() < latestExpectedFetch;
 };
 
 const findLatestFetch = posts => {
@@ -74,7 +78,7 @@ const logDelayedPosts = (subreddit, posts) => {
     subreddit,
     postCount: posts.length,
     latestFetchedAt: latestFetchIso,
-    expectedFreshWithinSeconds: 120,
+    expectedFreshWithinSeconds: STALE_POSTS_THRESHOLD_MS / 1000,
   });
 };
 
@@ -130,7 +134,10 @@ const PostView = () => {
           setLoading(false);
         }, 1700);
 
-        if (nextPosts.length > 0 && gtThan5MinsAgo(findLatestFetch(nextPosts))) {
+        if (
+          nextPosts.length > 0 &&
+          isOlderThanExpectedScraperWindow(findLatestFetch(nextPosts))
+        ) {
           logDelayedPosts(subreddit, nextPosts);
         }
       })
