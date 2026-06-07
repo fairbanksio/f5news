@@ -7,17 +7,17 @@
     "node": "24.x"
   },
   "dependencies": {
-    "mongoose": "^9.6.2",
-    "node-fetch": "^2.7.0",
+    "mongoose": "^9.6.3",
+    "node-fetch": "^3.3.2",
     "saslprep": "^1.0.3"
   },
   "devDependencies": {
-    "@eslint/js": "^8.57.1",
-    "eslint": "^8.57.1",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
     "globals": "^17.6.0",
     "js-yaml": "^4.2.0",
     "nodemon": "^3.1.14",
-    "serverless": "^4.36.1"
+    "serverless": "^4.37.0"
   },
   "scripts": {
     "lint": "eslint . --max-warnings=0",
