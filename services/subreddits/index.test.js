@@ -86,7 +86,7 @@ test("returns configured and database-known subreddit names", async () => {
       "science",
       "environment",
       "business",
-      "StockMarket",
+      "Economics",
     ],
   });
 });
@@ -143,7 +143,7 @@ test("returns configured subreddits when no posts have been stored yet", async (
       "science",
       "environment",
       "business",
-      "StockMarket",
+      "Economics",
     ],
   });
 });
@@ -164,7 +164,7 @@ test("includes database-only subreddit names after configured subreddits", async
       "science",
       "environment",
       "business",
-      "StockMarket",
+      "Economics",
       "LocalNews",
     ],
   });

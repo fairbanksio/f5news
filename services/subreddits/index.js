@@ -10,7 +10,7 @@ const configuredSubreddits = [
   "science",
   "environment",
   "business",
-  "StockMarket",
+  "Economics",
 ];
 
 const getRequestOrigin = (event = {}) => {
