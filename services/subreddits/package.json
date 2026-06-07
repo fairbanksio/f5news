@@ -15,7 +15,9 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@eslint/js": "^8.57.1",
     "eslint": "^8.57.1",
+    "globals": "^17.6.0",
     "serverless": "^4.36.1",
     "serverless-domain-manager": "^10.1.0"
   },
