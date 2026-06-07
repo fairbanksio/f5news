@@ -43,6 +43,7 @@ const renderMainContent = () =>
 describe('MainContent', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-06T12:00:00.000Z'));
   });
 
   afterEach(() => {
@@ -155,6 +156,80 @@ describe('MainContent', () => {
       'Higher upvote headline',
       'Lower upvote headline',
     ]);
+  });
+
+  test('does not warn about stale posts inside the scraper refresh window', async () => {
+    const post = {
+      title: 'Fresh enough headline',
+      url: 'https://example.com/story',
+      commentCount: 12,
+      upvoteCount: 42,
+      created_utc: Math.floor(Date.now() / 1000),
+      domain: 'example.com',
+      commentLink: '/r/politics/comments/abc123/example',
+      fetchedAt: '2026-06-06T11:54:30.000Z',
+    };
+    const consoleWarnSpy = vi
+      .spyOn(console, 'warn')
+      .mockImplementation(() => {});
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [post] }),
+    });
+
+    await act(async () => {
+      renderMainContent();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('Fresh enough headline')).toBeInTheDocument();
+    expect(consoleWarnSpy).not.toHaveBeenCalledWith(
+      'Posts look stale relative to the expected refresh window.',
+      expect.anything()
+    );
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  test('warns when posts are older than the scraper refresh window plus grace period', async () => {
+    const post = {
+      title: 'Actually stale headline',
+      url: 'https://example.com/story',
+      commentCount: 12,
+      upvoteCount: 42,
+      created_utc: Math.floor(Date.now() / 1000),
+      domain: 'example.com',
+      commentLink: '/r/politics/comments/abc123/example',
+      fetchedAt: '2026-06-06T11:52:30.000Z',
+    };
+    const consoleWarnSpy = vi
+      .spyOn(console, 'warn')
+      .mockImplementation(() => {});
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [post] }),
+    });
+
+    await act(async () => {
+      renderMainContent();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      'Posts look stale relative to the expected refresh window.',
+      expect.objectContaining({
+        subreddit: 'politics',
+        postCount: 1,
+        latestFetchedAt: '2026-06-06T11:52:30.000Z',
+        expectedFreshWithinSeconds: 420,
+      })
+    );
+
+    consoleWarnSpy.mockRestore();
   });
 
   test('keeps the last successful posts when a refresh payload is invalid', async () => {

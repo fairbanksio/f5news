@@ -133,6 +133,25 @@ test("rejects disallowed origins before querying posts", async () => {
   });
 });
 
+test("rejects requests with no origin before querying posts", async () => {
+  const context = createHandler();
+
+  const response = await context.handler({
+    headers: {},
+    pathParameters: {
+      subreddit: "worldnews",
+    },
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.equal(context.connectCount, 0);
+  assert.equal(response.headers["Access-Control-Allow-Origin"], undefined);
+  assert.deepEqual(getJsonBody(response), {
+    success: false,
+    error: "Forbidden origin",
+  });
+});
+
 test("returns an empty successful response when no posts match", async () => {
   const context = createHandler({ posts: [] });
 
