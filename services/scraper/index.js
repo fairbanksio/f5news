@@ -14,7 +14,7 @@ const insertNewPosts = (
   subreddit,
   { imageSourceImpl = imageSource, logger = console, newPostModel = newPost } = {}
 ) => {
-  logger.log("inserting new posts:", newPosts); // eslint-disable-line no-console
+  logger.log("inserting new posts:", newPosts);
   let insertPromises = [];
   // Fill array with promises
   insertPromises = mapWithConcurrency(
@@ -61,7 +61,7 @@ const insertNewPosts = (
       } catch (error) {
         logger.warn(
           `Error resolving post image source @ ${Date.now()}: ${error}`
-        ); // eslint-disable-line no-console
+        );
       }
 
       const hasResolvedThumbnail = hasUsableThumbnail(thumbnail);
@@ -80,7 +80,7 @@ const insertNewPosts = (
 
   return insertPromises
     .catch((e) => {
-      logger.warn(`Error Inserting Posts @ ${Date.now()}: ${e}`); // eslint-disable-line no-console
+      logger.warn(`Error Inserting Posts @ ${Date.now()}: ${e}`);
     })
     .finally(() => {
       insertPromises = null;
@@ -164,14 +164,14 @@ const createFetchPosts = ({
         });
       })
       .then(() => {
-        logger.log(`Saved New Posts @ ${Date.now()}`); // eslint-disable-line no-console
+        logger.log(`Saved New Posts @ ${Date.now()}`);
         logger.log(
           `Currently using ${(
             process.memoryUsage().heapUsed /
             1024 /
             1024
           ).toFixed(2)} MB of memory \n`
-        ); // eslint-disable-line no-console
+        );
       })
       .catch((error) => {
         logger.log("Error fetching posts:", error);
