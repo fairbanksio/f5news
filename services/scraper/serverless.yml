@@ -58,4 +58,4 @@ functions:
           rate: rate(5 minutes)
           enabled: true
           input:
-            subreddit: StockMarket
+            subreddit: Economics
