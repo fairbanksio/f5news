@@ -7,7 +7,7 @@
     "node": "24.x"
   },
   "scripts": {
-    "lint": "eslint . --ext .js --max-warnings=0",
+    "lint": "eslint . --max-warnings=0",
     "start": "node start.js",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=90 --test-coverage-functions=90"
