@@ -15,9 +15,8 @@ const insertNewPosts = (
   { imageSourceImpl = imageSource, logger = console, newPostModel = newPost } = {}
 ) => {
   logger.log("inserting new posts:", newPosts);
-  let insertPromises = [];
   // Fill array with promises
-  insertPromises = mapWithConcurrency(
+  const insertPromises = mapWithConcurrency(
     newPosts,
     IMAGE_SOURCE_CONCURRENCY,
     async (value) => {
@@ -78,13 +77,9 @@ const insertNewPosts = (
     }
   );
 
-  return insertPromises
-    .catch((e) => {
-      logger.warn(`Error Inserting Posts @ ${Date.now()}: ${e}`);
-    })
-    .finally(() => {
-      insertPromises = null;
-    });
+  return insertPromises.catch((e) => {
+    logger.warn(`Error Inserting Posts @ ${Date.now()}: ${e}`);
+  });
 };
 
 const createFetchPosts = ({

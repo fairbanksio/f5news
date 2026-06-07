@@ -502,14 +502,12 @@ const imageSource = async (data, options = {}) => {
 
   const fetchArticleImageImpl =
     options.fetchArticleImageImpl || fetchArticleImage;
-  let articleImage = "";
   try {
-    articleImage = await fetchArticleImageImpl(articleUrl, options);
+    const articleImage = await fetchArticleImageImpl(articleUrl, options);
+    return articleImage || data.thumbnail || "";
   } catch (error) {
-    articleImage = "";
+    return data.thumbnail || "";
   }
-
-  return articleImage || data.thumbnail || "";
 };
 
 module.exports = {
