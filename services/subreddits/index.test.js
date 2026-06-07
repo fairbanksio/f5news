@@ -18,22 +18,6 @@ const createPostModel = (subreddits = []) => {
   };
 };
 
-const createPostModelWithDistinctResults = (results = []) => {
-  const calls = [];
-
-  return {
-    calls,
-    distinct(field, filter) {
-      const result = results[calls.length] || [];
-      calls.push({ method: "distinct", args: [field, filter] });
-
-      return {
-        exec: async () => result,
-      };
-    },
-  };
-};
-
 const getJsonBody = (response) => JSON.parse(response.body);
 
 const allowedEvent = (event = {}) => ({
@@ -71,7 +55,7 @@ const createHandler = ({
   };
 };
 
-test("queries distinct recent popular subreddit names", async () => {
+test("returns configured and database-known subreddit names", async () => {
   const context = createHandler();
 
   const response = await context.handler({
@@ -84,13 +68,7 @@ test("queries distinct recent popular subreddit names", async () => {
   assert.deepEqual(context.postModel.calls, [
     {
       method: "distinct",
-      args: [
-        "sub",
-        {
-          created_utc: { $gt: 1710057600 },
-          upvoteCount: { $gt: 5 },
-        },
-      ],
+      args: ["sub", {}],
     },
   ]);
   assert.equal(response.statusCode, 200);
@@ -99,8 +77,17 @@ test("queries distinct recent popular subreddit names", async () => {
   assert.equal(response.headers["Access-Control-Allow-Credentials"], undefined);
   assert.deepEqual(getJsonBody(response), {
     success: true,
-    count: 2,
-    data: ["news", "politics"],
+    count: 8,
+    data: [
+      "politics",
+      "worldnews",
+      "news",
+      "technology",
+      "science",
+      "environment",
+      "business",
+      "StockMarket",
+    ],
   });
 });
 
@@ -139,7 +126,7 @@ test("rejects requests with no origin before querying subreddits", async () => {
   });
 });
 
-test("returns an empty successful response when no subreddits match", async () => {
+test("returns configured subreddits when no posts have been stored yet", async () => {
   const context = createHandler({ subreddits: [] });
 
   const response = await context.handler(allowedEvent());
@@ -147,44 +134,43 @@ test("returns an empty successful response when no subreddits match", async () =
   assert.equal(response.statusCode, 200);
   assert.deepEqual(getJsonBody(response), {
     success: true,
-    count: 0,
-    data: [],
+    count: 8,
+    data: [
+      "politics",
+      "worldnews",
+      "news",
+      "technology",
+      "science",
+      "environment",
+      "business",
+      "StockMarket",
+    ],
   });
 });
 
-test("falls back to all known subreddit names when no recent popular posts match", async () => {
-  const postModel = createPostModelWithDistinctResults([
-    [],
-    ["news", "worldnews"],
-  ]);
-  const context = createHandler({ postModel });
+test("includes database-only subreddit names after configured subreddits", async () => {
+  const context = createHandler({ subreddits: ["news", "LocalNews"] });
 
   const response = await context.handler(allowedEvent());
 
-  assert.deepEqual(postModel.calls, [
-    {
-      method: "distinct",
-      args: [
-        "sub",
-        {
-          created_utc: { $gt: 1710057600 },
-          upvoteCount: { $gt: 5 },
-        },
-      ],
-    },
-    {
-      method: "distinct",
-      args: ["sub", {}],
-    },
-  ]);
   assert.deepEqual(getJsonBody(response), {
     success: true,
-    count: 2,
-    data: ["news", "worldnews"],
+    count: 9,
+    data: [
+      "politics",
+      "worldnews",
+      "news",
+      "technology",
+      "science",
+      "environment",
+      "business",
+      "StockMarket",
+      "LocalNews",
+    ],
   });
 });
 
-test("uses the current clock when no clock is injected", async () => {
+test("queries all known subreddits when no clock is injected", async () => {
   const postModel = createPostModel([]);
   const handler = createGetSubreddits({
     mongooseClient: {
@@ -196,7 +182,7 @@ test("uses the current clock when no clock is injected", async () => {
   const response = await handler(allowedEvent());
 
   assert.equal(response.statusCode, 200);
-  assert.equal(typeof postModel.calls[0].args[1].created_utc.$gt, "number");
+  assert.deepEqual(postModel.calls[0].args, ["sub", {}]);
 });
 
 test("returns a server error response when the subreddit query fails", async () => {
