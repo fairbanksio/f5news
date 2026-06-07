@@ -8,10 +8,6 @@ import { ViewModeContext } from '../Contexts/ViewModeContext';
 import { LoadingContext } from '../Contexts/LoadingContext';
 const { matchMedia } = require('mock-match-media');
 
-vi.mock('react-page-visibility', () => ({
-  usePageVisibility: () => true,
-}));
-
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: matchMedia,
