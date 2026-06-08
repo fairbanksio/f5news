@@ -1,5 +1,4 @@
 const mongoose = require("./db");
-const fetch = require("node-fetch");
 const newPost = require("./models/newPost");
 const { normalizeFetch } = require("./fetchInterop");
 const {
@@ -9,6 +8,9 @@ const {
 } = require("./imageSource");
 
 const IMAGE_SOURCE_CONCURRENCY = 10;
+
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetchImpl }) => fetchImpl(...args));
 
 const insertNewPosts = (
   newPosts,
