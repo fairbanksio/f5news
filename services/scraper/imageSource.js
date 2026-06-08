@@ -342,6 +342,38 @@ const destroyResponseBody = (response) => {
   }
 };
 
+const getHeader = (response, name) => {
+  if (
+    !response ||
+    !response.headers ||
+    typeof response.headers.get !== "function"
+  ) {
+    return "";
+  }
+
+  return response.headers.get(name) || "";
+};
+
+const responseDiagnostics = (response) => ({
+  status: response.status,
+  contentType: getHeader(response, "content-type"),
+  server: getHeader(response, "server"),
+  xCache: getHeader(response, "x-cache"),
+  xDatadome: getHeader(response, "x-datadome"),
+});
+
+const reportArticleImageFailure = (options, failure) => {
+  if (typeof options.onArticleImageFailure !== "function") {
+    return;
+  }
+
+  options.onArticleImageFailure({
+    url: failure.url,
+    reason: failure.reason,
+    ...(failure.details || {}),
+  });
+};
+
 const withTimeout = async (operation, timeoutMs, onTimeout) => {
   let timeout;
 
@@ -374,11 +406,20 @@ const fetchArticleImage = async (url, options = {}) => {
 
   while (redirectCount <= maxRedirects) {
     if (!(await isSafeHttpUrl(nextUrl, { resolveHostname }))) {
+      reportArticleImageFailure(options, {
+        url: nextUrl,
+        reason: "unsafe_url",
+        details: {
+          redirectCount,
+          retryCount: transientRetryCount,
+        },
+      });
       return "";
     }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let requestTimedOut = false;
 
     try {
       const response = await withTimeout(
@@ -390,7 +431,10 @@ const fetchArticleImage = async (url, options = {}) => {
           timeout: timeoutMs,
         }),
         timeoutMs,
-        () => controller.abort()
+        () => {
+          requestTimedOut = true;
+          controller.abort();
+        }
       );
 
       if (!response) {
@@ -400,6 +444,15 @@ const fetchArticleImage = async (url, options = {}) => {
           transientRetryCount += 1;
           continue;
         }
+        reportArticleImageFailure(options, {
+          url: nextUrl,
+          reason: requestTimedOut ? "request_timeout" : "empty_response",
+          details: {
+            redirectCount,
+            retryCount: transientRetryCount,
+            timeoutMs,
+          },
+        });
         return "";
       }
 
@@ -407,6 +460,15 @@ const fetchArticleImage = async (url, options = {}) => {
         const location = response.headers.get("location");
         if (!location) {
           destroyResponseBody(response);
+          reportArticleImageFailure(options, {
+            url: nextUrl,
+            reason: "redirect_missing_location",
+            details: {
+              ...responseDiagnostics(response),
+              redirectCount,
+              retryCount: transientRetryCount,
+            },
+          });
           return "";
         }
         nextUrl = new URL(location, nextUrl).toString();
@@ -417,43 +479,135 @@ const fetchArticleImage = async (url, options = {}) => {
 
       if (!response.ok) {
         destroyResponseBody(response);
-        if (
+        const canRetry =
           TRANSIENT_RESPONSE_STATUSES.has(response.status) &&
-          canRetryTransientFailure(transientRetryCount, maxTransientRetries)
-        ) {
+          canRetryTransientFailure(transientRetryCount, maxTransientRetries);
+
+        if (canRetry) {
           transientRetryCount += 1;
           continue;
         }
+
+        reportArticleImageFailure(options, {
+          url: nextUrl,
+          reason: "http_status",
+          details: {
+            ...responseDiagnostics(response),
+            redirectCount,
+            retryCount: transientRetryCount,
+          },
+        });
         return "";
       }
 
       const contentType = response.headers.get("content-type") || "";
       if (contentType && !contentType.toLowerCase().includes("text/html")) {
         destroyResponseBody(response);
+        reportArticleImageFailure(options, {
+          url: nextUrl,
+          reason: "non_html_response",
+          details: {
+            ...responseDiagnostics(response),
+            redirectCount,
+            retryCount: transientRetryCount,
+          },
+        });
         return "";
       }
 
-      const html = await withTimeout(
-        readResponseBody(response, maxBytes),
-        timeoutMs,
-        () => controller.abort()
-      );
+      let htmlTimedOut = false;
+      let html;
+
+      try {
+        html = await withTimeout(
+          readResponseBody(response, maxBytes),
+          timeoutMs,
+          () => {
+            htmlTimedOut = true;
+            controller.abort();
+          }
+        );
+      } catch (error) {
+        if (
+          canRetryTransientFailure(transientRetryCount, maxTransientRetries)
+        ) {
+          transientRetryCount += 1;
+          continue;
+        }
+        reportArticleImageFailure(options, {
+          url: nextUrl,
+          reason: "body_read_error",
+          details: {
+            ...responseDiagnostics(response),
+            redirectCount,
+            retryCount: transientRetryCount,
+            errorName: error.name,
+            errorMessage: error.message,
+          },
+        });
+        return "";
+      }
+
       if (!html) {
+        reportArticleImageFailure(options, {
+          url: nextUrl,
+          reason: htmlTimedOut ? "body_read_timeout" : "empty_html",
+          details: {
+            ...responseDiagnostics(response),
+            redirectCount,
+            retryCount: transientRetryCount,
+            timeoutMs,
+          },
+        });
         return "";
       }
 
-      return extractMetaImage(html, nextUrl);
+      const image = extractMetaImage(html, nextUrl);
+      if (!image) {
+        reportArticleImageFailure(options, {
+          url: nextUrl,
+          reason: "no_meta_image",
+          details: {
+            ...responseDiagnostics(response),
+            redirectCount,
+            retryCount: transientRetryCount,
+            bytesRead: Buffer.byteLength(html),
+          },
+        });
+        return "";
+      }
+
+      return image;
     } catch (error) {
       if (canRetryTransientFailure(transientRetryCount, maxTransientRetries)) {
         transientRetryCount += 1;
         continue;
       }
+      reportArticleImageFailure(options, {
+        url: nextUrl,
+        reason: "fetch_error",
+        details: {
+          redirectCount,
+          retryCount: transientRetryCount,
+          errorName: error.name,
+          errorMessage: error.message,
+        },
+      });
       return "";
     } finally {
       clearTimeout(timeout);
     }
   }
 
+  reportArticleImageFailure(options, {
+    url: nextUrl,
+    reason: "too_many_redirects",
+    details: {
+      redirectCount,
+      retryCount: transientRetryCount,
+      maxRedirects,
+    },
+  });
   return "";
 };
 
