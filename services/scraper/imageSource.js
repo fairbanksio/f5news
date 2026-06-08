@@ -2,12 +2,14 @@ const dns = require("dns").promises;
 const http = require("http");
 const https = require("https");
 const net = require("net");
-const fetch = require("node-fetch");
+const { normalizeFetch } = require("./fetchInterop");
 
 const DEFAULT_MAX_BYTES = 512 * 1024;
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_MAX_TRANSIENT_RETRIES = 1;
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetchImpl }) => fetchImpl(...args));
 const DEFAULT_ARTICLE_HEADERS = {
   Accept:
     "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -358,7 +360,7 @@ const withTimeout = async (operation, timeoutMs, onTimeout) => {
 };
 
 const fetchArticleImage = async (url, options = {}) => {
-  const fetchImpl = options.fetchImpl || fetch;
+  const fetchImpl = normalizeFetch(options.fetchImpl || fetch);
   const maxBytes = options.maxBytes || DEFAULT_MAX_BYTES;
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
   const maxRedirects = options.maxRedirects || DEFAULT_MAX_REDIRECTS;
@@ -502,14 +504,12 @@ const imageSource = async (data, options = {}) => {
 
   const fetchArticleImageImpl =
     options.fetchArticleImageImpl || fetchArticleImage;
-  let articleImage = "";
   try {
-    articleImage = await fetchArticleImageImpl(articleUrl, options);
+    const articleImage = await fetchArticleImageImpl(articleUrl, options);
+    return articleImage || data.thumbnail || "";
   } catch (error) {
-    articleImage = "";
+    return data.thumbnail || "";
   }
-
-  return articleImage || data.thumbnail || "";
 };
 
 module.exports = {

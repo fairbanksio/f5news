@@ -23,6 +23,6 @@ test("fetchPosts is scheduled for the supported news subreddits", () => {
     "science",
     "environment",
     "business",
-    "StockMarket",
+    "Economics",
   ]);
 });

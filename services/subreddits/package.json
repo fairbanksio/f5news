@@ -7,7 +7,7 @@
     "node": "24.x"
   },
   "scripts": {
-    "lint": "eslint . --ext .js --max-warnings=0",
+    "lint": "eslint . --max-warnings=0",
     "start": "node start.js",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=90 --test-coverage-functions=90"
@@ -15,11 +15,13 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "eslint": "^8.57.1",
-    "serverless": "^4.36.1",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
+    "serverless": "^4.37.0",
     "serverless-domain-manager": "^10.1.0"
   },
   "dependencies": {
-    "mongoose": "^9.6.2"
+    "mongoose": "^9.6.3"
   }
 }

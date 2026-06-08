@@ -348,6 +348,26 @@ test("fetchPosts defaults to politics when event has no subreddit", async () => 
   assert.equal(calls[1].url, "https://oauth.reddit.com/r/politics/rising");
 });
 
+test("fetchPosts accepts node-fetch default export module shape", async () => {
+  const { calls, fetchImpl } = createFetcher();
+  const handler = createFetchPosts({
+    fetchImpl: { default: fetchImpl },
+    imageSourceImpl: async () => "",
+    logger: createLogger(),
+    mongooseClient: {
+      connect: async () => {},
+    },
+    newPostModel: {
+      findOneAndUpdate: async () => {},
+    },
+  });
+
+  await handler({ subreddit: "science" });
+
+  assert.equal(calls[0].url, "https://www.reddit.com/api/v1/access_token");
+  assert.equal(calls[1].url, "https://oauth.reddit.com/r/science/rising");
+});
+
 test("fetchPosts does not write posts and surfaces token fetch failures", async () => {
   let writeCount = 0;
   const handler = createFetchPosts({

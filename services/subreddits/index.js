@@ -1,5 +1,3 @@
-const mongoose = require("./db");
-const Post = require("./models/post");
 const { createCorsHeaders, isAllowedOrigin } = require("./cors");
 
 const configuredSubreddits = [
@@ -10,7 +8,7 @@ const configuredSubreddits = [
   "science",
   "environment",
   "business",
-  "StockMarket",
+  "Economics",
 ];
 
 const getRequestOrigin = (event = {}) => {
@@ -24,10 +22,7 @@ const jsonResponse = (statusCode, body, origin) => ({
   body: JSON.stringify(body),
 });
 
-const createGetSubreddits = ({
-  mongooseClient = mongoose,
-  postModel = Post,
-} = {}) => async (event = {}) => {
+const createGetSubreddits = () => async (event = {}) => {
   const origin = getRequestOrigin(event);
 
   if (!isAllowedOrigin(origin)) {
@@ -38,17 +33,11 @@ const createGetSubreddits = ({
   }
 
   try {
-    // connect to database
-    await mongooseClient.connect();
-
-    const knownSubreddits = await postModel.distinct("sub", {}).exec();
-    const subreddits = [...new Set([...configuredSubreddits, ...knownSubreddits])];
-
     // return results
     return jsonResponse(200, {
       success: true,
-      count: subreddits.length,
-      data: subreddits,
+      count: configuredSubreddits.length,
+      data: configuredSubreddits,
     }, origin);
   } catch (error) {
     return jsonResponse(500, {

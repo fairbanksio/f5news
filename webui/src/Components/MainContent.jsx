@@ -15,7 +15,7 @@ import { ViewModeContext } from '../Contexts/ViewModeContext';
 import { LoadingContext } from '../Contexts/LoadingContext';
 import GridView from './GridView';
 import ListView from './ListView';
-import { usePageVisibility } from 'react-page-visibility';
+import usePageVisibility from '../Util/usePageVisibility';
 import { getRuntimeConfigValue, normalizeApiEndpoint } from '../runtimeConfig';
 
 const apiEndpoint = normalizeApiEndpoint(getRuntimeConfigValue('REACT_APP_API') || 'https://localhost');

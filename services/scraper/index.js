@@ -1,6 +1,6 @@
 const mongoose = require("./db");
-const fetch = require("node-fetch");
 const newPost = require("./models/newPost");
+const { normalizeFetch } = require("./fetchInterop");
 const {
   hasUsableThumbnail,
   imageSource,
@@ -9,15 +9,17 @@ const {
 
 const IMAGE_SOURCE_CONCURRENCY = 10;
 
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetchImpl }) => fetchImpl(...args));
+
 const insertNewPosts = (
   newPosts,
   subreddit,
   { imageSourceImpl = imageSource, logger = console, newPostModel = newPost } = {}
 ) => {
-  logger.log("inserting new posts:", newPosts); // eslint-disable-line no-console
-  let insertPromises = [];
+  logger.log("inserting new posts:", newPosts);
   // Fill array with promises
-  insertPromises = mapWithConcurrency(
+  const insertPromises = mapWithConcurrency(
     newPosts,
     IMAGE_SOURCE_CONCURRENCY,
     async (value) => {
@@ -61,7 +63,7 @@ const insertNewPosts = (
       } catch (error) {
         logger.warn(
           `Error resolving post image source @ ${Date.now()}: ${error}`
-        ); // eslint-disable-line no-console
+        );
       }
 
       const hasResolvedThumbnail = hasUsableThumbnail(thumbnail);
@@ -78,13 +80,9 @@ const insertNewPosts = (
     }
   );
 
-  return insertPromises
-    .catch((e) => {
-      logger.warn(`Error Inserting Posts @ ${Date.now()}: ${e}`); // eslint-disable-line no-console
-    })
-    .finally(() => {
-      insertPromises = null;
-    });
+  return insertPromises.catch((e) => {
+    logger.warn(`Error Inserting Posts @ ${Date.now()}: ${e}`);
+  });
 };
 
 const createFetchPosts = ({
@@ -95,6 +93,8 @@ const createFetchPosts = ({
   mongooseClient = mongoose,
   newPostModel = newPost,
 } = {}) => {
+  const normalizedFetch = normalizeFetch(fetchImpl);
+
   return async (event) => {
     logger.log(event);
     const subreddit = event.subreddit || "politics";
@@ -122,7 +122,7 @@ const createFetchPosts = ({
     }
     formBody = formBody.join("&");
 
-    const access_token = await fetchImpl(
+    const access_token = await normalizedFetch(
       "https://www.reddit.com/api/v1/access_token",
       {
         method: "POST",
@@ -142,7 +142,7 @@ const createFetchPosts = ({
         return json.access_token;
       });
 
-    await fetchImpl(redditUrl, {
+    await normalizedFetch(redditUrl, {
       method: "GET",
       headers: {
         Authorization: "bearer " + access_token,
@@ -164,14 +164,14 @@ const createFetchPosts = ({
         });
       })
       .then(() => {
-        logger.log(`Saved New Posts @ ${Date.now()}`); // eslint-disable-line no-console
+        logger.log(`Saved New Posts @ ${Date.now()}`);
         logger.log(
           `Currently using ${(
             process.memoryUsage().heapUsed /
             1024 /
             1024
           ).toFixed(2)} MB of memory \n`
-        ); // eslint-disable-line no-console
+        );
       })
       .catch((error) => {
         logger.log("Error fetching posts:", error);

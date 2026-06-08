@@ -53,7 +53,7 @@ export const SubredditProvider = props => {
     show: false,
     title: 'Warning:',
     message: 'There was a problem',
-  }); // eslint-disable-line no-unused-vars
+  });
   const apiEndpoint = normalizeApiEndpoint(
     getRuntimeConfigValue('REACT_APP_API') || 'https://localhost'
   );
