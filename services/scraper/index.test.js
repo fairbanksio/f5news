@@ -425,6 +425,78 @@ test("fetchPosts logs missing article image metrics for graphing", async () => {
   );
 });
 
+test("fetchPosts includes article image failure details in missing logs", async () => {
+  const posts = [
+    {
+      data: {
+        id: "post1",
+        title: "Reuters Story",
+        author: "author",
+        created_utc: 1710000000,
+        thumbnail: "",
+        domain: "reuters.com",
+        url: "https://www.reuters.com/world/story",
+        permalink: "/r/news/comments/story",
+        ups: 42,
+        num_comments: 7,
+        post_hint: "link",
+        is_video: false,
+        media: null,
+        is_gallery: false,
+        gallery_data: null,
+        media_metadata: null,
+        is_self: false,
+        selftext: "",
+        selftext_html: null,
+        upvote_ratio: 0.91,
+        rpan_video: null,
+      },
+    },
+  ];
+  const { fetchImpl } = createFetcher({ posts });
+  const logger = createLogger();
+  const handler = createFetchPosts({
+    fetchImpl,
+    imageSourceImpl: async (post, options) => {
+      options.onArticleImageFailure({
+        url: post.url,
+        reason: "http_status",
+        status: 401,
+        contentType: "text/html;charset=utf-8",
+        server: "CloudFront",
+        xDatadome: "protected",
+        retryCount: 0,
+      });
+      return "";
+    },
+    logger,
+    mongooseClient: {
+      connect: async () => {},
+    },
+    newPostModel: {
+      findOneAndUpdate: async () => {},
+    },
+  });
+
+  await handler({ subreddit: "news" });
+
+  const [missingLog] = parseStructuredLogs(
+    logger,
+    "POST_IMAGE_RESOLUTION_MISSING"
+  );
+  assert.deepEqual(missingLog.imageResolutionFailures, [
+    {
+      url: "https://www.reuters.com/world/story",
+      reason: "http_status",
+      status: 401,
+      contentType: "text/html;charset=utf-8",
+      server: "CloudFront",
+      xDatadome: "protected",
+      retryCount: 0,
+    },
+  ]);
+});
+
 test("fetchPosts logs image resolution errors separately from missing thumbnails", async () => {
   const posts = [
     {
@@ -626,10 +698,16 @@ test("backfillMissingPostImages logs missing and error outcomes without writing 
   ];
 
   await backfillMissingPostImages("news", {
-    imageSourceImpl: async (post) => {
+    imageSourceImpl: async (post, options) => {
       if (post._id === "error-id") {
         throw new Error("metadata blocked");
       }
+      options.onArticleImageFailure({
+        url: post.url,
+        reason: "no_meta_image",
+        status: 200,
+        contentType: "text/html",
+      });
       return "";
     },
     logger,
@@ -655,6 +733,18 @@ test("backfillMissingPostImages logs missing and error outcomes without writing 
   assert.equal(
     parseStructuredLogs(logger, "POST_IMAGE_BACKFILL_MISSING").length,
     2
+  );
+  assert.deepEqual(
+    parseStructuredLogs(logger, "POST_IMAGE_BACKFILL_MISSING")[0]
+      .imageResolutionFailures,
+    [
+      {
+        url: "https://apnews.com/story",
+        reason: "no_meta_image",
+        status: 200,
+        contentType: "text/html",
+      },
+    ]
   );
   assert.equal(
     parseStructuredLogs(logger, "POST_IMAGE_BACKFILL_ERROR").length,
