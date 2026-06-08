@@ -68,6 +68,11 @@ functions:
           rate: rate(5 minutes)
           enabled: true
           input:
+            subreddit: sports
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
             subreddit: business
       - schedule:
           rate: rate(5 minutes)

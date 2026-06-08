@@ -25,6 +25,7 @@ test("fetchPosts is scheduled for the supported news subreddits", () => {
     "health",
     "environment",
     "energy",
+    "sports",
     "business",
     "Economics",
   ]);
