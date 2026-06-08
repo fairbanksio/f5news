@@ -33,6 +33,11 @@ functions:
           rate: rate(5 minutes)
           enabled: true
           input:
+            subreddit: europe
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
             subreddit: news
       - schedule:
           rate: rate(5 minutes)
