@@ -10,7 +10,9 @@ const configuredSubreddits = [
   "news",
   "technology",
   "science",
+  "health",
   "environment",
+  "energy",
   "business",
   "Economics",
 ];

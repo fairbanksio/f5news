@@ -53,7 +53,17 @@ functions:
           rate: rate(5 minutes)
           enabled: true
           input:
+            subreddit: health
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
             subreddit: environment
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: true
+          input:
+            subreddit: energy
       - schedule:
           rate: rate(5 minutes)
           enabled: true
