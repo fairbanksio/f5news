@@ -62,8 +62,10 @@ test("extractMetaImage ignores unusable image URLs", () => {
 
 test("fetchArticleImage rejects private network URLs before fetching", async () => {
   let fetchCalled = false;
+  const failures = [];
 
   const image = await fetchArticleImage("http://127.0.0.1/article", {
+    onArticleImageFailure: (failure) => failures.push(failure),
     fetchImpl: async () => {
       fetchCalled = true;
     },
@@ -71,6 +73,14 @@ test("fetchArticleImage rejects private network URLs before fetching", async () 
 
   assert.equal(image, "");
   assert.equal(fetchCalled, false);
+  assert.deepEqual(failures, [
+    {
+      url: "http://127.0.0.1/article",
+      reason: "unsafe_url",
+      redirectCount: 0,
+      retryCount: 0,
+    },
+  ]);
 });
 
 test("isSafeHttpUrl rejects malformed, localhost, private IPv6, and DNS failures", async () => {
@@ -234,6 +244,43 @@ test("fetchArticleImage retries transient publisher denials once", async () => {
   assert.equal(deniedBodyDestroyed, true);
 });
 
+test("fetchArticleImage reports blocked publisher response details", async () => {
+  const failures = [];
+
+  const image = await fetchArticleImage("https://publisher.example/story", {
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    onArticleImageFailure: (failure) => failures.push(failure),
+    fetchImpl: async () => ({
+      ok: false,
+      status: 401,
+      headers: createHeaders({
+        "content-type": "text/html;charset=utf-8",
+        server: "CloudFront",
+        "x-cache": "LambdaGeneratedResponse from cloudfront",
+        "x-datadome": "protected",
+      }),
+      body: {
+        destroy: () => {},
+      },
+    }),
+  });
+
+  assert.equal(image, "");
+  assert.deepEqual(failures, [
+    {
+      url: "https://publisher.example/story",
+      reason: "http_status",
+      status: 401,
+      contentType: "text/html;charset=utf-8",
+      server: "CloudFront",
+      xCache: "LambdaGeneratedResponse from cloudfront",
+      xDatadome: "protected",
+      redirectCount: 0,
+      retryCount: 0,
+    },
+  ]);
+});
+
 test("fetchArticleImage retries transient fetch failures once", async () => {
   let requestCount = 0;
 
@@ -356,6 +403,40 @@ test("fetchArticleImage returns empty when article HTML is empty", async () => {
   });
 
   assert.equal(image, "");
+});
+
+test("fetchArticleImage reports when article HTML has no image metadata", async () => {
+  const failures = [];
+
+  const image = await fetchArticleImage("https://publisher.example/story", {
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    onArticleImageFailure: (failure) => failures.push(failure),
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: createHeaders({
+        "content-type": "text/html; charset=utf-8",
+        server: "publisher",
+      }),
+      text: async () => "<html><head><title>No image</title></head></html>",
+    }),
+  });
+
+  assert.equal(image, "");
+  assert.deepEqual(failures, [
+    {
+      url: "https://publisher.example/story",
+      reason: "no_meta_image",
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      server: "publisher",
+      xCache: "",
+      xDatadome: "",
+      redirectCount: 0,
+      retryCount: 0,
+      bytesRead: 49,
+    },
+  ]);
 });
 
 test("fetchArticleImage returns empty when fetch rejects", async () => {

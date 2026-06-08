@@ -40,6 +40,29 @@ const logStructured = (logger, payload) => {
   logger.log(JSON.stringify(payload));
 };
 
+const createImageFailureDiagnostics = () => {
+  const failures = [];
+
+  return {
+    failures,
+    options: {
+      onArticleImageFailure: (failure) => {
+        failures.push(failure);
+      },
+    },
+  };
+};
+
+const imageFailureLogFields = (diagnostics) => {
+  if (!diagnostics.failures.length) {
+    return {};
+  }
+
+  return {
+    imageResolutionFailures: diagnostics.failures.slice(-3),
+  };
+};
+
 const createImageResolutionMetrics = (subreddit, operation) => ({
   subreddit,
   operation,
@@ -172,9 +195,10 @@ const backfillMissingPostImages = async (
 
       imageMetrics.attempts += 1;
       let thumbnail = "";
+      const diagnostics = createImageFailureDiagnostics();
 
       try {
-        thumbnail = await imageSourceImpl(post);
+        thumbnail = await imageSourceImpl(post, diagnostics.options);
       } catch (error) {
         imageMetrics.errors += 1;
         logStructured(logger, {
@@ -185,6 +209,7 @@ const backfillMissingPostImages = async (
           postUrl: getPostUrl(post),
           title: post.title,
           errorMessage: error.message,
+          ...imageFailureLogFields(diagnostics),
         });
       }
 
@@ -211,6 +236,7 @@ const backfillMissingPostImages = async (
         postUrl: getPostUrl(post),
         title: post.title,
         redditThumbnail: post.thumbnail || "",
+        ...imageFailureLogFields(diagnostics),
       });
     }
   );
@@ -266,8 +292,9 @@ const insertNewPosts = (
       await newPostModel.findOneAndUpdate(postKey, postUpdate, { upsert: true });
 
       let thumbnail = value.data.thumbnail || "";
+      const diagnostics = createImageFailureDiagnostics();
       try {
-        thumbnail = await imageSourceImpl(value.data);
+        thumbnail = await imageSourceImpl(value.data, diagnostics.options);
       } catch (error) {
         if (trackImageResolution) {
           imageMetrics.errors += 1;
@@ -279,6 +306,7 @@ const insertNewPosts = (
             postUrl: getPostUrl(value.data),
             title: value.data.title,
             errorMessage: error.message,
+            ...imageFailureLogFields(diagnostics),
           });
         }
         logger.warn(
@@ -305,6 +333,7 @@ const insertNewPosts = (
           postUrl: getPostUrl(value.data),
           title: value.data.title,
           redditThumbnail: value.data.thumbnail || "",
+          ...imageFailureLogFields(diagnostics),
         });
       }
 
@@ -429,6 +458,7 @@ const createFetchPosts = ({
 module.exports.createFetchPosts = createFetchPosts;
 module.exports.createImageResolutionMetrics = createImageResolutionMetrics;
 module.exports.backfillMissingPostImages = backfillMissingPostImages;
+module.exports.createImageFailureDiagnostics = createImageFailureDiagnostics;
 module.exports.findMissingThumbnailPosts = findMissingThumbnailPosts;
 module.exports.fetchPosts = createFetchPosts();
 module.exports.logImageResolutionMetrics = logImageResolutionMetrics;
