@@ -23,7 +23,6 @@ test("fetchPosts is scheduled for the supported news subreddits", () => {
     "technology",
     "science",
     "health",
-    "environment",
     "energy",
     "sports",
     "business",

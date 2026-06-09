@@ -11,7 +11,6 @@ const configuredSubreddits = [
   "technology",
   "science",
   "health",
-  "environment",
   "energy",
   "sports",
   "business",
