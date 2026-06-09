@@ -6,10 +6,13 @@ const { createGetSubreddits } = require("./index");
 const configuredSubreddits = [
   "politics",
   "worldnews",
+  "europe",
   "news",
   "technology",
   "science",
-  "environment",
+  "health",
+  "energy",
+  "sports",
   "business",
   "Economics",
 ];

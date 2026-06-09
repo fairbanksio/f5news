@@ -18,10 +18,13 @@ test("fetchPosts is scheduled for the supported news subreddits", () => {
   assert.deepEqual(getScheduledSubreddits(), [
     "politics",
     "worldnews",
+    "europe",
     "news",
     "technology",
     "science",
-    "environment",
+    "health",
+    "energy",
+    "sports",
     "business",
     "Economics",
   ]);
