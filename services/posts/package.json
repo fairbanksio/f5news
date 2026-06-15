@@ -18,7 +18,7 @@
     "globals": "^17.6.0",
     "serverless": "^4.37.0",
     "serverless-domain-manager": "^10.1.0",
-    "serverless-offline": "^14.7.1"
+    "serverless-offline": "^14.7.2"
   },
   "dependencies": {
     "mongoose": "^9.6.3"
