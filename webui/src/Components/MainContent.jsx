@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
   Container,
   useBreakpointValue,
@@ -31,6 +31,7 @@ const SCRAPER_REFRESH_INTERVAL_MS = 1000 * 60 * 5;
 const SCRAPER_FRESHNESS_GRACE_MS = 1000 * 60 * 2;
 const STALE_POSTS_THRESHOLD_MS =
   SCRAPER_REFRESH_INTERVAL_MS + SCRAPER_FRESHNESS_GRACE_MS;
+const MIN_RESUME_REFRESH_AGE_MS = 1000 * 30;
 
 const isOlderThanExpectedScraperWindow = date => {
   const latestExpectedFetch = Date.now() - STALE_POSTS_THRESHOLD_MS;
@@ -99,6 +100,7 @@ const PostView = () => {
 
   const [posts, setPosts] = useState([]);
   const [hasLoadedPosts, setHasLoadedPosts] = useState(false);
+  const lastFetchStartedAtRef = useRef(0);
   const [error, setError] = useState({
     level: 'warning',
     show: false,
@@ -115,6 +117,7 @@ const PostView = () => {
   });
 
   const fetchPosts = () => {
+    lastFetchStartedAtRef.current = Date.now();
     setLoading(true);
     fetch(getPostsUrl(subreddit))
       .then(response => {
@@ -162,6 +165,35 @@ const PostView = () => {
       }
     }
   }, [refreshInterval, subreddit, isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!refreshInterval || refreshInterval <= 0) {
+      return undefined;
+    }
+
+    const refreshPostsAfterResume = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+
+      const refreshAgeMs = Math.max(
+        Number(refreshInterval) * 1000,
+        MIN_RESUME_REFRESH_AGE_MS
+      );
+
+      if (Date.now() - lastFetchStartedAtRef.current >= refreshAgeMs) {
+        fetchPosts();
+      }
+    };
+
+    window.addEventListener('focus', refreshPostsAfterResume);
+    window.addEventListener('pageshow', refreshPostsAfterResume);
+
+    return () => {
+      window.removeEventListener('focus', refreshPostsAfterResume);
+      window.removeEventListener('pageshow', refreshPostsAfterResume);
+    };
+  }, [refreshInterval, subreddit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Container maxW={maxW} mt={16} pl={padding} pr={padding}>

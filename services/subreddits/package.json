@@ -18,7 +18,7 @@
     "@eslint/js": "^10.0.1",
     "eslint": "^10.5.0",
     "globals": "^17.6.0",
-    "serverless": "^4.37.0",
+    "serverless": "^4.38.1",
     "serverless-domain-manager": "^10.2.0"
   },
   "dependencies": {

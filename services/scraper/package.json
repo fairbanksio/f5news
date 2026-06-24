@@ -15,7 +15,7 @@
     "eslint": "^10.5.0",
     "globals": "^17.6.0",
     "js-yaml": "^4.2.0",
-    "serverless": "^4.37.0"
+    "serverless": "^4.38.1"
   },
   "scripts": {
     "lint": "eslint . --max-warnings=0",
