@@ -271,7 +271,17 @@ export const PostCard = ({post, elId}) => {
         transform: 'translateY(-1px)',
       }}
     >
-      <Box position='relative' bg={mediaBg}>
+      <Box
+        as={Link}
+        href={redditUrl}
+        isExternal
+        position='relative'
+        bg={mediaBg}
+        display='block'
+        aria-label={`Open Reddit comments for ${title}`}
+        _hover={{ textDecoration: 'none' }}
+        onClick={() => trackSelection('reddit_comments')}
+      >
         <Image
           src={getThumbnailSrc(post.thumbnail)}
           w='100%'
