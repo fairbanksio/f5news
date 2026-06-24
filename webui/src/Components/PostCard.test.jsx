@@ -97,9 +97,12 @@ describe('PostCard', () => {
 
   test('tracks article and Reddit content selections', () => {
     renderPostCard(vi.fn());
+    const redditLinks = screen.getAllByRole('link', {
+      name: /open reddit comments for existing headline/i,
+    });
 
     fireEvent.click(screen.getByRole('link', { name: 'Existing headline' }));
-    fireEvent.click(screen.getAllByRole('link', { name: /open reddit comments/i }).at(-1));
+    fireEvent.click(redditLinks.at(-1));
 
     expect(trackPostSelection).toHaveBeenCalledWith({
       contentType: 'article',
@@ -108,6 +111,27 @@ describe('PostCard', () => {
       subreddit: 'politics',
       viewMode: 'grid',
     });
+    expect(trackPostSelection).toHaveBeenCalledWith({
+      contentType: 'reddit_comments',
+      post,
+      position: 1,
+      subreddit: 'politics',
+      viewMode: 'grid',
+    });
+  });
+
+  test('links the story image to Reddit comments', () => {
+    renderPostCard(vi.fn());
+
+    const redditUrl = `https://reddit.com${post.commentLink}`;
+    const redditLinks = screen.getAllByRole('link', {
+      name: /open reddit comments for existing headline/i,
+    });
+
+    expect(redditLinks[0]).toHaveAttribute('href', redditUrl);
+
+    fireEvent.click(redditLinks[0]);
+
     expect(trackPostSelection).toHaveBeenCalledWith({
       contentType: 'reddit_comments',
       post,
