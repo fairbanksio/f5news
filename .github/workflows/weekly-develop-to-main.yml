@@ -29,6 +29,9 @@ jobs:
       - name: Fetch develop
         run: git fetch origin main:refs/remotes/origin/main develop:refs/remotes/origin/develop
 
+      - name: Fetch automation branch
+        run: git fetch origin automation/weekly-develop-to-main:refs/remotes/origin/automation/weekly-develop-to-main || true
+
       - name: Detect develop changes
         id: changes
         run: |
@@ -51,7 +54,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$MERGE_BRANCH" origin/main
           git merge --no-ff origin/develop -m "chore: merge develop into main"
-          git push --force-with-lease origin "$MERGE_BRANCH"
+          git push --force-with-lease="refs/heads/$MERGE_BRANCH" origin "$MERGE_BRANCH"
 
           pr_url="$(gh pr list --base main --head "$MERGE_BRANCH" --state open --json url --jq '.[0].url')"
           if [ -z "$pr_url" ]; then
