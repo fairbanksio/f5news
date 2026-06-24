@@ -13,11 +13,11 @@ Object.defineProperty(window, 'matchMedia', {
   value: matchMedia,
 });
 
-const renderMainContent = () =>
+const renderMainContent = ({ refreshInterval = 1 } = {}) =>
   render(
     <LoadingContext.Provider value={{ loading: false, setLoading: vi.fn() }}>
       <RefreshIntervalContext.Provider
-        value={{ refreshInterval: 1, setRefreshInterval: vi.fn() }}
+        value={{ refreshInterval, setRefreshInterval: vi.fn() }}
       >
         <SubredditContext.Provider
           value={{
@@ -278,5 +278,59 @@ describe('MainContent', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
 
     consoleErrorSpy.mockRestore();
+  });
+
+  test('refreshes posts when a stale suspended tab receives focus', async () => {
+    const stalePost = {
+      title: 'Before laptop sleep headline',
+      url: 'https://example.com/before',
+      commentCount: 12,
+      upvoteCount: 42,
+      created_utc: Math.floor(Date.now() / 1000),
+      domain: 'example.com',
+      commentLink: '/r/politics/comments/before/example',
+    };
+    const freshPost = {
+      title: 'After laptop wake headline',
+      url: 'https://example.com/after',
+      commentCount: 24,
+      upvoteCount: 84,
+      created_utc: Math.floor(Date.now() / 1000),
+      domain: 'example.com',
+      commentLink: '/r/politics/comments/after/example',
+    };
+
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [stalePost] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [freshPost] }),
+      });
+
+    await act(async () => {
+      renderMainContent({ refreshInterval: 600 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('Before laptop sleep headline')).toBeInTheDocument();
+
+    vi.setSystemTime(new Date('2026-06-06T12:11:00.000Z'));
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('After laptop wake headline')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Before laptop sleep headline')).not.toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 });
