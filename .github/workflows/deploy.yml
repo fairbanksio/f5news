@@ -55,7 +55,7 @@ jobs:
     # Configure AWS Credentials
     # Basically run 'aws configure' as you would from local CLI
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+      uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
       with:
         aws-region: us-east-1
         role-to-assume: arn:aws:iam::633025216388:role/GithubActions-Fairbanksio-F5oclock
@@ -116,7 +116,7 @@ jobs:
     # Configure AWS Credentials
     # Basically run 'aws configure' as you would from local CLI
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6.2.0
+      uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
       with:
         aws-region: us-east-1
         role-to-assume: arn:aws:iam::633025216388:role/GithubActions-Fairbanksio-F5oclock
