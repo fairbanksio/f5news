@@ -1,0 +1,119 @@
+name: Weekly Develop to Main
+
+on:
+  schedule:
+    - cron: "0 12 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: weekly-develop-to-main
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    name: Create, validate, and merge candidate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch develop
+        run: git fetch origin main:refs/remotes/origin/main develop:refs/remotes/origin/develop
+
+      - name: Fetch automation branch
+        run: git fetch origin automation/weekly-develop-to-main:refs/remotes/origin/automation/weekly-develop-to-main || true
+
+      - name: Detect develop changes
+        id: changes
+        run: |
+          if [ "$(git rev-list --count origin/main..origin/develop)" = "0" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "develop has no commits ahead of main."
+            exit 0
+          fi
+
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create merge candidate PR
+        if: steps.changes.outputs.has_changes == 'true'
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_BRANCH: automation/weekly-develop-to-main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$MERGE_BRANCH" origin/main
+          git merge --no-ff origin/develop -m "chore: merge develop into main"
+          git push --force-with-lease="refs/heads/$MERGE_BRANCH" origin "$MERGE_BRANCH"
+
+          pr_url="$(gh pr list --base main --head "$MERGE_BRANCH" --state open --json url --jq '.[0].url')"
+          if [ -z "$pr_url" ]; then
+            pr_url="$(gh pr create \
+              --base main \
+              --head "$MERGE_BRANCH" \
+              --title "chore: weekly develop to main" \
+              --body "Automated weekly merge candidate for develop into main. The workflow dispatches PR Checks for this branch and merges only after they pass.")"
+          fi
+
+          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch PR checks
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_BRANCH: automation/weekly-develop-to-main
+        run: |
+          gh workflow run pr-checks.yml --ref "$MERGE_BRANCH"
+
+      - name: Find PR checks run
+        if: steps.changes.outputs.has_changes == 'true'
+        id: checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.candidate.outputs.head_sha }}
+          MERGE_BRANCH: automation/weekly-develop-to-main
+        run: |
+          for attempt in $(seq 1 30); do
+            run_id="$(gh run list \
+              --workflow pr-checks.yml \
+              --branch "$MERGE_BRANCH" \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json databaseId,headSha \
+              --jq ".[] | select(.headSha == \"$HEAD_SHA\") | .databaseId" | head -n 1)"
+
+            if [ -n "$run_id" ]; then
+              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "Waiting for PR Checks workflow_dispatch run for $HEAD_SHA ($attempt/30)."
+            sleep 10
+          done
+
+          echo "Timed out waiting for PR Checks workflow_dispatch run."
+          exit 1
+
+      - name: Wait for PR checks
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run watch "${{ steps.checks.outputs.run_id }}" --exit-status --interval 30
+
+      - name: Merge PR
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.candidate.outputs.pr_url }}
+        run: gh pr merge "$PR_URL" --merge --delete-branch
