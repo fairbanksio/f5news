@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   open-source:
-    name: Open Source (${{ matrix.project }})
+    name: Snyk (${{ matrix.project }})
     if: >-
       github.actor != 'dependabot[bot]' &&
       (github.event_name != 'pull_request' ||
