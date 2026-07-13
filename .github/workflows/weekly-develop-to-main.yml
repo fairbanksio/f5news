@@ -111,9 +111,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh run watch "${{ steps.checks.outputs.run_id }}" --exit-status --interval 30
 
-      - name: Merge PR
+      - name: Enable automatic merge
         if: steps.changes.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ steps.candidate.outputs.pr_url }}
-        run: gh pr merge "$PR_URL" --merge --delete-branch
+          HEAD_SHA: ${{ steps.candidate.outputs.head_sha }}
+        run: |
+          gh pr merge "$PR_URL" \
+            --auto \
+            --merge \
+            --delete-branch \
+            --match-head-commit "$HEAD_SHA"
