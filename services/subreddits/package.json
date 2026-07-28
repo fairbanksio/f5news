@@ -22,6 +22,6 @@
     "serverless-domain-manager": "^10.2.0"
   },
   "dependencies": {
-    "mongoose": "^9.7.0"
+    "mongoose": "^9.8.1"
   }
 }
