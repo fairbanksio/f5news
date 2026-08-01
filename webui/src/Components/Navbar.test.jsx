@@ -58,7 +58,7 @@ test('renders the current subreddit and lets users choose another one', () => {
 test('updates the desktop refresh interval from the menu', () => {
   const { setRefreshInterval } = renderNavbar({ refreshInterval: 60 });
 
-  fireEvent.click(screen.getByRole('button', { name: /60s/i }));
+  fireEvent.click(screen.getByRole('button', { name: /open display settings/i }));
   fireEvent.click(screen.getByText('5m').closest('button'));
 
   expect(setRefreshInterval).toHaveBeenCalledWith(600);

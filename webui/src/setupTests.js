@@ -7,6 +7,11 @@ Object.defineProperty(window, 'matchMedia', {
   value: matchMedia,
 });
 
+Object.defineProperty(Element.prototype, 'scrollTo', {
+  configurable: true,
+  value: vi.fn(),
+});
+
 const createTestStorage = () => {
   let store = {};
 

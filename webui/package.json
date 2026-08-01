@@ -6,24 +6,24 @@
     "node": "24.x"
   },
   "dependencies": {
-    "@chakra-ui/icons": "^1.1.5",
-    "@chakra-ui/react": "^1.8.3",
+    "@chakra-ui/icons": "2.2.6",
+    "@chakra-ui/react": "2.10.10",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "framer-motion": "^4.1.17",
+    "framer-motion": "6.5.1",
     "javascript-time-ago": "^2.6.4",
-    "react": "^17.0.2",
-    "react-dom": "^17.0.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "react-ga4": "^1.4.1",
     "react-icons": "^3.11.0",
     "react-player": "^2.16.1",
-    "react-router-dom": "^7.0.0"
+    "react-router-dom": "7.18.2"
   },
   "devDependencies": {
     "@aws-sdk/client-ssm": "^3.1053.0",
     "@eslint/js": "^8.57.1",
     "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^12.1.5",
+    "@testing-library/react": "13.4.0",
     "@testing-library/user-event": "^14.6.1",
     "@vitejs/plugin-react": "^6.0.2",
     "@vitest/coverage-v8": "^4.1.7",
