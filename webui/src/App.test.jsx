@@ -32,7 +32,7 @@ const renderNavbar = ({ refreshInterval = 30 } = {}) =>
 
 beforeEach(() => {
   setMedia({
-    width: '1024px',
+    width: 1024,
     type: 'screen',
   });
 });
