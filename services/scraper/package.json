@@ -7,14 +7,14 @@
     "node": "24.x"
   },
   "dependencies": {
-    "mongoose": "^9.8.0",
+    "mongoose": "^9.9.1",
     "node-fetch": "^3.3.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.8.0",
-    "globals": "^17.8.0",
-    "js-yaml": "^5.2.2",
+    "globals": "^17.9.0",
+    "js-yaml": "^5.2.3",
     "serverless": "^4.40.0"
   },
   "scripts": {
