@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 concurrency:
@@ -47,11 +47,12 @@ jobs:
 
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
 
-      - name: Enable automatic merge when the release is clean
+      - name: Wait for required checks and merge the release
         if: steps.changes.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_URL: ${{ steps.release.outputs.pr_url }}
         run: |
-          gh pr merge "$PR_URL" --auto --merge
+          gh pr checks "$PR_URL" --watch --interval 10
+          gh pr merge "$PR_URL" --merge
