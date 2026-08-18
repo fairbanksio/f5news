@@ -4,12 +4,25 @@ on:
   pull_request:
     branches:
       - main
+      - develop
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  release-source:
+    name: Release source
+    if: github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require develop as the release source
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: test "$HEAD_REF" = "develop"
+
   infrastructure:
     name: Infrastructure
     runs-on: ubuntu-latest
