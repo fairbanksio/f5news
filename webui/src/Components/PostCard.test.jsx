@@ -181,4 +181,29 @@ describe('PostCard', () => {
     expect(screen.getByLabelText(/article/i)).toBeInTheDocument();
     expect(setModalData).not.toHaveBeenCalled();
   });
+
+  test('treats reddit videos as external articles instead of previews', () => {
+    const setModalData = vi.fn();
+
+    render(
+      <ModalContext.Provider value={{ setModalData }}>
+        <PostCard
+          post={{
+            ...post,
+            is_video: true,
+            media: {
+              reddit_video: {
+                dash_url: 'https://example.com/video.mpd',
+              },
+            },
+          }}
+          elId={0}
+        />
+      </ModalContext.Provider>
+    );
+
+    expect(screen.queryByRole('button', { name: /preview/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/article/i)).toBeInTheDocument();
+    expect(setModalData).not.toHaveBeenCalled();
+  });
 });

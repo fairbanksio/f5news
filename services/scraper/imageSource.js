@@ -2,13 +2,14 @@ const dns = require("dns").promises;
 const http = require("http");
 const https = require("https");
 const net = require("net");
-const fetch = require("node-fetch");
 const { normalizeFetch } = require("./fetchInterop");
 
 const DEFAULT_MAX_BYTES = 512 * 1024;
 const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_MAX_TRANSIENT_RETRIES = 1;
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetchImpl }) => fetchImpl(...args));
 const DEFAULT_ARTICLE_HEADERS = {
   Accept:
     "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",

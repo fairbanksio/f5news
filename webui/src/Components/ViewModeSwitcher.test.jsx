@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, screen } from '@testing-library/react';
-import { Menu, MenuList } from '@chakra-ui/react';
+import { Menu } from '@chakra-ui/react';
 import { render } from '../test-utils';
 import { ViewModeContext } from '../Contexts/ViewModeContext';
 import {
@@ -62,11 +62,11 @@ test('switches view mode from the mobile settings menu item', () => {
 
   render(
     <ViewModeContext.Provider value={{ viewMode: 'grid', setViewMode }}>
-      <Menu isOpen>
-        <MenuList>
+      <Menu.Root open>
+        <Menu.Content>
           <ViewModeSwitcherMenuItem />
-        </MenuList>
-      </Menu>
+        </Menu.Content>
+      </Menu.Root>
     </ViewModeContext.Provider>
   );
 

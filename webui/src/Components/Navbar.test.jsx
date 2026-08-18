@@ -45,21 +45,21 @@ test('normalizes refresh interval menu values for Chakra radio state', () => {
   expect(getRefreshIntervalMenuValue(120)).toBe('120');
 });
 
-test('renders the current subreddit and lets users choose another one', () => {
+test('renders the current subreddit and lets users choose another one', async () => {
   const { setSubreddit } = renderNavbar();
 
   fireEvent.click(screen.getByRole('button', { name: /r\/politics/i }));
-  fireEvent.click(screen.getByText('technology').closest('button'));
+  fireEvent.click(await screen.findByText('technology'));
 
   expect(setSubreddit).toHaveBeenCalledWith('technology');
   expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
 });
 
-test('updates the desktop refresh interval from the menu', () => {
+test('updates the desktop refresh interval from the menu', async () => {
   const { setRefreshInterval } = renderNavbar({ refreshInterval: 60 });
 
   fireEvent.click(screen.getByRole('button', { name: /60s/i }));
-  fireEvent.click(screen.getByText('5m').closest('button'));
+  fireEvent.click(await screen.findByText('5m'));
 
   expect(setRefreshInterval).toHaveBeenCalledWith(600);
 });

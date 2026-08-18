@@ -25,7 +25,7 @@ export default defineConfig({
     coverage: {
       reporter: ['text'],
       include: ['src/**/*.{js,jsx}'],
-      exclude: ['src/index.jsx', 'src/serviceWorker.js', 'src/reportWebVitals.js'],
+      exclude: ['src/index.jsx', 'src/serviceWorker.js'],
     },
   },
 });

@@ -4,12 +4,6 @@ import { render } from '../test-utils';
 import { ModalContext } from '../Contexts/ModalContext';
 import { MediaModal } from './MediaModal';
 
-vi.mock('react-player', () => ({
-  default: props => (
-    <div data-testid="react-player" data-url={props.url} />
-  ),
-}));
-
 beforeAll(() => {
   Object.defineProperty(window, 'focus', {
     writable: true,
@@ -83,7 +77,7 @@ test('renders gallery images after decoding reddit amp fragments', () => {
   expect(images[1]).toHaveAttribute('src', 'https://example.com/two.jpg');
 });
 
-test('renders reddit video previews with the player URL', () => {
+test('does not render reddit video previews', () => {
   renderMediaModal({
     is_video: true,
     media: {
@@ -93,23 +87,17 @@ test('renders reddit video previews with the player URL', () => {
     },
   });
 
-  expect(screen.getByTestId('react-player')).toHaveAttribute(
-    'data-url',
-    'https://example.com/video.mpd'
-  );
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
-test('renders rpan video previews with the player URL', () => {
+test('does not render rpan video previews', () => {
   renderMediaModal({
     rpan_video: {
       hls_url: 'https://example.com/live.m3u8',
     },
   });
 
-  expect(screen.getByTestId('react-player')).toHaveAttribute(
-    'data-url',
-    'https://example.com/live.m3u8'
-  );
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
 test('does not render rich video embeds from oembed html', () => {

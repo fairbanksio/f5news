@@ -1,28 +1,21 @@
-import { useContext, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import {
   Box,
   Flex,
   Button,
-  Menu,
-  MenuButton,
-  MenuList,
-  MenuItem,
   Stack,
   Container,
   Text,
   useBreakpointValue,
   IconButton,
-  MenuOptionGroup,
-  MenuItemOption,
-  MenuDivider,
   Progress,
   Image,
-  Tooltip
 } from '@chakra-ui/react';
-import { ChevronDownIcon, RepeatIcon, SettingsIcon } from '@chakra-ui/icons';
+import { FaChevronDown, FaCog, FaRedoAlt } from 'react-icons/fa';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext'
 import { SubredditContext } from '../Contexts/SubredditContext'
 import { LoadingContext } from '../Contexts/LoadingContext'
+import { useColorModeValue } from '../Contexts/ColorModeContext';
 import { ColorModeSwitcher, ColorModeSwitcherMenuItem } from './ColorModeSwitcher';
 import { ViewModeSwitcher, ViewModeSwitcherMenuItem } from './ViewModeSwitcher';
 import { SupportButton, SupportMenuItem } from './SupportLink';
@@ -41,6 +34,79 @@ const SecondaryLogo = () => {
   )
 }
 
+const LoadingProgress = ({ loading }) => (
+  <Progress.Root value={loading ? null : 0} size="xs" style={{ height: '4px' }}>
+    <Progress.Track style={{ height: '4px' }}>
+      <Progress.Range />
+    </Progress.Track>
+  </Progress.Root>
+);
+
+const MenuSurface = ({ children, align = 'left', maxW }) => (
+  <Box
+    role="menu"
+    position="absolute"
+    top="calc(100% + 6px)"
+    left={align === 'left' ? 0 : 'auto'}
+    right={align === 'right' ? 0 : 'auto'}
+    bg="navbar"
+    color="textPrimary"
+    borderWidth="1px"
+    borderColor={{ _light: 'gray.200', _dark: 'gray.700' }}
+    borderRadius="md"
+    boxShadow="lg"
+    minW="100%"
+    w="max-content"
+    maxW={maxW}
+    maxH="70vh"
+    overflowY="auto"
+    opacity={1}
+    zIndex={20}
+    py={1}
+  >
+    {children}
+  </Box>
+);
+
+const MenuItemButton = ({ children, onClick, maxW }) => (
+  <Box
+    as="button"
+    type="button"
+    role="menuitem"
+    display="flex"
+    alignItems="center"
+    justifyContent="flex-start"
+    w="100%"
+    maxW={maxW}
+    px={3}
+    py={0}
+    borderRadius={0}
+    color="textPrimary"
+    bg="transparent"
+    textAlign="left"
+    style={{
+      height: '27px',
+      minHeight: '27px',
+      paddingBottom: 0,
+      paddingTop: 0,
+    }}
+    _hover={{ bg: { _light: 'gray.100', _dark: 'whiteAlpha.200' } }}
+    onClick={onClick}
+  >
+    {children}
+  </Box>
+);
+
+const MenuSeparator = () => (
+  <Box borderTopWidth="1px" borderColor={{ _light: 'gray.200', _dark: 'gray.700' }} my={1} />
+);
+
+const MenuLabel = ({ children }) => (
+  <Text px={3} py={1} textStyle="meta" color="textMuted">
+    {children}
+  </Text>
+);
+
 export const getRefreshIntervalMenuValue = refreshInterval => String(refreshInterval);
 
 export default function Nav() {
@@ -48,10 +114,49 @@ export default function Nav() {
   const { subreddit, setSubreddit, subredditList } = useContext(SubredditContext)
   const { loading } = useContext(LoadingContext)
   const [logo, setLogo] = useState(true)
-  const mobileMode = useBreakpointValue({base: true, sm: true, md: false})
-  const maxMenuWidth = useBreakpointValue({base: '50vw', sm: '50vw', md: '40vw', lg: '30vw'})
-  const maxW = useBreakpointValue({base: 'container.xl', sm: 'container.xl', md: 'container.xl', xl: 'container.xl', '2xl': '1600px'})
+  const [openMenu, setOpenMenu] = useState(null)
+  const controlsRef = useRef(null)
+  const mobileMode = useBreakpointValue({base: true, sm: true, md: false}, { ssr: false })
+  const maxMenuWidth = useBreakpointValue({base: '50vw', sm: '50vw', md: '40vw', lg: '30vw'}, { ssr: false })
+  const maxW = useBreakpointValue({base: 'container.xl', sm: 'container.xl', md: 'container.xl', xl: 'container.xl', '2xl': '1600px'}, { ssr: false })
+  const controlBg = useColorModeValue('#EDF2F7', 'rgba(255, 255, 255, 0.08)');
+  const controlColor = useColorModeValue('#333', '#A0AEC0');
+  const controlBorderColor = useColorModeValue('#E2E8F0', 'rgba(255, 255, 255, 0.16)');
+  const controlButtonProps = {
+    h: '32px',
+    minH: '32px',
+    minW: '32px',
+    px: 3,
+    borderRadius: 'md',
+    borderWidth: '1px',
+    style: {
+      backgroundColor: controlBg,
+      borderColor: controlBorderColor,
+      borderRadius: '6px',
+      color: controlColor,
+      height: '32px',
+      minHeight: '32px',
+      padding: '0 12px',
+    },
+    _hover: {
+      bg: useColorModeValue('gray.200', 'whiteAlpha.300'),
+    },
+  };
   const refreshIntervalMenuValue = getRefreshIntervalMenuValue(refreshInterval);
+  const toggleMenu = menu => setOpenMenu(current => (current === menu ? null : menu));
+  const closeMenu = () => setOpenMenu(null);
+
+  useEffect(() => {
+    const closeOnOutsideClick = event => {
+      if (!controlsRef.current?.contains(event.target)) {
+        closeMenu();
+      }
+    };
+
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, []);
+
   return (
 
     <Box position='fixed' width={'100%'} bg='navbar' style={{zIndex:'1'}}>
@@ -74,71 +179,92 @@ export default function Nav() {
             </Stack>
           </Box>
           
-          <Flex alignItems={'center'} >
+          <Flex alignItems={'center'} ref={controlsRef}>
             <Stack direction={'row'} spacing={2}>
 
-              <Menu>
-                <MenuButton as={Button} size={'sm'} rightIcon={<ChevronDownIcon />} maxW={maxMenuWidth}>
-                  <Text isTruncated textStyle='control'>r/{subreddit}</Text>
-                </MenuButton>
-                <MenuList>
+              <Box position="relative">
+                <Button
+                  size={'sm'}
+                  maxW={maxMenuWidth}
+                  aria-haspopup="menu"
+                  aria-expanded={openMenu === 'subreddit'}
+                  onClick={() => toggleMenu('subreddit')}
+                  {...controlButtonProps}
+                >
+                  <Text truncate textStyle='control'>r/{subreddit}</Text>
+                  <FaChevronDown />
+                </Button>
+                {openMenu === 'subreddit' && (
+                  <MenuSurface maxW={maxMenuWidth}>
                   {subredditList.map((subreddit, key) => {
                     return(
-                      <MenuItem key={key} onClick={(e)=>{setSubreddit(subreddit); window.scrollTo(0, 0)}} maxW={maxMenuWidth}>
-                        <Tooltip label={subreddit}>
-                          <Text isTruncated textStyle='control'>{subreddit}</Text>
-                        </Tooltip>
-                      </MenuItem>
+                      <MenuItemButton key={key} onClick={(e)=>{setSubreddit(subreddit); window.scrollTo(0, 0); closeMenu();}} maxW={maxMenuWidth}>
+                        <Text truncate textStyle='control' title={subreddit}>{subreddit}</Text>
+                      </MenuItemButton>
                     )
                   })}
-                </MenuList>
-              </Menu>
+                  </MenuSurface>
+                )}
+              </Box>
 
               { mobileMode ?
-                <Menu>
-                  <MenuButton as={IconButton} size={'sm'} icon={<SettingsIcon />} aria-label='Open display settings'/>
-                  <MenuList>
-
-                    <MenuOptionGroup defaultValue={refreshIntervalMenuValue} value={refreshIntervalMenuValue} title='Interval' type='radio'>
-                      <MenuItemOption value='30' onClick={(e)=>{setRefreshInterval(30)}}>30s</MenuItemOption>
-                      <MenuItemOption value='60' onClick={(e)=>{setRefreshInterval(60)}}>1m</MenuItemOption>
-                      <MenuItemOption value='120' onClick={(e)=>{setRefreshInterval(120)}}>2m</MenuItemOption>
-                      <MenuItemOption value='600' onClick={(e)=>{setRefreshInterval(600)}}>5m</MenuItemOption>
-                    </MenuOptionGroup>
-
-                    <MenuDivider />
-
-
-                    <ViewModeSwitcherMenuItem/>
-
-                    <MenuDivider />
-                    
-                    <ColorModeSwitcherMenuItem/>
-
-                    <MenuDivider />
-
-                    <SupportMenuItem/>
-
-                    
-                      
-                  </MenuList>
-                </Menu>
+                <Box position="relative">
+                  <IconButton
+                    size={'sm'}
+                    aria-label='Open display settings'
+                    aria-haspopup="menu"
+                    aria-expanded={openMenu === 'settings'}
+                    onClick={() => toggleMenu('settings')}
+                    {...controlButtonProps}
+                  >
+                    <FaCog />
+                  </IconButton>
+                  {openMenu === 'settings' && (
+                    <MenuSurface align="right">
+                      <MenuLabel>Interval</MenuLabel>
+                      <MenuItemButton onClick={(e)=>{setRefreshInterval(30); closeMenu();}}>
+                        <Text textStyle="control">{refreshIntervalMenuValue === '30' ? '✓ ' : ''}30s</Text>
+                      </MenuItemButton>
+                      <MenuItemButton onClick={(e)=>{setRefreshInterval(60); closeMenu();}}>
+                        <Text textStyle="control">{refreshIntervalMenuValue === '60' ? '✓ ' : ''}1m</Text>
+                      </MenuItemButton>
+                      <MenuItemButton onClick={(e)=>{setRefreshInterval(120); closeMenu();}}>
+                        <Text textStyle="control">{refreshIntervalMenuValue === '120' ? '✓ ' : ''}2m</Text>
+                      </MenuItemButton>
+                      <MenuItemButton onClick={(e)=>{setRefreshInterval(600); closeMenu();}}>
+                        <Text textStyle="control">{refreshIntervalMenuValue === '600' ? '✓ ' : ''}5m</Text>
+                      </MenuItemButton>
+                      <MenuSeparator />
+                      <ViewModeSwitcherMenuItem onSelect={closeMenu}/>
+                      <MenuSeparator />
+                      <ColorModeSwitcherMenuItem onSelect={closeMenu}/>
+                      <MenuSeparator />
+                      <SupportMenuItem onSelect={closeMenu}/>
+                    </MenuSurface>
+                  )}
+                </Box>
               :
                 <>
-                  <Menu>
-
-                    <MenuButton as={Button} size={'sm'} rightIcon={<RepeatIcon />}>
+                  <Box position="relative">
+                    <Button
+                      size={'sm'}
+                      aria-haspopup="menu"
+                      aria-expanded={openMenu === 'refresh'}
+                      onClick={() => toggleMenu('refresh')}
+                      {...controlButtonProps}
+                    >
                       <Text as='span' textStyle='control'>{refreshInterval}s</Text>
-                    </MenuButton>
-
-                    <MenuList>
-                      <MenuItem onClick={(e)=>{setRefreshInterval(30)}}>30s</MenuItem>
-                      <MenuItem onClick={(e)=>{setRefreshInterval(60)}}>1m</MenuItem>
-                      <MenuItem onClick={(e)=>{setRefreshInterval(120)}}>2m</MenuItem>
-                      <MenuItem onClick={(e)=>{setRefreshInterval(600)}}>5m</MenuItem>
-                    </MenuList>
-                    
-                  </Menu>
+                      <FaRedoAlt />
+                    </Button>
+                    {openMenu === 'refresh' && (
+                      <MenuSurface align="right">
+                        <MenuItemButton onClick={(e)=>{setRefreshInterval(30); closeMenu();}}>30s</MenuItemButton>
+                        <MenuItemButton onClick={(e)=>{setRefreshInterval(60); closeMenu();}}>1m</MenuItemButton>
+                        <MenuItemButton onClick={(e)=>{setRefreshInterval(120); closeMenu();}}>2m</MenuItemButton>
+                        <MenuItemButton onClick={(e)=>{setRefreshInterval(600); closeMenu();}}>5m</MenuItemButton>
+                      </MenuSurface>
+                    )}
+                  </Box>
 
                   <ViewModeSwitcher />
                     
@@ -155,8 +281,7 @@ export default function Nav() {
           
 
         </Flex>
-        {loading?
-            <Progress size='xs' isIndeterminate />:<Progress value={0} size='xs' />}
+        <LoadingProgress loading={loading} />
       </Container>
     </Box>
 

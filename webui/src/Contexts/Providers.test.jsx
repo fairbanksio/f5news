@@ -7,6 +7,7 @@ import {
 } from './RefreshIntervalContext';
 import { ViewModeContext, ViewModeProvider } from './ViewModeContext';
 import { ThemeContext, ThemeProvider } from './ThemeContext';
+import { ColorModeProvider, useColorMode } from './ColorModeContext';
 import { LoadingContext, LoadingProvider } from './LoadingContext';
 import { ModalContext, ModalProvider } from './ModalContext';
 
@@ -76,6 +77,29 @@ test('theme provider reads and persists localStorage values', () => {
 
   expect(screen.getByRole('button', { name: /theme custom/i })).toBeInTheDocument();
   expect(localStorage.getItem('theme')).toBe('custom');
+});
+
+test('color mode provider reads and persists the Chakra color-mode key', () => {
+  localStorage.setItem('chakra-ui-color-mode', 'light');
+
+  const Probe = () => {
+    const { colorMode, toggleColorMode } = useColorMode();
+    return <button onClick={toggleColorMode}>mode {colorMode}</button>;
+  };
+
+  render(
+    <ColorModeProvider initialColorMode="dark">
+      <Probe />
+    </ColorModeProvider>
+  );
+
+  expect(document.body).toHaveClass('chakra-ui-light');
+
+  fireEvent.click(screen.getByRole('button', { name: /mode light/i }));
+
+  expect(screen.getByRole('button', { name: /mode dark/i })).toBeInTheDocument();
+  expect(document.body).toHaveClass('chakra-ui-dark');
+  expect(localStorage.getItem('chakra-ui-color-mode')).toBe('dark');
 });
 
 test('loading provider exposes mutable loading state', () => {

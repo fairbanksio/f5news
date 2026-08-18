@@ -1,10 +1,32 @@
 import '@testing-library/jest-dom/vitest';
 import { vi } from 'vitest';
-import { matchMedia } from 'mock-match-media';
+import { matchMedia, setMedia } from 'mock-match-media';
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: matchMedia,
+});
+
+setMedia({
+  widthPx: 1024,
+  heightPx: 768,
+  mediaType: 'screen',
+});
+
+class TestResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+Object.defineProperty(window, 'ResizeObserver', {
+  writable: true,
+  value: TestResizeObserver,
+});
+
+Object.defineProperty(globalThis, 'ResizeObserver', {
+  writable: true,
+  value: TestResizeObserver,
 });
 
 const createTestStorage = () => {

@@ -1,21 +1,15 @@
 import React from 'react';
 import {
   Table,
-  Thead,
-  Tbody,
-  Tr,
-  Td,
-  Th,
   Flex,
   Link,
   Text,
-  Tooltip,
   Container,
   IconButton,
   useBreakpointValue,
-  useColorModeValue,
 } from '@chakra-ui/react';
-import { LinkIcon, ChatIcon, ArrowUpIcon, TimeIcon } from '@chakra-ui/icons'
+import { useColorModeValue } from '../Contexts/ColorModeContext';
+import { FaArrowUp, FaComment, FaLink, FaRegClock } from 'react-icons/fa'
 import { timeAgoShort } from '../Util/FormattedTime'
 import { getHeatTone } from './PostCard';
 import { useContext } from 'react';
@@ -46,48 +40,38 @@ const ListView = ({posts}) => {
         >
 
       {posts && posts.length > 0 ?
-        <Table
+        <Table.Root
           size='sm'
           textAlign='left'
-          sx={{
-            th: {
-              color: 'textSubtle',
-              textStyle: 'meta',
-            },
-            td: {
-              color: 'textMuted',
-              textStyle: 'body',
-            },
-          }}
         >
 
-          <Thead>
-            <Tr >
-              <Th w={1} aria-label='Comments'>
+          <Table.Header>
+            <Table.Row>
+              <Table.ColumnHeader w={1} aria-label='Comments' color="textSubtle" textStyle="meta">
                 <Flex as='span' align='center' gap={2}>
-                  <ChatIcon  w={4} h={4}/>
+                  <FaComment />
                   {showHeaderLabels ? <Text as='span'>Comments</Text> : null}
                 </Flex>
-              </Th>
-              <Th w={1} aria-label='Upvotes sorted descending' aria-sort='descending'>
+              </Table.ColumnHeader>
+              <Table.ColumnHeader w={1} aria-label='Upvotes sorted descending' aria-sort='descending' color="textSubtle" textStyle="meta">
                 <Flex as='span' align='center' gap={2}>
-                  <ArrowUpIcon w={5} h={5}/>
+                  <FaArrowUp />
                   {showHeaderLabels ? <Text as='span'>Upvotes</Text> : null}
                 </Flex>
-              </Th>
-              {mobileMode?null:<Th w={1} aria-label='Posted'>
+              </Table.ColumnHeader>
+              {mobileMode?null:<Table.ColumnHeader w={1} aria-label='Posted' color="textSubtle" textStyle="meta">
                 <Flex as='span' align='center' gap={2}>
-                  <TimeIcon w={4} h={4}/>
+                  <FaRegClock />
                   {showHeaderLabels ? <Text as='span'>Posted</Text> : null}
                 </Flex>
-              </Th>}
-              <Th>Title</Th>
-              {mobileMode?null:<Th>Source</Th>}
-              <Th>Action</Th>
-            </Tr>
-          </Thead>
+              </Table.ColumnHeader>}
+              <Table.ColumnHeader color="textSubtle" textStyle="meta">Title</Table.ColumnHeader>
+              {mobileMode?null:<Table.ColumnHeader color="textSubtle" textStyle="meta">Source</Table.ColumnHeader>}
+              <Table.ColumnHeader color="textSubtle" textStyle="meta">Action</Table.ColumnHeader>
+            </Table.Row>
+          </Table.Header>
 
-          <Tbody>
+          <Table.Body>
             {
             posts.map((post, i) => {
               const title = post.title.replace(/amp;/g,'');
@@ -102,63 +86,63 @@ const ListView = ({posts}) => {
                 });
               };
               return [
-                  <Tr
+                  <Table.Row
                     key={i}
                     bg={getHeatRowBg(post.upvoteCount, heatColorMode)}
                     borderLeftWidth='4px'
                     borderLeftColor={getHeatBorderColor(post.upvoteCount, heatColorMode)}
                     _hover={{bg: rowHoverBg}}
                   >
-                    <Td >{post.commentCount}</Td>
-                    <Td>{post.upvoteCount}</Td>
-                    {mobileMode?null:<Td>{timeAgoShort(post.created_utc)}</Td>}
-                    <Td>
-                      <Tooltip label={title} openDelay={500} placement='bottom-start'>
-                        <Link href={post.url} isExternal color='link' id={"external-url-"+i} onClick={() => trackSelection('article')}>
-                          <Text noOfLines={noOfLines} textStyle='listTitle'>{title}</Text>
-                        </Link>
-                      </Tooltip>
-                    </Td>
-                    {mobileMode?null:<Td>
-                      <Text noOfLines={1} textStyle='body'>{post.domain}</Text>
-                    </Td>}
-                    <Td>
-                      <Tooltip label='Reddit comments'>
+                    <Table.Cell color="textMuted" textStyle="body">{post.commentCount}</Table.Cell>
+                    <Table.Cell color="textMuted" textStyle="body">{post.upvoteCount}</Table.Cell>
+                    {mobileMode?null:<Table.Cell color="textMuted" textStyle="body">{timeAgoShort(post.created_utc)}</Table.Cell>}
+                    <Table.Cell color="textMuted" textStyle="body">
+                      <Link href={post.url} target="_blank" rel="noopener noreferrer" color='link' id={"external-url-"+i} onClick={() => trackSelection('article')} title={title}>
+                        <Text lineClamp={noOfLines} textStyle='listTitle'>{title}</Text>
+                      </Link>
+                    </Table.Cell>
+                    {mobileMode?null:<Table.Cell color="textMuted" textStyle="body">
+                      <Text lineClamp={1} textStyle='body'>{post.domain}</Text>
+                    </Table.Cell>}
+                    <Table.Cell color="textMuted" textStyle="body">
                         <IconButton
                           as={Link}
                           href={'https://reddit.com' + post.commentLink}
-                          isExternal
+                          target="_blank"
+                          rel="noopener noreferrer"
                           color='link'
                           id={"reddit-url-"+i}
                           aria-label={`Open Reddit comments for ${title}`}
-                          icon={<ChatIcon/>}
                           size='sm'
                           variant='ghost'
                           onClick={() => trackSelection('reddit_comments')}
-                        />
-                      </Tooltip>
-                      <Tooltip label='Open article'>
+                          title="Reddit comments"
+                        >
+                          <FaComment/>
+                        </IconButton>
                         <IconButton
                           as={Link}
                           href={post.url}
-                          isExternal
+                          target="_blank"
+                          rel="noopener noreferrer"
                           color='link'
                           id={"external-action-url-"+i}
                           aria-label={`Open article: ${title}`}
-                          icon={<LinkIcon/>}
                           size='sm'
                           variant='ghost'
                           onClick={() => trackSelection('article')}
-                        />
-                      </Tooltip>
-                    </Td>
-                  </Tr>
+                          title="Open article"
+                        >
+                          <FaLink/>
+                        </IconButton>
+                    </Table.Cell>
+                  </Table.Row>
                 ];
             })
             }
-          </Tbody>
+          </Table.Body>
 
-        </Table>
+        </Table.Root>
       :null}
 
     </Container>

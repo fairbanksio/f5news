@@ -1,8 +1,7 @@
 
-import { extendTheme } from '@chakra-ui/react';
-import { mode } from "@chakra-ui/theme-tools";
+const mode = (light, dark) => props => (props?.colorMode === 'dark' ? dark : light);
 
-const ClassicTheme = extendTheme({
+const ClassicTheme = {
   initialColorMode: 'system',
   components: {
     Box: {
@@ -54,6 +53,6 @@ const ClassicTheme = extendTheme({
       }
     })
   }
-})
+};
 
 export default ClassicTheme;

@@ -3,9 +3,6 @@ import {
   Container,
   useBreakpointValue,
   Alert,
-  AlertIcon,
-  AlertTitle,
-  AlertDescription,
   Box,
   Text,
 } from '@chakra-ui/react';
@@ -167,11 +164,11 @@ const PostView = () => {
     <Container maxW={maxW} mt={16} pl={padding} pr={padding}>
       {error.show ? (
         <Box>
-          <Alert status={error.level}>
-            <AlertIcon />
-            <AlertTitle mr={2}>{error.title}</AlertTitle>
-            <AlertDescription>{error.message}</AlertDescription>
-          </Alert>
+          <Alert.Root status={error.level}>
+            <Alert.Indicator />
+            <Alert.Title mr={2}>{error.title}</Alert.Title>
+            <Alert.Description>{error.message}</Alert.Description>
+          </Alert.Root>
         </Box>
       ) : null}
 

@@ -1,6 +1,5 @@
 import React from 'react';
 import { fireEvent, screen } from '@testing-library/react';
-import { Menu, MenuList } from '@chakra-ui/react';
 import { render } from '../test-utils';
 import { trackSupportClick } from '../analytics';
 import {
@@ -44,13 +43,7 @@ test('renders the reader-friendly support message as a link', () => {
 });
 
 test('renders the mobile settings support item', () => {
-  render(
-    <Menu isOpen>
-      <MenuList>
-        <SupportMenuItem />
-      </MenuList>
-    </Menu>
-  );
+  render(<SupportMenuItem />);
 
   const supportLink = screen.getByRole('menuitem', { name: /support f5 news/i });
   expect(supportLink).toHaveAttribute('href', SUPPORT_URL);

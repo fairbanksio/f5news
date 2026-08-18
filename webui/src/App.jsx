@@ -17,6 +17,7 @@ import { LoadingProvider } from './Contexts/LoadingContext'
 import { ModalProvider } from './Contexts/ModalContext'
 import { MediaModal } from './Components/MediaModal'
 import { initializeAnalytics, trackPageView } from './analytics';
+import { ColorModeProvider } from './Contexts/ColorModeContext';
 
 
 
@@ -32,29 +33,31 @@ const ThemedApp = () => {
   }, [location]);
 
   return (
-    <ChakraProvider theme={CustomTheme}>
-      <RefreshIntervalProvider>
-        <SubredditProvider>
-          <ViewModeProvider>
-            <LoadingProvider>
-              <ModalProvider>
-                <Flex minHeight='100vh' direction='column' p={0}>
-                  <Box>
-                    <Navbar/>
-                  </Box>
-                  <Box flex='1'>
-                    <MediaModal/>
-                    <MainContent/>
-                  </Box>
-                  <Box >
-                    <Footer/>
-                  </Box>
-                </Flex>
-              </ModalProvider>
-            </LoadingProvider>
-          </ViewModeProvider>
-        </SubredditProvider>
-      </RefreshIntervalProvider>
+    <ChakraProvider value={CustomTheme.system}>
+      <ColorModeProvider initialColorMode={CustomTheme.config.initialColorMode}>
+        <RefreshIntervalProvider>
+          <SubredditProvider>
+            <ViewModeProvider>
+              <LoadingProvider>
+                <ModalProvider>
+                  <Flex minHeight='100vh' direction='column' p={0}>
+                    <Box>
+                      <Navbar/>
+                    </Box>
+                    <Box flex='1'>
+                      <MediaModal/>
+                      <MainContent/>
+                    </Box>
+                    <Box>
+                      <Footer/>
+                    </Box>
+                  </Flex>
+                </ModalProvider>
+              </LoadingProvider>
+            </ViewModeProvider>
+          </SubredditProvider>
+        </RefreshIntervalProvider>
+      </ColorModeProvider>
     </ChakraProvider>
   )
 }
