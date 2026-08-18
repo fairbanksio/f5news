@@ -3,7 +3,7 @@ version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
-    target-branch: "main"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -22,7 +22,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/webui"
-    target-branch: "main"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -43,7 +43,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/services/posts"
-    target-branch: "main"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -64,7 +64,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/services/scraper"
-    target-branch: "main"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -85,7 +85,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/services/subreddits"
-    target-branch: "main"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -106,7 +106,7 @@ updates:
 
   - package-ecosystem: "terraform"
     directory: "/infrastructure"
-    target-branch: "main"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
       day: "monday"
