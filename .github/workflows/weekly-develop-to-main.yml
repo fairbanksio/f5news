@@ -53,7 +53,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh workflow run "PR Checks" --ref develop -f "release_source=true"
+          gh workflow run "PR Checks" --ref develop
           gh workflow run Snyk --ref develop
 
       - name: Wait for required checks and merge the release
