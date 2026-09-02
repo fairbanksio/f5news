@@ -13,14 +13,14 @@ permissions:
 jobs:
   release-source:
     name: Release source
-    if: github.base_ref == 'main'
+    if: github.base_ref == 'main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
       - name: Require develop as the release source
         env:
-          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REF: ${{ github.head_ref || github.ref_name }}
         run: test "$HEAD_REF" = "develop"
 
   infrastructure:
