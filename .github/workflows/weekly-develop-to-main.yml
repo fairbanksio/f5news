@@ -47,6 +47,15 @@ jobs:
 
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
 
+      - name: Dispatch required release checks
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh workflow run "PR Checks" --ref develop -f "release_source=true"
+          gh workflow run Snyk --ref develop
+
       - name: Wait for required checks and merge the release
         if: steps.changes.outputs.has_changes == 'true'
         env:
