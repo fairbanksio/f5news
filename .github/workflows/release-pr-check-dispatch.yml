@@ -1,0 +1,29 @@
+name: Release PR Check Dispatch
+
+on:
+  pull_request_target:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch trusted develop release checks
+    if: >-
+      github.event.pull_request.head.ref == 'develop' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Dispatch checks for the trusted develop release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh workflow run "PR Checks" --ref develop
+          gh workflow run Snyk --ref develop
