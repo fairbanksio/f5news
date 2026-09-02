@@ -4,6 +4,7 @@ on:
   pull_request_target:
     branches:
       - main
+      - develop
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -14,8 +15,9 @@ jobs:
   dispatch:
     name: Dispatch trusted develop release checks
     if: >-
-      github.event.pull_request.head.ref == 'develop' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      ((github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop') ||
+      (github.event.pull_request.base.ref == 'develop' && github.event.pull_request.head.ref == 'main'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -24,6 +26,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          RELEASE_SOURCE: ${{ github.event.pull_request.base.ref == 'main' && 'true' || 'false' }}
         run: |
-          gh workflow run "PR Checks" --ref develop
-          gh workflow run Snyk --ref develop
+          gh workflow run "PR Checks" --ref "$HEAD_REF" -f "release_source=$RELEASE_SOURCE"
+          gh workflow run Snyk --ref "$HEAD_REF"

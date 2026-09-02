@@ -20,6 +20,54 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Create or find main synchronization PR
+        id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          behind_by="$(gh api "repos/${{ github.repository }}/compare/main...develop" --jq '.behind_by')"
+          echo "needs_sync=$([ "$behind_by" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+          if [ "$behind_by" -eq 0 ]; then
+            exit 0
+          fi
+
+          pr_url="$(gh pr list --base develop --head main --state open --json url --jq '.[0].url')"
+          if [ -z "$pr_url" ]; then
+            pr_url="$(gh pr create \
+              --base develop \
+              --head main \
+              --title "chore: synchronize main into develop" \
+              --body "Automated synchronization required before the protected develop-to-main release PR can merge.")"
+          fi
+
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for synchronization checks and merge
+        if: steps.sync.outputs.needs_sync == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_URL: ${{ steps.sync.outputs.pr_url }}
+        run: |
+          for attempt in {1..30}; do
+            check_count="$(gh pr checks "$PR_URL" --required --json name,state --jq 'length' 2>/dev/null || true)"
+            if [ "${check_count:-0}" -gt 0 ]; then
+              break
+            fi
+
+            sleep 10
+          done
+
+          if [ "${check_count:-0}" -eq 0 ]; then
+            echo "Timed out waiting for required checks to register on $PR_URL" >&2
+            exit 1
+          fi
+
+          gh pr checks "$PR_URL" --required --watch --interval 10
+          gh pr merge "$PR_URL" --merge
+
       - name: Detect unreleased develop changes
         id: changes
         env:
