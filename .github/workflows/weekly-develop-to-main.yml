@@ -2,10 +2,12 @@ name: Weekly Develop to Main
 
 on:
   schedule:
-    - cron: "0 12 * * 1"
+    # Avoid the start-of-hour Actions scheduling hot spot.
+    - cron: "17 12 * * 1"
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
