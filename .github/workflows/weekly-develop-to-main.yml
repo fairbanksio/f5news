@@ -65,24 +65,40 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR_URL: ${{ steps.release.outputs.pr_url }}
         run: |
-          # A newly created PR can briefly have no check runs. Wait for the
-          # PR-triggered checks to register before asking gh to watch them.
+          # A newly created PR can briefly have no check runs. The dispatched
+          # checks also register independently, so wait for every required
+          # context before asking gh to watch them.
+          required_check_count=10
           for attempt in {1..30}; do
             check_count="$(gh pr checks "$PR_URL" --required --json name,state --jq 'length' 2>/dev/null || true)"
-            if [ "${check_count:-0}" -gt 0 ]; then
+            if [ "${check_count:-0}" -ge "$required_check_count" ]; then
               break
             fi
 
             sleep 10
           done
 
-          if [ "${check_count:-0}" -eq 0 ]; then
-            echo "Timed out waiting for required checks to register on $PR_URL" >&2
+          if [ "${check_count:-0}" -lt "$required_check_count" ]; then
+            echo "Timed out waiting for all required checks to register on $PR_URL" >&2
             exit 1
           fi
 
           gh pr checks "$PR_URL" --required --watch --interval 10
-          gh pr merge "$PR_URL" --merge
+
+          # GitHub can take a moment to recalculate mergeability after the
+          # final status arrives, so retry the normal policy-gated merge.
+          for attempt in {1..30}; do
+            if gh pr merge "$PR_URL" --merge; then
+              break
+            fi
+
+            sleep 10
+          done
+
+          if [ "$(gh pr view "$PR_URL" --json state --jq '.state')" != "MERGED" ]; then
+            echo "Timed out waiting for GitHub to mark $PR_URL mergeable" >&2
+            exit 1
+          fi
 
       - name: Dispatch and wait for deployment
         if: steps.changes.outputs.has_changes == 'true'
