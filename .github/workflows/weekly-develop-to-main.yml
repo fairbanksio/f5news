@@ -83,3 +83,35 @@ jobs:
 
           gh pr checks "$PR_URL" --required --watch --interval 10
           gh pr merge "$PR_URL" --merge
+
+      - name: Dispatch and wait for deployment
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          release_sha="$(gh api "repos/$GH_REPO/commits/main" --jq '.sha')"
+          gh workflow run Deploy --ref main
+
+          for attempt in {1..30}; do
+            run_id="$(gh run list \
+              --workflow Deploy \
+              --branch main \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json databaseId,headSha \
+              --jq ".[] | select(.headSha == \"$release_sha\") | .databaseId" \
+              | head -n 1)"
+            if [ -n "$run_id" ]; then
+              break
+            fi
+
+            sleep 10
+          done
+
+          if [ -z "$run_id" ]; then
+            echo "Timed out waiting for Deploy to start for $release_sha" >&2
+            exit 1
+          fi
+
+          gh run watch "$run_id" --exit-status --interval 10
