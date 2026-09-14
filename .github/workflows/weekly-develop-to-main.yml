@@ -113,10 +113,15 @@ jobs:
             exit 1
           fi
 
-          # GitHub can take a moment to recalculate mergeability after the
-          # final status arrives, so retry the normal policy-gated merge.
+          # Enable GitHub's normal policy-gated auto-merge. It does not bypass
+          # branch protection: GitHub merges only after every required check
+          # remains successful on this exact release commit.
+          gh pr merge "$PR_URL" --merge --auto
+
+          # GitHub can take a moment to complete the protected auto-merge
+          # after the final status arrives.
           for attempt in {1..30}; do
-            if gh pr merge "$PR_URL" --merge; then
+            if [ "$(gh pr view "$PR_URL" --json state --jq '.state')" = "MERGED" ]; then
               break
             fi
 
