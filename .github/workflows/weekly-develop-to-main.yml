@@ -48,6 +48,7 @@ jobs:
           fi
 
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(gh pr view "$pr_url" --json headRefOid --jq '.headRefOid')" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch required release checks
         if: steps.changes.outputs.has_changes == 'true'
@@ -64,26 +65,53 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_URL: ${{ steps.release.outputs.pr_url }}
+          HEAD_SHA: ${{ steps.release.outputs.head_sha }}
         run: |
-          # A newly created PR can briefly have no check runs. The dispatched
-          # checks also register independently, so wait for every required
-          # context before asking gh to watch them.
-          required_check_count=10
+          # Manually dispatched workflows report check runs on the commit, but
+          # GitHub does not always associate those runs with the PR UI. Check
+          # the exact release commit so this job observes the same contexts
+          # enforced by the main branch protection rule.
+          required_checks='["Infrastructure","Web UI","Services (services/posts)","Services (services/scraper)","Services (services/subreddits)","Snyk (services/posts)","Snyk (services/scraper)","Snyk (services/subreddits)","Snyk (webui)","Release source"]'
+          release_head_sha="$HEAD_SHA"
+          missing_checks=""
+
           for attempt in {1..30}; do
-            check_count="$(gh pr checks "$PR_URL" --required --json name,state --jq 'length' 2>/dev/null || true)"
-            if [ "${check_count:-0}" -ge "$required_check_count" ]; then
+            current_head_sha="$(gh pr view "$PR_URL" --json headRefOid --jq '.headRefOid')"
+            if [ "$current_head_sha" != "$release_head_sha" ]; then
+              release_head_sha="$current_head_sha"
+              gh workflow run "PR Checks" --ref develop
+              gh workflow run Snyk --ref develop
+            fi
+
+            check_runs="$(gh api "repos/$GH_REPO/commits/$release_head_sha/check-runs?per_page=100")"
+            missing_checks="$(jq -r --argjson required "$required_checks" '
+              [
+                $required[] as $required_check
+                | select(
+                    any(
+                      .check_runs[];
+                      (.app.slug == "github-actions")
+                      and (.name == $required_check)
+                      and (.status == "completed")
+                      and (.conclusion == "success")
+                    ) | not
+                  )
+                | $required_check
+              ]
+              | .[]?
+            ' <<< "$check_runs")"
+            if [ -z "$missing_checks" ]; then
               break
             fi
 
+            echo "Waiting for required checks on $release_head_sha: $missing_checks"
             sleep 10
           done
 
-          if [ "${check_count:-0}" -lt "$required_check_count" ]; then
-            echo "Timed out waiting for all required checks to register on $PR_URL" >&2
+          if [ -n "$missing_checks" ]; then
+            echo "Timed out waiting for required checks on $release_head_sha: $missing_checks" >&2
             exit 1
           fi
-
-          gh pr checks "$PR_URL" --required --watch --interval 10
 
           # GitHub can take a moment to recalculate mergeability after the
           # final status arrives, so retry the normal policy-gated merge.
