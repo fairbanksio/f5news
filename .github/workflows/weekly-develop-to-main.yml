@@ -48,15 +48,7 @@ jobs:
           fi
 
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
-
-      - name: Dispatch required release checks
-        if: steps.changes.outputs.has_changes == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          gh workflow run "PR Checks" --ref develop
-          gh workflow run Snyk --ref develop
+          echo "head_sha=$(gh pr view "$pr_url" --json headRefOid --jq '.headRefOid')" >> "$GITHUB_OUTPUT"
 
       - name: Wait for required checks and merge the release
         if: steps.changes.outputs.has_changes == 'true'
@@ -64,31 +56,60 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_URL: ${{ steps.release.outputs.pr_url }}
+          HEAD_SHA: ${{ steps.release.outputs.head_sha }}
         run: |
-          # A newly created PR can briefly have no check runs. The dispatched
-          # checks also register independently, so wait for every required
-          # context before asking gh to watch them.
-          required_check_count=10
+          # The trusted develop-to-main PR runs its required workflows through
+          # pull_request_target. Check the exact release commit so this job
+          # observes the same contexts enforced by main branch protection.
+          required_checks='["Infrastructure","Web UI","Services (services/posts)","Services (services/scraper)","Services (services/subreddits)","Snyk (services/posts)","Snyk (services/scraper)","Snyk (services/subreddits)","Snyk (webui)","Release source"]'
+          release_head_sha="$HEAD_SHA"
+          missing_checks=""
+
           for attempt in {1..30}; do
-            check_count="$(gh pr checks "$PR_URL" --required --json name,state --jq 'length' 2>/dev/null || true)"
-            if [ "${check_count:-0}" -ge "$required_check_count" ]; then
+            current_head_sha="$(gh pr view "$PR_URL" --json headRefOid --jq '.headRefOid')"
+            if [ "$current_head_sha" != "$release_head_sha" ]; then
+              release_head_sha="$current_head_sha"
+            fi
+
+            check_runs="$(gh api "repos/$GH_REPO/commits/$release_head_sha/check-runs?per_page=100")"
+            missing_checks="$(jq -r --argjson required "$required_checks" '
+              [
+                $required[] as $required_check
+                | select(
+                    any(
+                      .check_runs[];
+                      (.app.slug == "github-actions")
+                      and (.name == $required_check)
+                      and (.status == "completed")
+                      and (.conclusion == "success")
+                    ) | not
+                  )
+                | $required_check
+              ]
+              | .[]?
+            ' <<< "$check_runs")"
+            if [ -z "$missing_checks" ]; then
               break
             fi
 
+            echo "Waiting for required checks on $release_head_sha: $missing_checks"
             sleep 10
           done
 
-          if [ "${check_count:-0}" -lt "$required_check_count" ]; then
-            echo "Timed out waiting for all required checks to register on $PR_URL" >&2
+          if [ -n "$missing_checks" ]; then
+            echo "Timed out waiting for required checks on $release_head_sha: $missing_checks" >&2
             exit 1
           fi
 
-          gh pr checks "$PR_URL" --required --watch --interval 10
+          # Enable GitHub's normal policy-gated auto-merge. It does not bypass
+          # branch protection: GitHub merges only after every required check
+          # remains successful on this exact release commit.
+          gh pr merge "$PR_URL" --merge --auto
 
-          # GitHub can take a moment to recalculate mergeability after the
-          # final status arrives, so retry the normal policy-gated merge.
+          # GitHub can take a moment to complete the protected auto-merge
+          # after the final status arrives.
           for attempt in {1..30}; do
-            if gh pr merge "$PR_URL" --merge; then
+            if [ "$(gh pr view "$PR_URL" --json state --jq '.state')" = "MERGED" ]; then
               break
             fi
 
