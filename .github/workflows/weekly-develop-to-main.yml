@@ -50,15 +50,6 @@ jobs:
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
           echo "head_sha=$(gh pr view "$pr_url" --json headRefOid --jq '.headRefOid')" >> "$GITHUB_OUTPUT"
 
-      - name: Dispatch required release checks
-        if: steps.changes.outputs.has_changes == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          gh workflow run "PR Checks" --ref develop
-          gh workflow run Snyk --ref develop
-
       - name: Wait for required checks and merge the release
         if: steps.changes.outputs.has_changes == 'true'
         env:
@@ -67,10 +58,9 @@ jobs:
           PR_URL: ${{ steps.release.outputs.pr_url }}
           HEAD_SHA: ${{ steps.release.outputs.head_sha }}
         run: |
-          # Manually dispatched workflows report check runs on the commit, but
-          # GitHub does not always associate those runs with the PR UI. Check
-          # the exact release commit so this job observes the same contexts
-          # enforced by the main branch protection rule.
+          # The trusted develop-to-main PR runs its required workflows through
+          # pull_request_target. Check the exact release commit so this job
+          # observes the same contexts enforced by main branch protection.
           required_checks='["Infrastructure","Web UI","Services (services/posts)","Services (services/scraper)","Services (services/subreddits)","Snyk (services/posts)","Snyk (services/scraper)","Snyk (services/subreddits)","Snyk (webui)","Release source"]'
           release_head_sha="$HEAD_SHA"
           missing_checks=""
@@ -79,8 +69,6 @@ jobs:
             current_head_sha="$(gh pr view "$PR_URL" --json headRefOid --jq '.headRefOid')"
             if [ "$current_head_sha" != "$release_head_sha" ]; then
               release_head_sha="$current_head_sha"
-              gh workflow run "PR Checks" --ref develop
-              gh workflow run Snyk --ref develop
             fi
 
             check_runs="$(gh api "repos/$GH_REPO/commits/$release_head_sha/check-runs?per_page=100")"
