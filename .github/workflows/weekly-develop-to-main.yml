@@ -35,7 +35,10 @@ jobs:
         if: steps.changes.outputs.has_changes == 'true'
         id: release
         env:
-          GH_TOKEN: ${{ github.token }}
+          # A repository token is needed here so opening the release PR emits
+          # the normal pull_request_target check events. GITHUB_TOKEN-created
+          # PRs intentionally do not trigger other workflows.
+          GH_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
           pr_url="$(gh pr list --base main --head develop --state open --json url --jq '.[0].url')"
