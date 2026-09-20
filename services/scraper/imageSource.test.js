@@ -894,3 +894,37 @@ test("fetchArticleImage returns empty when fetch does not settle before timeout"
 
   assert.equal(image, "");
 });
+
+test("hidden previews never resolve an image or fetch publisher metadata", async () => {
+  for (const hidden of [
+    { spoiler: true }, { over_18: true }, { preview_disabled: true },
+    { thumbnail: "nsfw" }, { thumbnail: "spoiler" },
+    { preview: { enabled: false, images: [{ source: { url: "https://preview.redd.it/photo.jpg" } }] } },
+  ]) {
+    let requests = 0;
+    const result = await imageSource({
+      url: "https://publisher.example/story",
+      preview: { images: [{ source: { url: "https://preview.redd.it/photo.jpg" } }] },
+      ...hidden,
+    }, { fetchArticleImageImpl: async () => { requests += 1; return "image"; } });
+    assert.equal(result, "");
+    assert.equal(requests, 0);
+  }
+});
+
+test("publisher response is closed when reading its body fails", async () => {
+  let closed = 0;
+  const result = await fetchArticleImage("https://publisher.example/story", {
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    maxTransientRetries: 0,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: createHeaders({ "content-type": "text/html" }),
+      body: { destroy: () => { closed += 1; } },
+      text: async () => { throw new Error("read failed"); },
+    }),
+  });
+  assert.equal(result, "");
+  assert.equal(closed, 1);
+});

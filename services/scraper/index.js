@@ -4,6 +4,7 @@ const { normalizeFetch } = require("./fetchInterop");
 const {
   hasUsableThumbnail,
   imageSource,
+  isPreviewHidden,
   mapWithConcurrency,
 } = require("./imageSource");
 
@@ -33,7 +34,7 @@ const getPostId = (data) => {
 const getPostUrl = (data) => data.url_overridden_by_dest || data.url || "";
 
 const shouldTrackImageResolution = (data) => {
-  return !data.is_self && !data.is_video && Boolean(getPostUrl(data));
+  return !isPreviewHidden(data) && !data.is_self && !data.is_video && Boolean(getPostUrl(data));
 };
 
 const logStructured = (logger, payload) => {
@@ -249,7 +250,7 @@ const insertNewPosts = (
   subreddit,
   { imageSourceImpl = imageSource, logger = console, newPostModel = newPost } = {}
 ) => {
-  logger.log("inserting new posts:", newPosts);
+  logStructured(logger, { eventType: "POST_BATCH", subreddit, count: newPosts.length });
   const imageMetrics = createImageResolutionMetrics(subreddit, "scrape");
   // Fill array with promises
   const insertPromises = mapWithConcurrency(
@@ -269,6 +270,9 @@ const insertNewPosts = (
           fetchedAt: new Date(),
           post_hint: value.data.post_hint,
           is_video: value.data.is_video,
+          spoiler: value.data.spoiler === true,
+          over_18: value.data.over_18 === true,
+          preview_disabled: value.data.preview?.enabled === false,
           media: value.data.media,
           is_gallery: value.data.is_gallery,
           gallery_data: value.data.gallery_data,
@@ -281,6 +285,8 @@ const insertNewPosts = (
           sub: subreddit,
         },
       };
+
+      if (isPreviewHidden(value.data)) postUpdate.$set.thumbnail = "";
 
       const postKey = createPostKey(value.data);
       const trackImageResolution = shouldTrackImageResolution(value.data);

@@ -5,9 +5,14 @@ on:
     branches:
     - main
   workflow_dispatch:
+permissions:
+  contents: read
+
 jobs:
   infrastructure:
     name: 'Infrastructure'
+    if: github.ref == 'refs/heads/main'
+    environment: production
     runs-on: ubuntu-latest
 
     # Checkout the repository to the GitHub Actions runner
@@ -39,9 +44,9 @@ jobs:
   services:
     name: 'Serverless'
     needs: infrastructure
+    if: github.ref == 'refs/heads/main'
+    environment: production
     runs-on: ubuntu-latest
-    env:
-      SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
 
     # Required for Github-AWS OIDC to work
     permissions:
@@ -74,6 +79,8 @@ jobs:
       working-directory: 'services/posts'
 
     - run: npx serverless deploy
+      env:
+        SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
       name: "Posts Service - Deploy"
       working-directory: 'services/posts'
 
@@ -83,6 +90,8 @@ jobs:
       working-directory: 'services/scraper'
 
     - run: npx serverless deploy
+      env:
+        SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
       name: "Scraper Service - Deploy"
       working-directory: 'services/scraper'
 
@@ -96,12 +105,16 @@ jobs:
       working-directory: 'services/subreddits'
 
     - run: npx serverless deploy
+      env:
+        SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
       name: "Subreddits Service - Deploy"
       working-directory: 'services/subreddits'
 
   webapp:
     name: 'Web App'
     needs: services
+    if: github.ref == 'refs/heads/main'
+    environment: production
     runs-on: ubuntu-latest
 
     # Required for Github-AWS OIDC to work

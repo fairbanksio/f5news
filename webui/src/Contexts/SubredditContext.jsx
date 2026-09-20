@@ -55,10 +55,14 @@ export const SubredditProvider = props => {
     message: 'There was a problem',
   });
   const apiEndpoint = normalizeApiEndpoint(
-    getRuntimeConfigValue('REACT_APP_API') || 'https://localhost'
+    getRuntimeConfigValue('REACT_APP_API')
   );
 
   const fetchSubreddits = () => {
+    if (!apiEndpoint) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     fetch(apiEndpoint + '/subreddits')
       .then(response => {

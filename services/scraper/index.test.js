@@ -851,3 +851,20 @@ test("fetchPosts does not write posts when reddit listing is malformed", async (
 
   assert.equal(writeCount, 0);
 });
+
+test("stores hidden-preview flags, clears old thumbnails, and logs batch counts without raw records", async () => {
+  const posts = [{ data: { id: 'hidden-post', title: 'Story', selftext: 'private-marker', spoiler: true, thumbnail: 'spoiler' } }];
+  const logger = createLogger();
+  const writes = [];
+  const handler = createFetchPosts({
+    fetchImpl: createFetcher({ posts }).fetchImpl,
+    logger,
+    mongooseClient: { connect: async () => {} },
+    newPostModel: { findOneAndUpdate: async (...args) => { writes.push(args); }, find: async () => [] },
+  });
+  await handler({ subreddit: 'news' });
+  assert.equal(writes[0][1].$set.spoiler, true);
+  assert.equal(writes[0][1].$set.thumbnail, '');
+  assert.ok(!JSON.stringify(logger.logs).includes('private-marker'));
+  assert.deepEqual(parseStructuredLogs(logger, 'POST_BATCH'), [{ eventType: 'POST_BATCH', subreddit: 'news', count: 1 }]);
+});

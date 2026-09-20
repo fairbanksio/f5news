@@ -327,7 +327,7 @@ const readResponseBody = async (response, maxBytes) => {
   });
 };
 
-const destroyResponseBody = (response) => {
+const destroyResponseBody = async (response) => {
   if (!response || !response.body) {
     return;
   }
@@ -338,7 +338,7 @@ const destroyResponseBody = (response) => {
   }
 
   if (typeof response.body.cancel === "function") {
-    response.body.cancel();
+    await Promise.resolve(response.body.cancel()).catch(() => {});
   }
 };
 
@@ -420,9 +420,10 @@ const fetchArticleImage = async (url, options = {}) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let requestTimedOut = false;
+    let response;
 
     try {
-      const response = await withTimeout(
+      response = await withTimeout(
         fetchImpl(nextUrl, {
           headers: DEFAULT_ARTICLE_HEADERS,
           agent,
@@ -459,7 +460,6 @@ const fetchArticleImage = async (url, options = {}) => {
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location");
         if (!location) {
-          destroyResponseBody(response);
           reportArticleImageFailure(options, {
             url: nextUrl,
             reason: "redirect_missing_location",
@@ -472,13 +472,11 @@ const fetchArticleImage = async (url, options = {}) => {
           return "";
         }
         nextUrl = new URL(location, nextUrl).toString();
-        destroyResponseBody(response);
         redirectCount += 1;
         continue;
       }
 
       if (!response.ok) {
-        destroyResponseBody(response);
         const canRetry =
           TRANSIENT_RESPONSE_STATUSES.has(response.status) &&
           canRetryTransientFailure(transientRetryCount, maxTransientRetries);
@@ -502,7 +500,6 @@ const fetchArticleImage = async (url, options = {}) => {
 
       const contentType = response.headers.get("content-type") || "";
       if (contentType && !contentType.toLowerCase().includes("text/html")) {
-        destroyResponseBody(response);
         reportArticleImageFailure(options, {
           url: nextUrl,
           reason: "non_html_response",
@@ -595,6 +592,7 @@ const fetchArticleImage = async (url, options = {}) => {
       });
       return "";
     } finally {
+      await destroyResponseBody(response);
       clearTimeout(timeout);
     }
   }
@@ -611,7 +609,13 @@ const fetchArticleImage = async (url, options = {}) => {
   return "";
 };
 
+const isPreviewHidden = (data) =>
+  data.spoiler === true || data.over_18 === true ||
+  data.preview_disabled === true || data.preview?.enabled === false ||
+  ["spoiler", "nsfw"].includes(data.thumbnail);
+
 const redditImageSource = (data) => {
+  if (isPreviewHidden(data)) return "";
   if (data.preview) {
     if (data.preview.images) {
       if (data.preview.images.length > 0) {
@@ -646,6 +650,7 @@ const redditImageSource = (data) => {
 };
 
 const imageSource = async (data, options = {}) => {
+  if (isPreviewHidden(data)) return "";
   const redditImage = redditImageSource(data);
   if (redditImage) {
     return redditImage;
@@ -671,6 +676,7 @@ module.exports = {
   fetchArticleImage,
   hasUsableThumbnail,
   imageSource,
+  isPreviewHidden,
   isSafeHttpUrl,
   mapWithConcurrency,
   makeSafeLookup,

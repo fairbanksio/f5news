@@ -48,6 +48,7 @@ test("connect opens mongoose with the configured connection string", async () =>
         "mongodb://example.test/posts",
         {
           serverSelectionTimeoutMS: 5000,
+          maxPoolSize: 5,
         },
       ],
     ]);

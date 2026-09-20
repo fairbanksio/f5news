@@ -151,12 +151,13 @@ resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
   }
 
   default_cache_behavior {
-    cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6"
-    viewer_protocol_policy = "redirect-to-https"
-    compress               = true
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD"]
-    target_origin_id       = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.media.id
+    cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+    viewer_protocol_policy     = "redirect-to-https"
+    compress                   = true
+    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
+    cached_methods             = ["GET", "HEAD"]
+    target_origin_id           = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
   }
   custom_error_response {
     error_code         = 404
@@ -234,4 +235,16 @@ resource "aws_ssm_parameter" "reddit_password" {
   type        = "SecureString"
   value       = var.reddit_password
   description = "Password for Reddit app developer account"
+}
+
+# Restrict manifests and their segment requests without changing publisher images.
+resource "aws_cloudfront_response_headers_policy" "media" {
+  name = "f5-news-media"
+
+  security_headers_config {
+    content_security_policy {
+      content_security_policy = "connect-src 'self' https://api.${var.primary_domain} https://v.redd.it https://livestream.redd.it https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com; media-src 'self' blob: https://v.redd.it https://livestream.redd.it"
+      override                = true
+    }
+  }
 }

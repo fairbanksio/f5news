@@ -26,8 +26,6 @@ jobs:
       (github.event.pull_request.head.ref == 'develop' &&
       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
-    env:
-      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -38,31 +36,30 @@ jobs:
           - webui
 
     steps:
-      - name: Check Snyk configuration
-        if: env.SNYK_TOKEN == ''
-        run: echo "::warning::SNYK_TOKEN is not configured; skipping Snyk scan."
+      - name: Require Snyk configuration
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if [ -z "$SNYK_TOKEN" ]; then
+            echo "::error::SNYK_TOKEN is required for dependency scanning."
+            exit 1
+          fi
 
       - name: Checkout
-        if: env.SNYK_TOKEN != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Use Node.js 24.x
-        if: env.SNYK_TOKEN != ''
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.x
           cache: npm
           cache-dependency-path: ${{ matrix.project }}/package-lock.json
 
-      - name: Install dependencies
-        if: env.SNYK_TOKEN != ''
-        working-directory: ${{ matrix.project }}
-        run: npm ci
-
       - name: Scan dependencies
-        if: env.SNYK_TOKEN != ''
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         with:
           args: >-

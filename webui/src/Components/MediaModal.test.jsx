@@ -88,27 +88,27 @@ test('renders reddit video previews with the player URL', () => {
     is_video: true,
     media: {
       reddit_video: {
-        dash_url: 'https://example.com/video.mpd',
+        dash_url: 'https://v.redd.it/video.mpd',
       },
     },
   });
 
   expect(screen.getByTestId('react-player')).toHaveAttribute(
     'data-url',
-    'https://example.com/video.mpd'
+    'https://v.redd.it/video.mpd'
   );
 });
 
 test('renders rpan video previews with the player URL', () => {
   renderMediaModal({
     rpan_video: {
-      hls_url: 'https://example.com/live.m3u8',
+      hls_url: 'https://livestream.redd.it/live.m3u8',
     },
   });
 
   expect(screen.getByTestId('react-player')).toHaveAttribute(
     'data-url',
-    'https://example.com/live.m3u8'
+    'https://livestream.redd.it/live.m3u8'
   );
 });
 
@@ -124,4 +124,22 @@ test('does not render rich video embeds from oembed html', () => {
 
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.queryByTitle('Video embed')).not.toBeInTheDocument();
+});
+
+test.each([{ is_video: true }, { is_video: true, media: {} }, { rpan_video: {} }])(
+  'does not crash or create a player for incomplete video metadata', post => {
+    renderMediaModal(post);
+    expect(screen.queryByTestId('react-player')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  }
+);
+
+test('ignores incomplete gallery records', () => {
+  renderMediaModal({ is_gallery: true, media_metadata: { missing: null, incomplete: { s: {} } } });
+  expect(screen.queryByRole('img')).not.toBeInTheDocument();
+});
+
+test('does not preview hidden content', () => {
+  renderMediaModal({ spoiler: true, post_hint: 'image', thumbnail: 'https://example.com/photo.jpg' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });

@@ -17,7 +17,8 @@ export const getRuntimeConfigValue = key => {
 };
 
 export const normalizeApiEndpoint = endpoint => {
-  const normalizedEndpoint = endpoint.replace(/\/$/, '');
+  if (typeof endpoint !== 'string' || !endpoint.trim()) return '';
+  const normalizedEndpoint = endpoint.trim().replace(/\/$/, '');
   return /^https?:\/\//.test(normalizedEndpoint)
     ? normalizedEndpoint
     : 'https://' + normalizedEndpoint;

@@ -21,12 +21,13 @@ import {useContext} from 'react'
 import { SubredditContext } from '../Contexts/SubredditContext';
 import { ViewModeContext } from '../Contexts/ViewModeContext';
 import { trackPostSelection } from '../analytics';
+import { getVideoUrl } from '../media';
 
 const getThumbnailSrc = (thumbnail) => {
   if (
     typeof thumbnail !== 'string' ||
     thumbnail.trim() === '' ||
-    ['default', 'self', 'spoiler'].includes(thumbnail)
+    ['default', 'self', 'spoiler', 'nsfw'].includes(thumbnail)
   ) {
     return '/placeholder.png';
   }
@@ -49,11 +50,14 @@ const getSourceLabel = post => {
 };
 
 const getPostMedia = post => {
+  if (post.spoiler || post.over_18 || post.preview_disabled) {
+    return { icon: FaLink, label: 'Article', canPreview: false };
+  }
   if (post.is_video || post.rpan_video) {
     return {
       icon: FaVideo,
       label: 'Video',
-      canPreview: true,
+      canPreview: Boolean(getVideoUrl(post)),
     };
   }
 
@@ -283,7 +287,7 @@ export const PostCard = ({post, elId}) => {
         onClick={() => trackSelection('reddit_comments')}
       >
         <Image
-          src={getThumbnailSrc(post.thumbnail)}
+          src={post.spoiler || post.over_18 || post.preview_disabled ? '/placeholder.png' : getThumbnailSrc(post.thumbnail)}
           w='100%'
           h={imageHeight}
           objectFit='cover'

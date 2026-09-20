@@ -1,5 +1,6 @@
 import { Box, Center, Modal, ModalOverlay, ModalBody, ModalCloseButton,  ModalContent, Image, Stack } from '@chakra-ui/react';
 import ReactPlayer from 'react-player'
+import { getVideoUrl } from '../media';
 import {ModalContext} from '../Contexts/ModalContext'
 import {useContext} from 'react'
 
@@ -7,7 +8,7 @@ const getThumbnailSrc = (thumbnail) => {
   if (
     typeof thumbnail !== 'string' ||
     thumbnail.trim() === '' ||
-    ['default', 'self', 'spoiler'].includes(thumbnail)
+    ['default', 'self', 'spoiler', 'nsfw'].includes(thumbnail)
   ) {
     return '/placeholder.png';
   }
@@ -17,17 +18,20 @@ const getThumbnailSrc = (thumbnail) => {
 
 export const MediaModal = () => {
   const {modalData, setModalData} = useContext(ModalContext)
+  const videoUrl = getVideoUrl(modalData);
+
+  if (modalData?.spoiler || modalData?.over_18 || modalData?.preview_disabled) return null;
 
   return (
     <>
-      {modalData && modalData.is_video?
+      {modalData && modalData.is_video && videoUrl?
         <Modal onClose={(e)=>{setModalData(null)}} isOpen={true} isCentered blockScrollOnMount={false}>
           <ModalOverlay />
           <ModalContent maxW='container.xl' maxH='80vh' bg='none' w='auto'>
             <ModalBody p={0}>
               <Center >
                 <Box position='relative' width='100%' height='80vh' bg='#222'>
-                  <ReactPlayer url={modalData.media.reddit_video.dash_url} width='100%' height='100%' controls stopOnUnmount={false} playing/>
+                  <ReactPlayer url={videoUrl} width='100%' height='100%' controls stopOnUnmount={false} playing/>
                   
                   <ModalCloseButton />
                 </Box>
@@ -47,7 +51,7 @@ export const MediaModal = () => {
           <ModalBody p={0}>
             <Center maxW='container.xl' position='relative' overflow='hidden'>
               <Stack overflowY='scroll' maxH='80vh' >
-                {Object.keys(modalData.media_metadata).map((key) =>{
+                {Object.keys(modalData.media_metadata || {}).filter(key => typeof modalData.media_metadata[key]?.s?.u === 'string').map((key) =>{
                   return (
                     <Image key={key} src={modalData.media_metadata[key].s.u.replace(/amp;/g,'')} w='100%' objectFit='cover' maxH='75vh' minW='50%'/>
                   )
@@ -82,14 +86,14 @@ export const MediaModal = () => {
       null
     }
 
-    {modalData &&  modalData.rpan_video?
+    {modalData && !modalData.is_video && modalData.rpan_video && videoUrl?
       <Modal onClose={(e)=>{setModalData(null)}} isOpen={true} isCentered blockScrollOnMount={false}>
         <ModalOverlay />
         <ModalContent maxW='container.xl' maxH='80vh' bg='none' w='auto'>
         <ModalBody p={0}>
             <Center >
               <Box position='relative' width='100%' height='80vh' bg='#222'>
-                <ReactPlayer url={modalData.rpan_video.hls_url} width='100%' height='100%' controls stopOnUnmount={false} playing/>
+                <ReactPlayer url={videoUrl} width='100%' height='100%' controls stopOnUnmount={false} playing/>
                 
                 <ModalCloseButton />
               </Box>
