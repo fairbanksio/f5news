@@ -63,6 +63,6 @@ jobs:
         uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         with:
           args: >-
-            --file=${{ matrix.project }}/package.json
+            --file=${{ matrix.project }}/package-lock.json
             --package-manager=npm
             --severity-threshold=high

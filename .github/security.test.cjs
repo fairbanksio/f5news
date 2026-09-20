@@ -36,6 +36,7 @@ test('Snyk fails without a token and scans lockfiles without installing PR depen
   }
   const scan = job.steps.find(step => step.name === 'Scan dependencies');
   assert.ok(scan.env.SNYK_TOKEN);
+  assert.ok(scan.with.args.includes("--file=${{ matrix.project }}/package-lock.json"));
   assert.equal(scan.if, undefined);
   assert.ok(!job.steps.some(step => /npm (ci|install)/.test(step.run || '')));
   for (const project of job.strategy.matrix.project) {
