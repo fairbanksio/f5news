@@ -21,7 +21,8 @@ The current role trust could not be read during remediation. The available AWS c
 1. Verify the environment permits only `main`, and the production credentials exist only at the protected environment scope.
 2. Verify the AWS trust policy, including its audience and exact subject.
 3. Run the normal PR checks and Snyk scans. Promote only `develop` to `main` through the existing release workflow.
-4. Observe Deploy for the release SHA. Confirm both API Gateway stages have rate 20 and burst 10, and both read Lambdas have reserved concurrency 5. These are shared service limits, not per-client quotas or absolute billing caps.
-5. Confirm the news UI and supported API routes return ordinary results. Throttling takes effect through the Serverless plugin's deployment hook; local mocked-provider tests do not establish live enforcement.
+4. Observe Deploy for the release SHA and confirm the news UI and supported API routes return ordinary results.
+
+Gateway throttling and Lambda concurrency caps are deferred until burst traffic and account capacity can be measured. This patch retains supported-subreddit validation, query coalescing, a short cache, query deadlines, and connection limits. These reduce database work but do not bound public API invocation costs.
 
 No production dispatch, secret transfer, credential rotation, or cloud mutation was performed during local remediation.

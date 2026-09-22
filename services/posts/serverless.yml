@@ -12,12 +12,8 @@ provider:
 plugins:
   - serverless-offline
   - serverless-domain-manager
-  - serverless-api-gateway-throttling
 
 custom:
-  apiGatewayThrottling:
-    maxRequestsPerSecond: 20
-    maxConcurrentRequests: 10
   customDomain:
     domainName: "api.${env:PRIMARY_DOMAIN_NAME, ssm:/primary_domain_name}"
     certificateArn: ${env:PRIMARY_DOMAIN_CERT_ARN, ssm:/primary_domain_cert_arn}
@@ -31,7 +27,6 @@ custom:
 
 functions:
   getPostsBySubreddit:
-    reservedConcurrency: 5
     timeout: 30
     handler: index.get_posts_by_subreddit
     logRetentionInDays: 30
