@@ -894,3 +894,58 @@ test("fetchArticleImage returns empty when fetch does not settle before timeout"
 
   assert.equal(image, "");
 });
+
+test("Reddit flags do not suppress supplied preview images", async () => {
+  for (const hidden of [
+    { spoiler: true }, { over_18: true },
+    { thumbnail: "nsfw" }, { thumbnail: "spoiler" },
+  ]) {
+    let requests = 0;
+    const result = await imageSource({
+      url: "https://publisher.example/story",
+      preview: { images: [{ source: { url: "https://preview.redd.it/photo.jpg" } }] },
+      ...hidden,
+    }, { fetchArticleImageImpl: async () => { requests += 1; return "image"; } });
+    assert.equal(result, "https://preview.redd.it/photo.jpg");
+    assert.equal(requests, 0);
+  }
+});
+
+test("publisher response is closed when reading its body fails", async () => {
+  let closed = 0;
+  const result = await fetchArticleImage("https://publisher.example/story", {
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    maxTransientRetries: 0,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: createHeaders({ "content-type": "text/html" }),
+      body: { destroy: () => { closed += 1; } },
+      text: async () => { throw new Error("read failed"); },
+    }),
+  });
+  assert.equal(result, "");
+  assert.equal(closed, 1);
+});
+
+test("ordinary Reddit images remain usable when preview.enabled is false", async () => {
+  const image = "https://media.publisher.example/photo.jpg";
+  assert.equal(await imageSource({
+    spoiler: false,
+    over_18: false,
+    preview_disabled: true,
+    preview: { enabled: false, images: [{ source: { url: image } }] },
+    url: "https://publisher.example/story",
+  }, { fetchArticleImageImpl: async () => { throw new Error("unexpected fallback"); } }), image);
+});
+
+test("preview.enabled does not prevent ordinary publisher image fallback", async () => {
+  let requests = 0;
+  const image = await imageSource({
+    preview: { enabled: false },
+    thumbnail: "default",
+    url: "https://publisher.example/story",
+  }, { fetchArticleImageImpl: async () => { requests += 1; return "https://publisher.example/photo.jpg"; } });
+  assert.equal(image, "https://publisher.example/photo.jpg");
+  assert.equal(requests, 1);
+});

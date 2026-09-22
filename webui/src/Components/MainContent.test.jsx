@@ -38,11 +38,13 @@ const renderMainContent = ({ refreshInterval = 1 } = {}) =>
 
 describe('MainContent', () => {
   beforeEach(() => {
+    window.REACT_APP_API = 'https://api.f5.test';
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-06T12:00:00.000Z'));
   });
 
   afterEach(() => {
+    delete window.REACT_APP_API;
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.resetAllMocks();
@@ -270,7 +272,7 @@ describe('MainContent', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText('There was a problem fetching new posts. Retrying..')
+        screen.getByText('There was a problem fetching new posts. Retrying.')
       ).toBeInTheDocument();
     });
 
@@ -333,4 +335,14 @@ describe('MainContent', () => {
     expect(screen.queryByText('Before laptop sleep headline')).not.toBeInTheDocument();
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
+});
+
+test('shows a configuration error without requesting an implicit endpoint', async () => {
+  delete window.REACT_APP_API;
+  global.fetch = vi.fn();
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  renderMainContent();
+  await waitFor(() => expect(screen.getByText('The news API is not configured.')).toBeInTheDocument());
+  expect(global.fetch).not.toHaveBeenCalled();
+  errorLog.mockRestore();
 });

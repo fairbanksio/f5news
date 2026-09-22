@@ -667,6 +667,83 @@ test("fetchPosts backfills recent posts with missing thumbnails", async () => {
   assert.equal(metricLog.PostImageResolutionErrors, 0);
 });
 
+test("backfill processes Reddit posts and advances to older eligible articles", async (t) => {
+  const matches = (post, filter) => Object.entries(filter).every(([field, condition]) => {
+    if (field === "$or") return condition.some((clause) => matches(post, clause));
+    if (condition === null) return post[field] == null;
+    if (typeof condition !== "object") return post[field] === condition;
+    return Object.entries(condition).every(([operator, value]) => {
+      switch (operator) {
+        case "$ne": return post[field] !== value;
+        case "$gt": return post[field] > value;
+        case "$exists": return (post[field] !== undefined) === value;
+        case "$in": return value.includes(post[field]);
+        default: throw new Error(`Unsupported query operator: ${operator}`);
+      }
+    });
+  });
+  const now = new Date("2024-03-10T12:00:00Z");
+  const basePost = {
+    sub: "news", thumbnail: "", url: "https://publisher.example/story",
+    created_utc: Math.floor(now.getTime() / 1000) - 100,
+  };
+
+  for (const hidden of [
+    { spoiler: true }, { over_18: true }, { preview_disabled: true },
+    { thumbnail: "spoiler" }, { thumbnail: "nsfw" },
+  ]) {
+    await t.test(JSON.stringify(hidden), async () => {
+      const posts = [
+        ...Array.from({ length: 25 }, (_, index) => ({
+          ...basePost, ...hidden, _id: `hidden-${index}`, created_utc: basePost.created_utc + index + 1,
+        })),
+        { ...basePost, _id: "legacy-visible" },
+        { ...basePost, _id: "visible", spoiler: false, over_18: false, preview_disabled: false },
+      ];
+      const resolved = [];
+      const writes = [];
+      const options = {
+        now: () => now,
+        logger: createLogger(),
+        imageSourceImpl: async (post) => {
+          resolved.push(post._id);
+          return "https://cdn.example.com/story.jpg";
+        },
+        newPostModel: {
+          find: (filter) => {
+            let selected = posts.filter((post) => matches(post, filter));
+            return {
+              sort(order) {
+                assert.deepEqual(order, { created_utc: -1 });
+                selected.sort((a, b) => b.created_utc - a.created_utc);
+                return this;
+              },
+              limit(count) {
+                assert.equal(count, 25);
+                selected = selected.slice(0, count);
+                return this;
+              },
+              then(resolve) { return Promise.resolve(selected).then(resolve); },
+            };
+          },
+          findOneAndUpdate: async (key, update) => {
+            writes.push(key._id);
+            Object.assign(posts.find(post => post._id === key._id), update.$set);
+          },
+        },
+      };
+      await backfillMissingPostImages("news", options);
+      assert.equal(resolved.length, 25);
+      assert.ok(resolved.every(id => id.startsWith("hidden-")));
+      resolved.length = 0;
+      writes.length = 0;
+      await backfillMissingPostImages("news", options);
+      assert.deepEqual(resolved.sort(), ["legacy-visible", "visible"]);
+      assert.deepEqual(writes.sort(), ["legacy-visible", "visible"]);
+    });
+  }
+});
+
 test("backfillMissingPostImages logs missing and error outcomes without writing unusable thumbnails", async () => {
   const logger = createLogger();
   const writes = [];
@@ -850,4 +927,41 @@ test("fetchPosts does not write posts when reddit listing is malformed", async (
   await handler({ subreddit: "news" });
 
   assert.equal(writeCount, 0);
+});
+
+test("preserves existing thumbnails and logs batch counts without raw records", async () => {
+  const posts = [{ data: { id: 'hidden-post', title: 'Story', selftext: 'private-marker', spoiler: true, thumbnail: 'spoiler', preview: { images: [{ source: { url: 'https://publisher.example/photo.jpg' } }] } } }];
+  const logger = createLogger();
+  const writes = [];
+  const handler = createFetchPosts({
+    fetchImpl: createFetcher({ posts }).fetchImpl,
+    logger,
+    mongooseClient: { connect: async () => {} },
+    newPostModel: { findOneAndUpdate: async (...args) => { writes.push(args); }, find: async () => [] },
+  });
+  await handler({ subreddit: 'news' });
+  assert.equal(writes[0][1].$set.spoiler, undefined);
+  assert.equal(writes[0][1].$set.thumbnail, undefined);
+  assert.equal(writes[1][1].$set.thumbnail, "https://publisher.example/photo.jpg");
+  assert.ok(!JSON.stringify(logger.logs).includes('private-marker'));
+  assert.deepEqual(parseStructuredLogs(logger, 'POST_BATCH'), [{ eventType: 'POST_BATCH', subreddit: 'news', count: 1 }]);
+});
+
+test("stores ordinary thumbnails without deriving suppression from preview.enabled", async () => {
+  const thumbnail = "https://publisher.example/photo.jpg";
+  const posts = [{ data: {
+    id: "ordinary-post", title: "Story", spoiler: false, over_18: false,
+    thumbnail, preview: { enabled: false, images: [{ source: { url: thumbnail } }] },
+  } }];
+  const writes = [];
+  const handler = createFetchPosts({
+    fetchImpl: createFetcher({ posts }).fetchImpl,
+    logger: createLogger(),
+    mongooseClient: { connect: async () => {} },
+    newPostModel: { findOneAndUpdate: async (...args) => { writes.push(args); }, find: async () => [] },
+  });
+  await handler({ subreddit: "news" });
+  assert.equal(writes[0][1].$set.preview_disabled, undefined);
+  assert.equal(writes[0][1].$set.thumbnail, undefined);
+  assert.equal(writes[1][1].$set.thumbnail, thumbnail);
 });
