@@ -27,7 +27,7 @@ export const MediaModal = () => {
             <ModalBody p={0}>
               <Center >
                 <Box position='relative' width='100%' height='80vh' bg='#222'>
-                  <ReactPlayer url={modalData.media.reddit_video.dash_url} width='100%' height='100%' controls stopOnUnmount={false} playing/>
+                  <ReactPlayer src={modalData.media.reddit_video.dash_url} width='100%' height='100%' controls playing/>
                   
                   <ModalCloseButton />
                 </Box>
@@ -89,7 +89,7 @@ export const MediaModal = () => {
         <ModalBody p={0}>
             <Center >
               <Box position='relative' width='100%' height='80vh' bg='#222'>
-                <ReactPlayer url={modalData.rpan_video.hls_url} width='100%' height='100%' controls stopOnUnmount={false} playing/>
+                <ReactPlayer src={modalData.rpan_video.hls_url} width='100%' height='100%' controls playing/>
                 
                 <ModalCloseButton />
               </Box>
