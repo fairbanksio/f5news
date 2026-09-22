@@ -126,3 +126,14 @@ describe('SubredditProvider', () => {
     expect(setLoading).toHaveBeenLastCalledWith(false);
   });
 });
+
+test('does not request subreddits when API configuration is absent', async () => {
+  delete window.REACT_APP_API;
+  global.fetch = vi.fn();
+  await renderProvider();
+  expect(global.fetch).not.toHaveBeenCalled();
+});
+
+test.each([undefined, null, '', '   '])('treats empty API configuration as unavailable', endpoint => {
+  expect(normalizeApiEndpoint(endpoint)).toBe('');
+});

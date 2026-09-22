@@ -21,12 +21,13 @@ import {useContext} from 'react'
 import { SubredditContext } from '../Contexts/SubredditContext';
 import { ViewModeContext } from '../Contexts/ViewModeContext';
 import { trackPostSelection } from '../analytics';
+import { getVideoUrl } from '../media';
 
 const getThumbnailSrc = (thumbnail) => {
   if (
     typeof thumbnail !== 'string' ||
     thumbnail.trim() === '' ||
-    ['default', 'self', 'spoiler'].includes(thumbnail)
+    ['default', 'self', 'spoiler', 'nsfw'].includes(thumbnail)
   ) {
     return '/placeholder.png';
   }
@@ -53,7 +54,7 @@ const getPostMedia = post => {
     return {
       icon: FaVideo,
       label: 'Video',
-      canPreview: true,
+      canPreview: Boolean(getVideoUrl(post)),
     };
   }
 

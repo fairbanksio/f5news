@@ -18,14 +18,12 @@ import ListView from './ListView';
 import usePageVisibility from '../Util/usePageVisibility';
 import { getRuntimeConfigValue, normalizeApiEndpoint } from '../runtimeConfig';
 
-const apiEndpoint = normalizeApiEndpoint(getRuntimeConfigValue('REACT_APP_API') || 'https://localhost');
-
-const postsApiEndpoint = getRuntimeConfigValue('REACT_APP_POSTS_API')
-  ? getRuntimeConfigValue('REACT_APP_POSTS_API').replace(/\/$/, '')
-  : apiEndpoint + '/posts';
-
-const getPostsUrl = subreddit =>
-  postsApiEndpoint + '/' + subreddit.replace(/\+/g, '%2b');
+const getPostsUrl = subreddit => {
+  const apiEndpoint = normalizeApiEndpoint(getRuntimeConfigValue('REACT_APP_API'));
+  const postsEndpoint = normalizeApiEndpoint(getRuntimeConfigValue('REACT_APP_POSTS_API')) ||
+    (apiEndpoint ? apiEndpoint + '/posts' : '');
+  return postsEndpoint ? postsEndpoint + '/' + encodeURIComponent(subreddit) : '';
+};
 
 const SCRAPER_REFRESH_INTERVAL_MS = 1000 * 60 * 5;
 const SCRAPER_FRESHNESS_GRACE_MS = 1000 * 60 * 2;
@@ -119,7 +117,11 @@ const PostView = () => {
   const fetchPosts = () => {
     lastFetchStartedAtRef.current = Date.now();
     setLoading(true);
-    fetch(getPostsUrl(subreddit))
+    const url = getPostsUrl(subreddit);
+    Promise.resolve().then(() => {
+      if (!url) throw new Error('The news API is not configured.');
+      return fetch(url);
+    })
       .then(response => {
         if (!response.ok) {
           throw new Error(`Failed to fetch posts: ${response.status}`);
@@ -149,8 +151,8 @@ const PostView = () => {
         setError({
           level: 'error',
           show: true,
-          title: 'Ooops:',
-          message: 'There was a problem fetching new posts. Retrying..',
+          title: url ? 'Refresh Failed' : 'Configuration Error',
+          message: url ? 'There was a problem fetching new posts. Retrying.' : error.message,
         });
         setLoading(false);
       });

@@ -10,6 +10,10 @@ const createPostModel = (posts = []) => {
       calls.push({ method: "sort", args: [sortOptions] });
       return query;
     },
+    maxTimeMS(ms) {
+      calls.push({ method: "maxTimeMS", args: [ms] });
+      return query;
+    },
     limit(limitCount) {
       calls.push({ method: "limit", args: [limitCount] });
       return posts;
@@ -95,6 +99,7 @@ test("queries recent popular posts for the requested subreddit", async () => {
       method: "sort",
       args: [{ upvoteCount: -1, created_utc: 1 }],
     },
+    { method: "maxTimeMS", args: [2000] },
     {
       method: "limit",
       args: [20],
@@ -290,4 +295,59 @@ test("returns a server error response when the post query fails", async () => {
     success: false,
     error: "Failed to fetch posts",
   });
+});
+
+test("rejects unsupported subreddits without opening a database connection", async () => {
+  const context = createHandler();
+  for (const subreddit of ["not-configured", [], {}, 42]) {
+    const response = await context.handler(allowedEvent({ pathParameters: { subreddit } }));
+    assert.equal(response.statusCode, 400);
+  }
+  assert.equal(context.connectCount, 0);
+});
+
+test("coalesces concurrent reads and reuses results until the ten second cache expires", async () => {
+  let clock = new Date("2026-09-19T12:00:00Z");
+  let connections = 0;
+  const model = createPostModel([{ title: "Cached story" }]);
+  const handler = createGetPostsBySubreddit({
+    mongooseClient: { connect: async () => { connections += 1; } },
+    postModel: model,
+    now: () => clock,
+  });
+  const event = allowedEvent({ pathParameters: { subreddit: "news" } });
+  const responses = await Promise.all([handler(event), handler(event)]);
+  assert.deepEqual(responses[0], responses[1]);
+  await handler(event);
+  assert.equal(connections, 1);
+  clock = new Date(clock.getTime() + 10000);
+  await handler(event);
+  assert.equal(connections, 2);
+});
+
+test("failed queries can be retried and are never cached", async () => {
+  let attempts = 0;
+  const model = createPostModel([]);
+  const handler = createGetPostsBySubreddit({
+    mongooseClient: { connect: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("unavailable");
+    } },
+    postModel: model,
+  });
+  const event = allowedEvent({ pathParameters: { subreddit: "news" } });
+  assert.equal((await handler(event)).statusCode, 500);
+  assert.equal((await handler(event)).statusCode, 200);
+  assert.equal(attempts, 2);
+});
+
+test("normalizes configured subreddit spelling and keeps the cache origin-independent", async () => {
+  const context = createHandler();
+  const event = { pathParameters: { subreddit: "economics" } };
+  const first = await context.handler(allowedEvent(event));
+  const second = await context.handler(allowedEvent({ ...event, headers: { origin: "https://www.f5.news" } }));
+  assert.equal(first.statusCode, 200);
+  assert.equal(second.headers["Access-Control-Allow-Origin"], "https://www.f5.news");
+  assert.equal(getFindCall(context.postModel).args[0].sub, "Economics");
+  assert.equal(context.connectCount, 1);
 });

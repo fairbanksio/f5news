@@ -249,7 +249,7 @@ const insertNewPosts = (
   subreddit,
   { imageSourceImpl = imageSource, logger = console, newPostModel = newPost } = {}
 ) => {
-  logger.log("inserting new posts:", newPosts);
+  logStructured(logger, { eventType: "POST_BATCH", subreddit, count: newPosts.length });
   const imageMetrics = createImageResolutionMetrics(subreddit, "scrape");
   // Fill array with promises
   const insertPromises = mapWithConcurrency(

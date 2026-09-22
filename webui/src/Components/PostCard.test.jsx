@@ -206,3 +206,15 @@ describe('PostCard', () => {
     expect(setModalData).not.toHaveBeenCalled();
   });
 });
+
+test.each(['spoiler', 'over_18', 'preview_disabled'])('keeps Reddit-supplied previews despite the %s flag', flag => {
+  const setModalData = vi.fn();
+  const flaggedPost = { ...post, [flag]: true };
+  render(
+    <ModalContext.Provider value={{ setModalData }}>
+      <PostCard post={flaggedPost} elId={0} />
+    </ModalContext.Provider>
+  );
+  fireEvent.click(screen.getByRole('button', { name: /preview image/i }));
+  expect(setModalData).toHaveBeenCalledWith(flaggedPost);
+});
