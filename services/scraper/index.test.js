@@ -627,12 +627,15 @@ test("fetchPosts backfills recent posts with missing thumbnails", async () => {
     created_utc: { $gt: 1710043200 },
     is_self: { $ne: true },
     is_video: { $ne: true },
+    spoiler: { $ne: true },
+    over_18: { $ne: true },
+    preview_disabled: { $ne: true },
     url: { $exists: true, $ne: "" },
     $or: [
       { thumbnail: { $exists: false } },
       { thumbnail: null },
       { thumbnail: "" },
-      { thumbnail: { $in: ["default", "self", "spoiler", "nsfw", "image"] } },
+      { thumbnail: { $in: ["default", "self", "image"] } },
     ],
   });
   assert.deepEqual(query.sortArgs, { created_utc: -1 });
@@ -665,6 +668,74 @@ test("fetchPosts backfills recent posts with missing thumbnails", async () => {
   assert.equal(metricLog.PostImageResolutionResolved, 1);
   assert.equal(metricLog.PostImageResolutionMissing, 0);
   assert.equal(metricLog.PostImageResolutionErrors, 0);
+});
+
+test("backfill reaches eligible articles behind a full batch of hidden posts", async (t) => {
+  const matches = (post, filter) => Object.entries(filter).every(([field, condition]) => {
+    if (field === "$or") return condition.some((clause) => matches(post, clause));
+    if (condition === null) return post[field] == null;
+    if (typeof condition !== "object") return post[field] === condition;
+    return Object.entries(condition).every(([operator, value]) => {
+      switch (operator) {
+        case "$ne": return post[field] !== value;
+        case "$gt": return post[field] > value;
+        case "$exists": return (post[field] !== undefined) === value;
+        case "$in": return value.includes(post[field]);
+        default: throw new Error(`Unsupported query operator: ${operator}`);
+      }
+    });
+  });
+  const now = new Date("2024-03-10T12:00:00Z");
+  const basePost = {
+    sub: "news", thumbnail: "", url: "https://publisher.example/story",
+    created_utc: Math.floor(now.getTime() / 1000) - 100,
+  };
+
+  for (const hidden of [
+    { spoiler: true }, { over_18: true }, { preview_disabled: true },
+    { thumbnail: "spoiler" }, { thumbnail: "nsfw" },
+  ]) {
+    await t.test(JSON.stringify(hidden), async () => {
+      const posts = [
+        ...Array.from({ length: 25 }, (_, index) => ({
+          ...basePost, ...hidden, _id: `hidden-${index}`, created_utc: basePost.created_utc + index + 1,
+        })),
+        { ...basePost, _id: "legacy-visible" },
+        { ...basePost, _id: "visible", spoiler: false, over_18: false, preview_disabled: false },
+      ];
+      const resolved = [];
+      const writes = [];
+      await backfillMissingPostImages("news", {
+        now: () => now,
+        logger: createLogger(),
+        imageSourceImpl: async (post) => {
+          resolved.push(post._id);
+          return "https://cdn.example.com/story.jpg";
+        },
+        newPostModel: {
+          find: (filter) => {
+            let selected = posts.filter((post) => matches(post, filter));
+            return {
+              sort(order) {
+                assert.deepEqual(order, { created_utc: -1 });
+                selected.sort((a, b) => b.created_utc - a.created_utc);
+                return this;
+              },
+              limit(count) {
+                assert.equal(count, 25);
+                selected = selected.slice(0, count);
+                return this;
+              },
+              then(resolve) { return Promise.resolve(selected).then(resolve); },
+            };
+          },
+          findOneAndUpdate: async (key) => { writes.push(key._id); },
+        },
+      });
+      assert.deepEqual(resolved.sort(), ["legacy-visible", "visible"]);
+      assert.deepEqual(writes.sort(), ["legacy-visible", "visible"]);
+    });
+  }
 });
 
 test("backfillMissingPostImages logs missing and error outcomes without writing unusable thumbnails", async () => {
