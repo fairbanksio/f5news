@@ -7,11 +7,11 @@ const yaml = require('../services/scraper/node_modules/js-yaml');
 const root = path.join(__dirname, '..');
 const readYaml = file => yaml.load(fs.readFileSync(path.join(root, file), 'utf8'));
 
-test('production jobs require main and the protected production environment', () => {
+test('production jobs require main and preserve existing deployment authentication', () => {
   const workflow = readYaml('.github/workflows/deploy.yml');
   for (const job of Object.values(workflow.jobs)) {
     assert.equal(job.if, "github.ref == 'refs/heads/main'");
-    assert.equal(job.environment, 'production');
+    assert.equal(job.environment, undefined);
     assert.equal(job.env?.SERVERLESS_ACCESS_KEY, undefined);
     for (const step of job.steps) {
       if (step.env?.SERVERLESS_ACCESS_KEY) assert.equal(step.run, 'npx serverless deploy');

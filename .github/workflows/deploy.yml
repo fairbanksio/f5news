@@ -12,7 +12,6 @@ jobs:
   infrastructure:
     name: 'Infrastructure'
     if: github.ref == 'refs/heads/main'
-    environment: production
     runs-on: ubuntu-latest
 
     # Checkout the repository to the GitHub Actions runner
@@ -45,7 +44,6 @@ jobs:
     name: 'Serverless'
     needs: infrastructure
     if: github.ref == 'refs/heads/main'
-    environment: production
     runs-on: ubuntu-latest
 
     # Required for Github-AWS OIDC to work
@@ -114,7 +112,6 @@ jobs:
     name: 'Web App'
     needs: services
     if: github.ref == 'refs/heads/main'
-    environment: production
     runs-on: ubuntu-latest
 
     # Required for Github-AWS OIDC to work

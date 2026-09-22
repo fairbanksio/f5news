@@ -1,28 +1,27 @@
 # Production Credential Boundary
 
-The Deploy workflow requires `refs/heads/main` and the `production` environment. The environment and secret migration must be completed before this patch is released. A workflow condition alone cannot protect repository secrets from someone who can edit a branch workflow.
+The production environment migration is deferred. This PR keeps the existing deployment credentials, AWS role, and branch-based OIDC identity. No GitHub environment setup, secret transfer, or AWS trust change is required to release it.
 
-## Required GitHub Settings
+Deploy jobs require `refs/heads/main`. The Serverless access key is available only to deployment steps, and PR Terraform validation receives no Terraform Cloud token. These changes reduce exposure, but a workflow condition cannot protect repository secrets from someone who can edit a branch workflow. The stronger credential boundary remains unresolved.
 
-Create `production` with a custom deployment branch policy allowing only the branch `main`. Do not allow tags, wildcard branches, or every protected branch. Disable administrator bypass where the repository plan supports it. This preserves automated releases after the existing protected `develop` to `main` checks; adding a required human reviewer would change that release policy.
+## Deferred Migration
 
-Move `TF_API_TOKEN` and `SERVERLESS_ACCESS_KEY` into this environment, then remove their repository and any repository-accessible organization copies. GitHub cannot reveal existing secret values, so obtain replacements from the credential owners. Rotate them if prior exposure is suspected. Keep the PR in draft until this migration is coordinated, because existing Deploy revisions do not reference the environment.
+If this work resumes, coordinate these changes before adding `environment: production` to Deploy:
 
-The Snyk workflow now fails when `SNYK_TOKEN` is unavailable. Supply the scanner credential through the appropriate Actions and Dependabot secret stores for supported PRs. Fork PRs without a token remain blocked by the required check. Do not restore warning-only success to unblock them. The scanner reads committed npm lockfiles without installing or executing dependency lifecycle scripts.
+1. Create a `production` environment with a custom deployment branch policy allowing only the branch `main`. Preserve the existing automated release policy unless a separate approval requirement is intended.
+2. Move `TF_API_TOKEN` and `SERVERLESS_ACCESS_KEY` into that environment and remove repository-accessible copies. Obtain replacement values from their owners; GitHub cannot reveal existing values.
+3. Update the deployment role through its infrastructure repository to require `aud = sts.amazonaws.com` and `sub = repo:fairbanksio/f5news:environment:production`. Verify the trust policy and environment branch restriction together before switching the workflow.
 
-## AWS Trust
+The current AWS trust policy and historical credential revocation remain unverified. No production credentials or cloud settings were changed during this remediation.
 
-The deployment role must trust only this repository's protected production environment, using `aud = sts.amazonaws.com` and `sub = repo:fairbanksio/f5news:environment:production`. Environment jobs use this subject instead of the branch-only subject. Enforce `main` through the environment's branch policy. Remove broader repository or wildcard subjects; preserve unrelated principals only after reviewing their ownership.
+## Scanner Credentials
 
-The current role trust could not be read during remediation. The available AWS connector targets a different account, and the local F5 login has expired. Apply this change through the role owner's infrastructure repository and CI workflow, then verify the policy by readback.
+Snyk fails when `SNYK_TOKEN` is unavailable. Supported PRs need the scanner credential in the appropriate Actions or Dependabot secret store. Fork PRs without a token remain blocked by the required check. The scanner reads committed npm lockfiles without installing dependency lifecycle scripts.
 
 ## Release Checks
 
-1. Verify the environment permits only `main`, and the production credentials exist only at the protected environment scope.
-2. Verify the AWS trust policy, including its audience and exact subject.
-3. Run the normal PR checks and Snyk scans. Promote only `develop` to `main` through the existing release workflow.
-4. Observe Deploy for the release SHA and confirm the news UI and supported API routes return ordinary results.
+1. Run the required PR checks and Snyk scans.
+2. Promote only `develop` to `main` through the existing release workflow.
+3. Observe Deploy for the release SHA, then verify the news UI and supported API routes.
 
-Gateway throttling and Lambda concurrency caps are deferred until burst traffic and account capacity can be measured. This patch retains supported-subreddit validation, query coalescing, a short cache, query deadlines, and connection limits. These reduce database work but do not bound public API invocation costs.
-
-No production dispatch, secret transfer, credential rotation, or cloud mutation was performed during local remediation.
+Gateway throttling and Lambda concurrency caps are also deferred until burst traffic and account capacity can be measured. Supported-subreddit validation, query coalescing, a short cache, query deadlines, and connection limits reduce database work but do not bound public API invocation costs.
