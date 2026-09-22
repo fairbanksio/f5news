@@ -6,7 +6,7 @@ import { MediaModal } from './MediaModal';
 
 vi.mock('react-player', () => ({
   default: props => (
-    <div data-testid="react-player" data-url={props.url} />
+    <div data-testid="react-player" data-src={props.src} />
   ),
 }));
 
@@ -83,7 +83,7 @@ test('renders gallery images after decoding reddit amp fragments', () => {
   expect(images[1]).toHaveAttribute('src', 'https://example.com/two.jpg');
 });
 
-test('renders reddit video previews with the player URL', () => {
+test('renders reddit video previews with the player source', () => {
   renderMediaModal({
     is_video: true,
     media: {
@@ -94,12 +94,12 @@ test('renders reddit video previews with the player URL', () => {
   });
 
   expect(screen.getByTestId('react-player')).toHaveAttribute(
-    'data-url',
+    'data-src',
     'https://v.redd.it/video.mpd'
   );
 });
 
-test('renders rpan video previews with the player URL', () => {
+test('renders rpan video previews with the player source', () => {
   renderMediaModal({
     rpan_video: {
       hls_url: 'https://livestream.redd.it/live.m3u8',
@@ -107,7 +107,7 @@ test('renders rpan video previews with the player URL', () => {
   });
 
   expect(screen.getByTestId('react-player')).toHaveAttribute(
-    'data-url',
+    'data-src',
     'https://livestream.redd.it/live.m3u8'
   );
 });
@@ -147,7 +147,7 @@ test('renders Reddit-supplied spoiler content', () => {
 test('renders a publisher-hosted video despite a legacy derived suppression flag', () => {
   const dash_url = 'https://media.publisher.example/video.mpd';
   renderMediaModal({ is_video: true, preview_disabled: true, media: { reddit_video: { dash_url } } });
-  expect(screen.getByTestId('react-player')).toHaveAttribute('data-url', dash_url);
+  expect(screen.getByTestId('react-player')).toHaveAttribute('data-src', dash_url);
 });
 
 test('renders Reddit-supplied NSFW content', () => {
