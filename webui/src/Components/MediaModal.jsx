@@ -20,8 +20,6 @@ export const MediaModal = () => {
   const {modalData, setModalData} = useContext(ModalContext)
   const videoUrl = getVideoUrl(modalData);
 
-  if (modalData?.spoiler || modalData?.over_18 || modalData?.preview_disabled) return null;
-
   return (
     <>
       {modalData && modalData.is_video && videoUrl?

@@ -895,11 +895,10 @@ test("fetchArticleImage returns empty when fetch does not settle before timeout"
   assert.equal(image, "");
 });
 
-test("hidden previews never resolve an image or fetch publisher metadata", async () => {
+test("Reddit flags do not suppress supplied preview images", async () => {
   for (const hidden of [
-    { spoiler: true }, { over_18: true }, { preview_disabled: true },
+    { spoiler: true }, { over_18: true },
     { thumbnail: "nsfw" }, { thumbnail: "spoiler" },
-    { preview: { enabled: false, images: [{ source: { url: "https://preview.redd.it/photo.jpg" } }] } },
   ]) {
     let requests = 0;
     const result = await imageSource({
@@ -907,7 +906,7 @@ test("hidden previews never resolve an image or fetch publisher metadata", async
       preview: { images: [{ source: { url: "https://preview.redd.it/photo.jpg" } }] },
       ...hidden,
     }, { fetchArticleImageImpl: async () => { requests += 1; return "image"; } });
-    assert.equal(result, "");
+    assert.equal(result, "https://preview.redd.it/photo.jpg");
     assert.equal(requests, 0);
   }
 });
@@ -927,4 +926,26 @@ test("publisher response is closed when reading its body fails", async () => {
   });
   assert.equal(result, "");
   assert.equal(closed, 1);
+});
+
+test("ordinary Reddit images remain usable when preview.enabled is false", async () => {
+  const image = "https://media.publisher.example/photo.jpg";
+  assert.equal(await imageSource({
+    spoiler: false,
+    over_18: false,
+    preview_disabled: true,
+    preview: { enabled: false, images: [{ source: { url: image } }] },
+    url: "https://publisher.example/story",
+  }, { fetchArticleImageImpl: async () => { throw new Error("unexpected fallback"); } }), image);
+});
+
+test("preview.enabled does not prevent ordinary publisher image fallback", async () => {
+  let requests = 0;
+  const image = await imageSource({
+    preview: { enabled: false },
+    thumbnail: "default",
+    url: "https://publisher.example/story",
+  }, { fetchArticleImageImpl: async () => { requests += 1; return "https://publisher.example/photo.jpg"; } });
+  assert.equal(image, "https://publisher.example/photo.jpg");
+  assert.equal(requests, 1);
 });

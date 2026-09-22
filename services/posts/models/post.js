@@ -16,9 +16,6 @@ const PostSchema = new mongoose.Schema({
     expires: 31536000
   },
   is_video: Boolean,
-  spoiler: Boolean,
-  over_18: Boolean,
-  preview_disabled: Boolean,
   media: Object,
   is_gallery: Boolean,
   gallery_data: Object,

@@ -139,7 +139,18 @@ test('ignores incomplete gallery records', () => {
   expect(screen.queryByRole('img')).not.toBeInTheDocument();
 });
 
-test('does not preview hidden content', () => {
+test('renders Reddit-supplied spoiler content', () => {
   renderMediaModal({ spoiler: true, post_hint: 'image', thumbnail: 'https://example.com/photo.jpg' });
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+});
+
+test('renders a publisher-hosted video despite a legacy derived suppression flag', () => {
+  const dash_url = 'https://media.publisher.example/video.mpd';
+  renderMediaModal({ is_video: true, preview_disabled: true, media: { reddit_video: { dash_url } } });
+  expect(screen.getByTestId('react-player')).toHaveAttribute('data-url', dash_url);
+});
+
+test('renders Reddit-supplied NSFW content', () => {
+  renderMediaModal({ over_18: true, post_hint: 'image', thumbnail: 'https://example.com/photo.jpg' });
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
 });
