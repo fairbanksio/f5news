@@ -275,6 +275,7 @@ const insertNewPosts = (
           is_video: value.data.is_video,
           spoiler: value.data.spoiler === true,
           over_18: value.data.over_18 === true,
+          preview_disabled: value.data.preview?.enabled === false,
           media: value.data.media,
           is_gallery: value.data.is_gallery,
           gallery_data: value.data.gallery_data,
