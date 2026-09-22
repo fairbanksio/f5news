@@ -50,9 +50,6 @@ const getSourceLabel = post => {
 };
 
 const getPostMedia = post => {
-  if (post.spoiler || post.over_18 || post.preview_disabled) {
-    return { icon: FaLink, label: 'Article', canPreview: false };
-  }
   if (post.is_video || post.rpan_video) {
     return {
       icon: FaVideo,
@@ -287,7 +284,7 @@ export const PostCard = ({post, elId}) => {
         onClick={() => trackSelection('reddit_comments')}
       >
         <Image
-          src={post.spoiler || post.over_18 || post.preview_disabled ? '/placeholder.png' : getThumbnailSrc(post.thumbnail)}
+          src={getThumbnailSrc(post.thumbnail)}
           w='100%'
           h={imageHeight}
           objectFit='cover'

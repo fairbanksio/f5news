@@ -609,13 +609,7 @@ const fetchArticleImage = async (url, options = {}) => {
   return "";
 };
 
-const isPreviewHidden = (data) =>
-  data.spoiler === true || data.over_18 === true ||
-  data.preview_disabled === true || data.preview?.enabled === false ||
-  ["spoiler", "nsfw"].includes(data.thumbnail);
-
 const redditImageSource = (data) => {
-  if (isPreviewHidden(data)) return "";
   if (data.preview) {
     if (data.preview.images) {
       if (data.preview.images.length > 0) {
@@ -650,7 +644,6 @@ const redditImageSource = (data) => {
 };
 
 const imageSource = async (data, options = {}) => {
-  if (isPreviewHidden(data)) return "";
   const redditImage = redditImageSource(data);
   if (redditImage) {
     return redditImage;
@@ -676,7 +669,6 @@ module.exports = {
   fetchArticleImage,
   hasUsableThumbnail,
   imageSource,
-  isPreviewHidden,
   isSafeHttpUrl,
   mapWithConcurrency,
   makeSafeLookup,

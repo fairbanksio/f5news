@@ -4,7 +4,6 @@ const { normalizeFetch } = require("./fetchInterop");
 const {
   hasUsableThumbnail,
   imageSource,
-  isPreviewHidden,
   mapWithConcurrency,
 } = require("./imageSource");
 
@@ -34,7 +33,7 @@ const getPostId = (data) => {
 const getPostUrl = (data) => data.url_overridden_by_dest || data.url || "";
 
 const shouldTrackImageResolution = (data) => {
-  return !isPreviewHidden(data) && !data.is_self && !data.is_video && Boolean(getPostUrl(data));
+  return !data.is_self && !data.is_video && Boolean(getPostUrl(data));
 };
 
 const logStructured = (logger, payload) => {
@@ -127,7 +126,7 @@ const missingThumbnailFilter = () => ({
     { thumbnail: { $exists: false } },
     { thumbnail: null },
     { thumbnail: "" },
-    { thumbnail: { $in: ["default", "self", "image"] } },
+    { thumbnail: { $in: ["default", "self", "spoiler", "nsfw", "image"] } },
   ],
 });
 
@@ -142,9 +141,6 @@ const findMissingThumbnailPosts = async (
     created_utc: { $gt: createdAfter },
     is_self: { $ne: true },
     is_video: { $ne: true },
-    spoiler: { $ne: true },
-    over_18: { $ne: true },
-    preview_disabled: { $ne: true },
     url: { $exists: true, $ne: "" },
     ...missingThumbnailFilter(),
   });
@@ -273,9 +269,6 @@ const insertNewPosts = (
           fetchedAt: new Date(),
           post_hint: value.data.post_hint,
           is_video: value.data.is_video,
-          spoiler: value.data.spoiler === true,
-          over_18: value.data.over_18 === true,
-          preview_disabled: value.data.preview?.enabled === false,
           media: value.data.media,
           is_gallery: value.data.is_gallery,
           gallery_data: value.data.gallery_data,
@@ -288,8 +281,6 @@ const insertNewPosts = (
           sub: subreddit,
         },
       };
-
-      if (isPreviewHidden(value.data)) postUpdate.$set.thumbnail = "";
 
       const postKey = createPostKey(value.data);
       const trackImageResolution = shouldTrackImageResolution(value.data);
