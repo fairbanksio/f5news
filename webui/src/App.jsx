@@ -1,4 +1,4 @@
-import React, {useEffect} from 'react';
+import React, {useEffect, useContext, lazy, Suspense} from 'react';
 import {
   ChakraProvider,
   Box,
@@ -14,9 +14,15 @@ import Navbar from './Components/Navbar';
 import { ThemeProvider } from './Contexts/ThemeContext'
 import { ViewModeProvider } from './Contexts/ViewModeContext'
 import { LoadingProvider } from './Contexts/LoadingContext'
-import { ModalProvider } from './Contexts/ModalContext'
-import { MediaModal } from './Components/MediaModal'
+import { ModalProvider, ModalContext } from './Contexts/ModalContext'
 import { initializeAnalytics, trackPageView } from './analytics';
+
+const LazyMediaModal = lazy(() => import('./Components/MediaModal').then(module => ({ default: module.MediaModal })));
+
+const ActiveMediaModal = () => {
+  const { modalData } = useContext(ModalContext);
+  return modalData ? <Suspense fallback={null}><LazyMediaModal /></Suspense> : null;
+};
 
 
 
@@ -43,7 +49,7 @@ const ThemedApp = () => {
                     <Navbar/>
                   </Box>
                   <Box flex='1'>
-                    <MediaModal/>
+                    <ActiveMediaModal/>
                     <MainContent/>
                   </Box>
                   <Box >
