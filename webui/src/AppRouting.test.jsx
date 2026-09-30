@@ -1,7 +1,8 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { render } from './test-utils';
 import App from './App';
+import { ModalContext } from './Contexts/ModalContext';
 
 vi.mock('react-ga4', () => ({
   default: {
@@ -13,7 +14,10 @@ vi.mock('react-ga4', () => ({
 }));
 
 vi.mock('./Components/Navbar', () => ({
-  default: () => <div>Mock Navbar</div>,
+  default: function MockNavbar() {
+    const { setModalData } = React.useContext(ModalContext);
+    return <div>Mock Navbar<button onClick={() => setModalData({ post_hint: 'image' })}>Open Media Preview</button></div>;
+  },
 }));
 vi.mock('./Components/MainContent', () => ({
   default: () => <main>Mock MainContent</main>,
@@ -22,7 +26,10 @@ vi.mock('./Components/Footer', () => ({
   default: () => <footer>Mock Footer</footer>,
 }));
 vi.mock('./Components/MediaModal', () => ({
-  MediaModal: () => <div>Mock Media Modal</div>,
+  MediaModal: () => {
+    const { setModalData } = React.useContext(ModalContext);
+    return <div>Mock Media Modal<button onClick={() => setModalData(null)}>Close Media Preview</button></div>;
+  },
 }));
 vi.mock('./Contexts/SubredditContext', () => ({
   SubredditProvider: ({ children }) => <>{children}</>,
@@ -76,7 +83,18 @@ test('renders the app shell on subreddit routes', () => {
   render(<App />);
 
   expect(screen.getByText('Mock Navbar')).toBeInTheDocument();
-  expect(screen.getByText('Mock Media Modal')).toBeInTheDocument();
+  expect(screen.queryByText('Mock Media Modal')).not.toBeInTheDocument();
   expect(screen.getByText('Mock MainContent')).toBeInTheDocument();
   expect(screen.getByText('Mock Footer')).toBeInTheDocument();
+});
+
+test('opens and closes the media preview from the app shell', async () => {
+  render(<App />);
+
+  expect(screen.queryByText('Mock Media Modal')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Open Media Preview' }));
+  expect(await screen.findByText('Mock Media Modal')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Close Media Preview' }));
+  expect(screen.queryByText('Mock Media Modal')).not.toBeInTheDocument();
 });
