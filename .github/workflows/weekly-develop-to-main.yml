@@ -2,8 +2,9 @@ name: Weekly Develop to Main
 
 on:
   schedule:
-    # Avoid the start-of-hour Actions scheduling hot spot.
-    - cron: "17 12 * * 1"
+    # Run every Monday at 2:15 PM Pacific, including daylight saving time.
+    - cron: "15 14 * * 1"
+      timezone: "America/Los_Angeles"
   workflow_dispatch:
 
 permissions:
