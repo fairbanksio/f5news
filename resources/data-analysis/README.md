@@ -20,13 +20,15 @@ Vault is the default credential source. Put `VAULT_ADDR` and `VAULT_TOKEN` in th
 
 For direct database credentials, set `CREDENTIAL_SOURCE = "env"` and put those three keys in the root `.env`. Use `.env.notebook.example` as a template. URL-encode the password in the URI and use a read-only database account. The notebook never prints tokens or connection strings, and a Vault failure does not silently fall back to another credential source.
 
-Configuration defaults to 2,000 recently inserted posts from `politics`. `SUBREDDIT = None` includes all subreddits. Reads are limited to 10,000 posts with timeouts. Existing values in the analysis folder's `.env` do not override the root file.
+Configuration defaults to up to 50,000 recently inserted posts from `politics`. `SUBREDDIT = None` includes all subreddits. Reads are limited to 100,000 posts with timeouts. Existing values in the analysis folder's `.env` do not override the root file.
 
 ## Results
 
-The notebook displays cleaning counts, observation ages, bucket coverage, chronological train/test ranges, accuracy, macro F1, weighted F1, a majority-class baseline, a classification report, a confusion matrix, and sample predictions with confidence.
+The low range is split into 0–499 and 500–999. Higher ranges remain 1,000–4,999, 5,000–9,999, 10,000–24,999, 25,000–49,999, and 50,000+. The report includes sample size, date span, fetch time, and training time.
 
-The scraper stores the latest observed score, not a final popularity label. The sample is selected from scraped rising posts. Deduplication removes normalized title repeats before the chronological split; vocabulary and class weights use training data only. Scores may have been updated after the split date, so this is not a historical backtest. Missing buckets cannot be learned, and probability scores are not calibrated guarantees.
+The notebook displays cleaning counts, observation ages, bucket coverage, chronological train/test ranges, accuracy, macro F1, weighted F1, a majority-class baseline, a classification report, a confusion matrix, and sample predictions with model scores.
+
+The scraper stores the latest observed score, not a final popularity label. The sample is selected from scraped rising posts. Deduplication removes normalized title repeats before a chronological 60/20/20 training, validation, and test split. Six word/character TF-IDF models compare class weights and regularization on validation weighted F1. The selected settings are refit on older training plus validation posts, then evaluated on the newest test posts. Scores may have been updated after the split date, so this is not a historical backtest. Missing buckets cannot be learned, and probability scores are not calibrated guarantees.
 
 `MIN_OBSERVATION_AGE_HOURS` optionally excludes scores recorded before a chosen post age. It measures `fetchedAt - created_utc`, rather than how long ago a document was fetched.
 

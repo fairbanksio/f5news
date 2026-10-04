@@ -1,5 +1,6 @@
 """Run the analysis notebook and export a browser report."""
 import argparse
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -22,15 +23,32 @@ class RunnerKernelManager(AsyncKernelManager):
         )
 
 
-def render_report(notebook):
+def render_report(notebook, summary=None):
     """Show results without the notebook's setup and explanatory prose."""
     report_notebook = nbformat.v4.new_notebook(cells=[nbformat.v4.new_markdown_cell(
         "# F5 News Results\n\nPredicts observed upvote ranges from titles. Scores are not final popularity."
     )])
+    if summary:
+        cleaning = summary["cleaning"]
+        description = (
+            f"{cleaning['usable']:,} usable posts · {summary['test_posts']:,} test posts · "
+            f"{summary['first_post'][:10]} to {summary['last_post'][:10]}\n\n"
+            f"Fetched in {summary['fetch_seconds']:.1f}s; compared and trained models in "
+            f"{summary['training_seconds']:.1f}s. Selected by validation weighted F1."
+        )
+        report_notebook.cells.append(nbformat.v4.new_markdown_cell(description))
+        model_metrics = summary["model_metrics"]
+        baseline_metrics = summary["baseline_metrics"]
+        result_note = (
+            f"Weighted F1: {model_metrics['weighted_f1']:.3f} for the model vs. "
+            f"{baseline_metrics['weighted_f1']:.3f} for the baseline. "
+            f"Accuracy: {model_metrics['accuracy']:.1%} vs. {baseline_metrics['accuracy']:.1%}."
+        )
+        report_notebook.cells.append(nbformat.v4.new_markdown_cell(result_note))
     sections = {
         "evaluate": ("Model vs. Baseline", (
             (0, "Accuracy is the share of correct predictions. F1 balances precision and recall; "
-                "macro F1 weights all six ranges equally, while weighted F1 reflects their frequency. "
+                "macro F1 weights all ranges equally, while weighted F1 reflects their frequency. "
                 "Higher is better. The baseline always predicts the most common training range."),
             (2, "Rows show observed ranges; columns show predicted ranges. "
                 "Diagonal counts are correct predictions. Off-diagonal counts are errors."),
@@ -41,7 +59,7 @@ def render_report(notebook):
         )),
         "predict": ("Sample Predictions", (
             (0, "Each title gets a predicted upvote range. "
-                "Confidence is the model's score for that range, not a guarantee."),
+                "Model Score reflects the model's preference for that range, not a guarantee."),
         )),
     }
     for tag, (heading, outputs) in sections.items():
@@ -87,7 +105,8 @@ def main():
     # Launch this environment directly; no registered kernel or editor discovery is needed.
     try:
         client.execute()
-        report = render_report(notebook)
+        summary = json.loads((output_dir / "latest-results.json").read_text())
+        report = render_report(notebook, summary)
     except Exception:
         print(
             f"Analysis failed in {current_section}. Check root .env Vault access, database reachability, "

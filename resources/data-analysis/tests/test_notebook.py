@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 
 NOTEBOOK = Path(__file__).resolve().parents[1] / "f5-spark-analysis.ipynb"
-BUCKET_LABELS = ["0–999", "1,000–4,999", "5,000–9,999", "10,000–24,999", "25,000–49,999", "50,000+"]
+BUCKET_LABELS = ["0–499", "500–999", "1,000–4,999", "5,000–9,999", "10,000–24,999", "25,000–49,999", "50,000+"]
 
 
 class NotebookTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class NotebookTests(unittest.TestCase):
         cls.cache.cleanup()
 
     def setUp(self):
-        self.ns = {"BUCKET_LABELS": BUCKET_LABELS}
+        self.ns = {"BUCKET_LABELS": BUCKET_LABELS, "BUCKET_EDGES": [500, 1000, 5000, 10000, 25000, 50000]}
         self.run_tag("imports")
         self.ns["plt"].switch_backend("Agg")
         self.run_tag("definitions")
@@ -46,11 +46,11 @@ class NotebookTests(unittest.TestCase):
         return record
 
     def test_exact_bucket_boundaries(self):
-        values = [0, 999, 1000, 4999, 5000, 9999, 10000, 24999, 25000, 49999, 50000, 100000]
+        values = [0, 499, 500, 999, 1000, 4999, 5000, 9999, 10000, 24999, 25000, 49999, 50000, 100000]
         records = [self.record(f"Article {i}", value, 1700000000 + i) for i, value in enumerate(values)]
         df, summary = self.ns["prepare_posts"](records)
-        self.assertEqual(df["bucket"].tolist(), [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5])
-        self.assertEqual(summary, {"loaded": 12, "excluded": 0, "duplicate_titles": 0, "usable": 12})
+        self.assertEqual(df["bucket"].tolist(), [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6])
+        self.assertEqual(summary, {"loaded": 14, "excluded": 0, "duplicate_titles": 0, "usable": 14})
 
     def test_invalid_records_and_latest_title_dedup(self):
         records = [self.record("  Shared   TITLE  ", 10),
@@ -64,7 +64,7 @@ class NotebookTests(unittest.TestCase):
         df, summary = self.ns["prepare_posts"](records)
         self.assertEqual(summary, {"loaded": 14, "excluded": 12, "duplicate_titles": 1, "usable": 1})
         self.assertEqual(df.iloc[0]["title"], "shared title")
-        self.assertEqual(df.iloc[0]["bucket"], 2)
+        self.assertEqual(df.iloc[0]["bucket"], 3)
         self.assertEqual(str(df["created_at"].dt.tz), "UTC")
         self.assertEqual(df.iloc[0]["observation_age_hours"], 3)
 
@@ -111,8 +111,7 @@ class NotebookTests(unittest.TestCase):
         pd = self.ns["pd"]
         self.ns.update(train=pd.DataFrame({"title": ["apple orchard"] * 6 + ["banana market"] * 2,
                                            "bucket": [0] * 6 + [2] * 2}), RANDOM_SEED=123456)
-        self.run_tag("train")
-        model = self.ns["model"]
+        model = self.ns["build_model"]().fit(self.ns["train"]["title"], self.ns["train"]["bucket"])
         self.assertEqual(model.named_steps["classifier"].class_weight, "balanced")
         self.assertEqual(model.classes_.tolist(), [0, 2])
         before = dict(model.named_steps["tfidf"].vocabulary_)
@@ -121,8 +120,25 @@ class NotebookTests(unittest.TestCase):
         self.assertNotIn("holdoutonly", before)
         balanced = self.ns["build_model"]().fit(["shared headline"] * 8, [0] * 6 + [2] * 2)
         self.ns["np"].testing.assert_allclose(balanced.predict_proba(["shared headline"]), [[0.5, 0.5]], atol=0.01)
-        baseline = self.ns["baseline"]
+        baseline = self.ns["DummyClassifier"](strategy="most_frequent").fit(self.ns["train"]["title"], self.ns["train"]["bucket"])
         self.assertEqual(baseline.predict(["banana market"]).tolist(), [0])
+
+    def test_selection_uses_validation_and_refit_preserves_test_vocabulary(self):
+        pd = self.ns["pd"]
+        train = pd.DataFrame({"title": ["apple orchard"] * 6 + ["banana market"] * 4, "bucket": [0] * 6 + [2] * 4})
+        validation = pd.DataFrame({"title": ["apple validationonly", "banana validationonly"], "bucket": [0, 2]})
+        model, options, scores = self.ns["select_model"](train, validation)
+        self.assertEqual(len(scores), 6)
+        self.assertAlmostEqual(scores["weighted_f1"].max(), self.ns["evaluate_predictions"](
+            validation["bucket"], model.predict(validation["title"]))["weighted_f1"])
+        self.assertNotIn("validationonly", model.named_steps["tfidf"].vocabulary_)
+        self.ns.update(train=train, validation=validation, development=pd.concat([train, validation]), RANDOM_SEED=123456)
+        self.run_tag("train")
+        fitted = self.ns["model"]
+        before = dict(fitted.named_steps["tfidf"].vocabulary_)
+        fitted.predict(["testonly future title"])
+        self.assertEqual(before, fitted.named_steps["tfidf"].vocabulary_)
+        self.assertNotIn("testonly", before)
 
     def test_confidence_maps_probability_columns_to_present_classes(self):
         np = self.ns["np"]
@@ -141,7 +157,7 @@ class NotebookTests(unittest.TestCase):
         metrics = self.ns["evaluate_predictions"](actual, baseline.predict(["b"] * 4))
         self.assertAlmostEqual(metrics["accuracy"], 0.75)
         self.assertAlmostEqual(metrics["weighted_f1"], 9 / 14)
-        self.assertAlmostEqual(metrics["macro_f1"], 1 / 7)
+        self.assertAlmostEqual(metrics["macro_f1"], 6 / 49)
         self.assertNotEqual(metrics["accuracy"], metrics["weighted_f1"])
 
     def test_joblib_roundtrip_preserves_predictions(self):
@@ -188,7 +204,7 @@ class NotebookTests(unittest.TestCase):
         self.assertEqual(calls[3], ("find", {"sub": "politics"}, {"_id": 0, "title": 1, "upvoteCount": 1, "created_utc": 1, "fetchedAt": 1, "sub": 1}))
         self.assertEqual(calls[4:], [("sort", "_id", -1), ("limit", 25), ("timeout", 20000), ("close",)])
         self.assertEqual(calls[0][2]["serverSelectionTimeoutMS"], 10000)
-        for limit in [0, 10001, True, 2.5]:
+        for limit in [0, 100001, True, 2.5]:
             with self.subTest(limit=limit), self.assertRaises(ValueError):
                 self.ns["load_posts"](config, limit)
         with self.assertRaises(ValueError):
