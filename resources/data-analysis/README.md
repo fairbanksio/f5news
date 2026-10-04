@@ -1,24 +1,26 @@
 # Local News Analysis
 
-Open `f5-spark-analysis.ipynb` in VS Code with the Python and Jupyter extensions. The filename is retained for existing links; the notebook now uses PyMongo, pandas, and scikit-learn. Spark, Java, and Docker are not required.
+Run the notebook from a terminal. It uses PyMongo, pandas, and scikit-learn; Spark, Java, and Docker are not required.
 
-## Setup
+## Run and View Results
 
-Use Python 3.11. From the repository root:
+From the repository root:
 
 ```sh
-python3.11 -m venv /private/tmp/f5-analysis-venv
-source /private/tmp/f5-analysis-venv/bin/activate
-python -m pip install -r resources/data-analysis/requirements.txt
+./resources/data-analysis/run.sh
 ```
 
-Select `/private/tmp/f5-analysis-venv/bin/python` as the VS Code notebook kernel. Keep the terminal environment available; macOS may clean temporary directories over time.
+The command creates an environment under ignored `models/`, installs dependencies on the first run, executes the notebook, and opens an HTML report in your browser. Later runs reuse the environment. Python 3.11 is required (`brew install python@3.11` if missing). Use `--no-open` to save results without opening a browser.
+
+The report is `resources/data-analysis/models/latest-report.html`. The executed notebook is saved beside it as `latest-run.ipynb`. Edit the notebook's Configuration cell to change the subreddit or sample size, then rerun the command. If execution fails, the command exits with an error and keeps the previous report.
+
+## Credentials
 
 Vault is the default credential source. Put `VAULT_ADDR` and `VAULT_TOKEN` in the repository root's ignored `.env` or export them in the kernel environment. The KV v2 secret defaults to mount `kv`, path `f5.news`, with string keys `mongo_uri`, `database`, and `collection`. Override the mount/path with `VAULT_KV_MOUNT` and `VAULT_SECRET_PATH` in the root `.env`. The token needs only read access to the analysis secret.
 
 For direct database credentials, set `CREDENTIAL_SOURCE = "env"` and put those three keys in the root `.env`. Use `.env.notebook.example` as a template. URL-encode the password in the URI and use a read-only database account. The notebook never prints tokens or connection strings, and a Vault failure does not silently fall back to another credential source.
 
-Run the cells in order. Configuration defaults to 2,000 recently inserted posts from `politics`. `SUBREDDIT = None` includes all subreddits. Reads are limited to 10,000 posts with timeouts. Existing values in the analysis folder's `.env` do not override the root file.
+Configuration defaults to 2,000 recently inserted posts from `politics`. `SUBREDDIT = None` includes all subreddits. Reads are limited to 10,000 posts with timeouts. Existing values in the analysis folder's `.env` do not override the root file.
 
 ## Results
 
@@ -32,9 +34,10 @@ The pipeline and metric summary are saved under ignored `resources/data-analysis
 
 ## Optional MLflow
 
-Install tracking support:
+Install tracking support in the runner environment:
 
 ```sh
+source resources/data-analysis/models/runner-venv/bin/activate
 python -m pip install -r resources/data-analysis/requirements-mlflow.txt
 ```
 
@@ -48,7 +51,10 @@ Visit `http://127.0.0.1:5000`. MySQL, MinIO, and a tracking server are not neede
 
 ## Tests
 
+Use the runner environment:
+
 ```sh
+source resources/data-analysis/models/runner-venv/bin/activate
 python -m pip install -r resources/data-analysis/requirements-dev.txt
 MPLBACKEND=Agg PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s resources/data-analysis/tests -v
 ```
