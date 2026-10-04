@@ -1,3 +1,4 @@
+import placeholderSrc from '../assets/placeholder.png?inline';
 import {
   Badge,
   Box,
@@ -29,7 +30,7 @@ const getThumbnailSrc = (thumbnail) => {
     thumbnail.trim() === '' ||
     ['default', 'self', 'spoiler', 'nsfw'].includes(thumbnail)
   ) {
-    return '/placeholder.png';
+    return placeholderSrc;
   }
 
   return thumbnail;
@@ -289,7 +290,7 @@ export const PostCard = ({post, elId}) => {
           h={imageHeight}
           objectFit='cover'
           position='relative'
-          fallbackSrc='/placeholder.png'
+          fallbackSrc={placeholderSrc}
         />
 
         <Tooltip placement='left' label={media.label}>
