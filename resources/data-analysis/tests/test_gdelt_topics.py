@@ -27,15 +27,32 @@ class TopicTests(unittest.TestCase):
         result = build_topics(payload, [[5, 0, 0], [4, 1, 0], [0, 0, 7], [0, 1, 5], [0, 3, 0]])
         self.assertEqual(len(result['topics']), 2)
         for topic in result['topics']:
-            self.assertIn(topic['name'], [article['title'] for article in topic['articles']])
+            self.assertTrue(topic['name'])
+            self.assertIn(topic['stories'][0]['name'], [article['title'] for article in topic['articles']])
             self.assertEqual(topic['article_count'], 2)
             self.assertEqual(topic['source_count'], 2)
-            self.assertEqual(topic['summary'], 'Articles about the same or a closely related story.')
+            self.assertEqual(topic['summary'], 'Related coverage of this subject.')
             self.assertEqual(topic['articles'][0]['label_kind'], 'headline')
         grouped = [article['url'] for topic in result['topics'] for article in topic['articles']]
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(result['other_articles'][0]['title'], 'Court hears unrelated tax case')
         self.assertEqual(result['unassigned_count'], 1)
+
+    def test_person_topic_combines_two_different_story_groups(self):
+        articles = [self.article(1, 'Christa Pike remains unconscious'),
+                    self.article(2, 'Christa Pike has not awakened'),
+                    self.article(3, "Christa Pike attorney seeks sentence commutation"),
+                    self.article(4, "Christa Pike lawyer asks for clemency")]
+        for article in articles:
+            article['persons'] = 'christa pike;colleen slemmer'
+        result = build_topics(self.payload(*articles), [[1,0],[1,0],[0,1],[0,1]])
+        self.assertEqual(len(result['topics']), 1)
+        topic = result['topics'][0]
+        self.assertEqual(topic['name'], 'Christa Pike')
+        self.assertEqual(topic['article_count'], 4)
+        self.assertEqual(topic['source_count'], 4)
+        self.assertEqual(topic['story_count'], 2)
+        self.assertEqual(result['unassigned_count'], 0)
 
     def test_unrelated_headlines_are_not_forced_into_topics_despite_shared_tags(self):
         payload = self.payload(self.article(1, 'New diabetes treatment approved'),

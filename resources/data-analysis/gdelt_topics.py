@@ -12,6 +12,52 @@ def article_label(article):
     return (words[:200] if len(words) > 15 else 'Open Article'), 'url'
 
 
+def _subject_label(story):
+    """Use distinctive headline phrases when no named person labels a topic."""
+    import numpy as np
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    titles = list(dict.fromkeys(a['title'] for a in story['articles'] if a.get('title')))
+    from collections import Counter
+    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+    organizations = Counter()
+    generic = {'national', 'united', 'department', 'supreme', 'american', 'government', 'university'}
+    for name in {n.strip() for a in story['articles'] for n in a.get('organizations', '').split(';') if n.strip()}:
+        first = name.split()[0].casefold()
+        if len(first) < 5 or first in generic:
+            continue
+        label = name
+        phrase = name.casefold()
+        # A campus headline may name Cornell without writing University.
+        if 'university' in name.split()[1:2]:
+            label = ' '.join(name.split()[:2])
+            phrase = first
+        count = sum(bool(re.search(r'(?<!\w)' + re.escape(phrase) + r'(?!\w)', title.casefold())) for title in titles)
+        if count and count >= len(titles) / 2:
+            organizations[label] = count
+    if organizations:
+        return sorted(organizations, key=lambda n: (-organizations[n], -len(n.split()), n))[0].title()
+    filler = {'calls','call','deeply','disturbing','says','said','exposes','expose','attempt','new','unknown','future','fuels','fuel','leaves','leave','continues','continue','set','hear','dead','dies','die','alleged','considers','names','chief','president','national','world','news','today','amid','latest'}
+    try:
+        words = TfidfVectorizer(stop_words=sorted(set(ENGLISH_STOP_WORDS) | filler), ngram_range=(1, 2), token_pattern=r'(?u)\b[a-zA-Z][a-zA-Z]+\b')
+        matrix = words.fit_transform(titles)
+        terms = words.get_feature_names_out()
+        weights = np.asarray(matrix.mean(axis=0)).ravel()
+        order = sorted(range(len(terms)), key=lambda i: (-weights[i] * (1.15 if ' ' in terms[i] else 1), terms[i]))
+        selected = []
+        used = set()
+        for i in order:
+            pieces = set(terms[i].split())
+            if used & pieces:
+                continue
+            selected.append(terms[i].title())
+            used.update(pieces)
+            if len(selected) == 2:
+                break
+        return ' / '.join(selected) or story['name']
+    except ValueError:
+        return story['name']
+
+
 def build_topics(payload, vectors=None):
     """Cluster headline meaning; supplied vectors align with input article rows.
 
@@ -100,7 +146,15 @@ def build_topics(payload, vectors=None):
             summary='Articles about the same or a closely related story.',
             article_count=len(matching), source_count=len({article['source'] for article in matching}),
             articles=matching))
+    from gdelt_topic_entities import umbrella_topics
+    topics = umbrella_topics(topics, articles)
+    for topic in topics:
+        if not topic.get('entity'):
+            topic['name'] = _subject_label(topic)
+            topic['summary'] = 'Related coverage of this subject.'
+        topic['story_count'] = len(topic.get('stories', []))
     topics.sort(key=lambda topic: (-topic['source_count'], -topic['article_count'], topic['name']))
+    assigned = {article['url'] for topic in topics for article in topic['articles']}
     other_articles = [article for article in articles if article['url'] not in assigned]
     return dict(fetched_at=payload['fetched_at'], country_note=payload.get('country_note', ''),
         article_count=len(articles), source_count=len({article['source'] for article in articles}),

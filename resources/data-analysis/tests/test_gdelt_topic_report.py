@@ -34,13 +34,13 @@ class GdeltTopicReportTests(unittest.TestCase):
         report = render_topics(self.fixture())
         document = Document()
         document.feed(report)
-        self.assertEqual([row["href"] for row in document.links], ["https://one.example/rocket?a=1&b=2", "http://two.example/space"])
-        self.assertTrue(all(row["rel"] == "noopener noreferrer" for row in document.links))
-        for text in ["Topics In This News Batch", "Space Launches", "A rocket took supplies to space.",
+        self.assertEqual([row["href"] for row in document.links if not row["href"].startswith("#")], ["https://one.example/rocket?a=1&b=2", "http://two.example/space"])
+        self.assertTrue(all(row["rel"] == "noopener noreferrer" for row in document.links if not row["href"].startswith("#")))
+        for text in ["Topics Getting Coverage", "Space Launches", "A rocket took supplies to space.",
                      "2 websites · 3 articles", "United States websites only.",
                      "This single batch cannot show whether interest is rising.",
                      "not verified headlines", "1 article did not fit a topic", "Oct 4, 2026 1:03 PM PDT",
-                     "Each article appears in at most one group."]:
+                     "Related stories about the same person are combined under one topic."]:
             self.assertIn(text, report)
         self.assertIn("color-scheme:dark", report)
         self.assertFalse(set(document.tags) & {"script", "link", "img", "iframe"})
@@ -66,7 +66,21 @@ class GdeltTopicReportTests(unittest.TestCase):
         result["topics"][0]["articles"] = [{"url": url, "label": "Unsafe Article", "source": "Website"} for url in urls]
         document = Document()
         document.feed(render_topics(result))
-        self.assertEqual(document.links, [])
+        self.assertEqual([row for row in document.links if not row["href"].startswith("#")], [])
+
+    def test_nested_stories_under_one_named_topic(self):
+        result = self.fixture()
+        topic = result['topics'][0]
+        topic['name'] = 'Christa Pike'
+        topic['story_count'] = 2
+        topic['stories'] = [dict(name='Failed execution', articles=topic['articles'][:1]),
+                            dict(name='Sentence commutation', articles=topic['articles'][1:])]
+        report = render_topics(result)
+        self.assertIn('Christa Pike', report)
+        self.assertIn('<th>Stories</th>', report)
+        self.assertIn('<summary>Failed execution</summary>', report)
+        self.assertIn('<summary>Sentence commutation</summary>', report)
+        self.assertEqual(report.count('https://one.example/rocket?a=1&amp;b=2'), 1)
 
     def test_empty_and_missing_examples(self):
         report = render_topics({})

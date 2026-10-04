@@ -51,16 +51,34 @@ def _articles(articles):
     return '<ul class="articles">' + ''.join(rows) + '</ul>' if rows else '<p class="muted">No article links available.</p>'
 
 
+def _topic_links(topic):
+    stories = topic.get('stories', [])
+    if not stories:
+        return _articles(topic.get('articles', []))
+    parts = []
+    covered = set()
+    for story in stories:
+        parts.append(f'<details><summary>{_escape(story.get("name", "Related Story"))}</summary>{_articles(story.get("articles", []))}</details>')
+        covered.update(a.get('url') for a in story.get('articles', []))
+    extra = [a for a in topic.get('articles', []) if a.get('url') not in covered]
+    if extra:
+        parts.append(_articles(extra))
+    return ''.join(parts)
+
+
 def render_topics(result):
     """Render the supplied ranking, escaping all source text and link attributes."""
     topics = result.get("topics", [])
     cards = []
+    topic_rows = []
     for rank, topic in enumerate(topics, 1):
-        cards.append(f'''<article class="topic"><div class="rank">{rank}</div><div>
+        topic_rows.append(f'<tr><td><a href="#topic-{rank}">{_escape(topic.get("name", "Unnamed Topic"))}</a></td><td>{_escape(topic.get("source_count", 0))}</td><td>{_escape(topic.get("story_count", len(topic.get("stories", []))))}</td><td>{_escape(topic.get("article_count", 0))}</td></tr>')
+        cards.append(f'''<article id="topic-{rank}" class="topic"><div class="rank">{rank}</div><div>
 <h2>{_escape(topic.get("name", "Unnamed Topic"))}</h2>
 <p>{_escape(topic.get("summary", ""))}</p>
 <p class="counts">{_count(topic.get("source_count", 0), "website")} · {_count(topic.get("article_count", 0), "article")}</p>
-{_articles(topic.get("articles", []))}</div></article>''')
+{_topic_links(topic)}</div></article>''')
+    topic_list = '<table><thead><tr><th>Topic</th><th>Websites</th><th>Stories</th><th>Articles</th></tr></thead><tbody>' + ''.join(topic_rows) + '</tbody></table>' if topics else ''
     content = ''.join(cards) or '<p class="empty">No topics found in this batch.</p>'
     other_articles = result.get("other_articles", [])
     excluded = result.get("excluded_articles", [])
@@ -75,7 +93,7 @@ def render_topics(result):
     other_section = f'<section><h2>Other News</h2>{_articles(other_articles)}</section>' if other_articles else ''
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Topics In This News Batch</title><style>
+<title>Topics Getting Coverage</title><style>
 :root{{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;background:#0c131b;color:#e9f1f8}}
 *{{box-sizing:border-box}}body{{margin:0}}main{{max-width:960px;margin:auto;padding:48px 24px}}
 h1{{font-size:clamp(2rem,5vw,3rem);line-height:1.15;margin:0 0 18px;letter-spacing:-.03em}}
@@ -85,14 +103,14 @@ a:focus-visible{{outline:2px solid #91ceff;outline-offset:4px}}.muted,small{{col
 .batch b{{display:block;font-size:1.7rem}}.topic{{display:grid;grid-template-columns:32px minmax(0,1fr);gap:16px;padding:24px 0;border-bottom:1px solid #354455}}
 .rank{{font-size:1.2rem;color:#80d3bb}}.counts{{color:#80d3bb;font-size:.9rem}}.articles{{padding-left:20px}}
 .articles li{{margin:14px 0;line-height:1.5}}small{{display:block;font-size:.8rem;margin-top:3px}}
-footer{{font-size:.85rem;margin-top:32px}}.empty{{padding:24px 0}}section,details{{margin-top:28px}}summary{{cursor:pointer}}@media(max-width:600px){{main{{padding:28px 16px}}.batch{{gap:18px}}}}
+footer{{font-size:.85rem;margin-top:32px}}.empty{{padding:24px 0}}table{{width:100%;border-collapse:collapse;margin:24px 0}}th,td{{text-align:left;padding:12px 8px;border-bottom:1px solid #354455}}section,details{{margin-top:28px}}summary{{cursor:pointer}}@media(max-width:600px){{main{{padding:28px 16px}}.batch{{gap:18px}}}}
 </style></head><body><main>
-<h1>Topics In This News Batch</h1>
+<h1>Topics Getting Coverage</h1>
 <p>Ranked by the number of websites covering each topic. This single batch cannot show whether interest is rising.</p>
-<p class="muted">Groups compare headline meaning. Each article appears in at most one group. Several websites may carry the same syndicated story.</p>
+<p class="muted">Related stories about the same person are combined under one topic. Open a topic to see its stories and links. Several websites may carry the same syndicated story.</p>
 <p class="muted">{_escape(result.get("country_note", ""))}</p>
 <div class="batch"><div><b>{_escape(result.get("article_count", 0))}</b>Articles</div><div><b>{_escape(result.get("source_count", 0))}</b>Websites</div><div><b>{len(topics)}</b>Topics</div></div>
-{filter_note}{url_note}{content}{other_section}{excluded_section}
+{filter_note}{url_note}{topic_list}{content}{other_section}{excluded_section}
 <footer class="muted"><p>Fetched: {_timestamp(result.get("fetched_at"))}</p>
 <p>{_count(result.get("unassigned_count", 0), "article")} did not fit a topic. Topics are grouped automatically. Check the linked articles.</p>
 <p>This file works offline. Article links open their original websites.</p></footer>
