@@ -15,11 +15,20 @@ if [ ! -x "$venv_dir/bin/python" ]; then
   echo "Creating the local analysis environment..."
   "$python_bin" -m venv "$venv_dir"
 fi
-requirements_hash="$(cat "$analysis_dir/requirements.txt" "$analysis_dir/requirements-runner.txt" | shasum -a 256 | cut -d ' ' -f 1)"
+requirements_file="$analysis_dir/requirements-runner.txt"
+requirements_files=("$analysis_dir/requirements.txt" "$requirements_file")
+for argument in "$@"; do
+  if [ "$argument" = "--semantic" ]; then
+    requirements_file="$analysis_dir/requirements-semantic.txt"
+    requirements_files+=("$requirements_file")
+    export F5_SEMANTIC=1
+  fi
+done
+requirements_hash="$(cat "${requirements_files[@]}" | shasum -a 256 | cut -d ' ' -f 1)"
 stamp="$venv_dir/.requirements-hash"
 if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$requirements_hash" ]; then
   echo "Installing notebook dependencies (first run or changed requirements)..."
-  "$venv_dir/bin/python" -m pip install --disable-pip-version-check -q -r "$analysis_dir/requirements-runner.txt"
+  "$venv_dir/bin/python" -m pip install --disable-pip-version-check -q -r "$requirements_file"
   printf '%s\n' "$requirements_hash" > "$stamp"
 fi
 export PYTHONDONTWRITEBYTECODE=1

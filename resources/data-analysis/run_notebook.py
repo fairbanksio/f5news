@@ -8,6 +8,7 @@ import sys
 
 import nbformat
 from nbclient import NotebookClient
+from nbclient.exceptions import CellTimeoutError
 from jupyter_client import AsyncKernelManager
 from jupyter_client.kernelspec import KernelSpec
 from nbconvert import HTMLExporter
@@ -52,19 +53,58 @@ def render_report(notebook, summary=None):
         report_notebook.cells.append(nbformat.v4.new_markdown_cell(
             f"## Is It Useful Yet?\n\n{verdict}\n\n"
             "| Approach | Guesses in the Correct Range |\n| --- | --- |\n"
-            f"| Headlines and Posting Clues | {accuracy:.1%} |\n"
+            f"| Selected Range Model | {accuracy:.1%} |\n"
             + (f"| Headlines Only | {summary['headline_reference_metrics']['accuracy']:.1%} |\n"
                if "headline_reference_metrics" in summary else "")
             + f"| Always Guess the Most Common Range | {baseline_accuracy:.1%} |"
+            + (f"\n\n**{summary['within_one_range']:.1%}** were correct or one range away."
+               if "within_one_range" in summary else "")
         ))
+        semantic_status = (
+            "Headline meaning was tested alongside word patterns and posting clues. "
+            "Older posts chose which approach to use."
+            if summary.get("semantic_enabled") else
+            "Headline meaning was not tested in this run. Use `--semantic` to include it."
+        )
+        report_notebook.cells.append(nbformat.v4.new_markdown_cell(semantic_status))
+        if "binary" in summary:
+            binary = summary["binary"]
+            model = binary["model_metrics"]
+            baseline = binary["baseline_metrics"]
+            binary_verdict = (
+                "The computer gets more Yes/No answers right than the simple guess."
+                if model["accuracy"] > baseline["accuracy"] else
+                "The computer gets fewer Yes/No answers right than the simple guess."
+                if model["accuracy"] < baseline["accuracy"] else
+                "The computer and simple guess get the same share of Yes/No answers right."
+            )
+            rows = [
+                ("Correct Yes or No Guesses", "accuracy"),
+                ("Yes Guesses That Were Right", "precision"),
+                ("Real Yes Posts Found", "recall"),
+            ]
+            comparison = "\n".join(
+                f"| {label} | {model[key]:.1%} | {baseline[key]:.1%} |"
+                for label, key in rows
+            )
+            report_notebook.cells.append(nbformat.v4.new_markdown_cell(
+                "## Can It Spot 1,000+ Upvotes?\n\n"
+                "Yes means a saved count of at least 1,000 upvotes. "
+                "The simple guess always chooses the most common answer. "
+                f"**{binary['positive_test_posts']:,} of {binary['test_posts']:,} test posts** were Yes.\n\n"
+                f"{binary_verdict}\n\n"
+                "| Measure | Selected Yes/No Model | Simple Guess |\n| --- | --- | --- |\n"
+                f"{comparison}"
+            ))
     sections = {
         "evaluate": ("Where the Guesses Go Wrong", (
-            (2, "Find the real upvote range on the left and the guessed range along the bottom. "
-                "Numbers on the top-left to bottom-right line are right guesses; the others are mistakes. "
-                "Look for large numbers away from that line to see which ranges get confused."),
+            (2, "Correct Range means the guessed 500-upvote range was right. Each step away means another "
+                "500-upvote range missed. Taller bars show more guesses at that distance; "
+                "this is range distance, not the exact upvote error."),
         )),
         "coverage": ("What It Learned From", (
-            (1, "Taller bars mean more posts in that upvote range. "
+            (1, "These are the 12 most common ranges. Each covers 500 upvotes: 0–499, 500–999, 1,000–1,499, and so on. "
+                "Taller bars mean more posts in that upvote range. "
                 "Small bars mean fewer examples, so those ranges are harder to learn."),
         )),
         "predict": ("Check Real Examples", (
@@ -92,7 +132,10 @@ def render_report(notebook, summary=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-open", action="store_true", help="Save the report without opening a browser")
+    parser.add_argument("--semantic", action="store_true", help="Also compare models that use headline meaning")
     args = parser.parse_args()
+    if args.semantic:
+        os.environ["F5_SEMANTIC"] = "1"
     analysis_dir = Path(__file__).resolve().parent
     output_dir = analysis_dir / "models"
     output_dir.mkdir(exist_ok=True)
@@ -110,7 +153,7 @@ def main():
 
     print("Running the notebook with a read-only database sample...", flush=True)
     client = NotebookClient(
-        notebook, timeout=300, resources={"metadata": {"path": str(analysis_dir.parents[1])}},
+        notebook, timeout=900 if args.semantic else 300, resources={"metadata": {"path": str(analysis_dir.parents[1])}},
         on_cell_start=progress, kernel_manager_class=RunnerKernelManager,
     )
     # Launch this environment directly; no registered kernel or editor discovery is needed.
@@ -118,6 +161,9 @@ def main():
         client.execute()
         summary = json.loads((output_dir / "latest-results.json").read_text())
         report = render_report(notebook, summary)
+    except CellTimeoutError:
+        print(f"Analysis timed out in {current_section}. Previous reports were not updated.", file=sys.stderr)
+        return 1
     except Exception:
         print(
             f"Analysis failed in {current_section}. Check root .env Vault access, database reachability, "

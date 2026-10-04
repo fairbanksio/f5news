@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.naive_bayes import ComplementNB
 from sklearn.pipeline import FeatureUnion, FunctionTransformer, Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -60,7 +60,11 @@ def build_candidate(options, seed=123456):
         elif kind != "char":
             raise ValueError("Unknown model candidate.")
         features = ColumnTransformer(parts, transformer_weights=weights)
-        classifier = LogisticRegression(C=options.get("C", 1.0), max_iter=1000, random_state=seed)
+        if options.get("classifier") == "sgd":
+            classifier = SGDClassifier(loss="log_loss", alpha=options.get("alpha", 0.0001),
+                                       max_iter=1000, tol=0.001, random_state=seed)
+        else:
+            classifier = LogisticRegression(C=options.get("C", 1.0), max_iter=1000, random_state=seed)
     return Pipeline([
         ("inputs", FunctionTransformer(model_features, validate=False)),
         ("features", features),

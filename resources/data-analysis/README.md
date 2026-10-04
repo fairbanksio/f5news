@@ -12,7 +12,19 @@ From the repository root:
 
 The command creates an environment under ignored `models/`, installs dependencies on the first run, executes the notebook, and opens an HTML report in your browser. Later runs reuse the environment. Python 3.11 is required (`brew install python@3.11` if missing). Use `--no-open` to save results without opening a browser.
 
-The report compares headline-only guesses, richer guesses, and always choosing the most common range. It shows two charts and six randomly chosen real test posts with their actual and guessed ranges. Detailed metrics stay in the notebook. Setup instructions and detailed diagnostics stay in the notebook. The report is `resources/data-analysis/models/latest-report.html`. The executed notebook is saved beside it as `latest-run.ipynb`. Edit the notebook's Configuration cell to change the subreddit or sample size, then rerun the command. If execution fails, the command exits with an error and keeps the previous report.
+The report compares headline-only guesses, the selected range model, and always choosing the most common range. A separate Yes/No section asks whether saved counts reached 1,000 upvotes. Two charts show range coverage and how far guesses missed; six real test posts show actual and guessed ranges. Detailed diagnostics stay in the notebook. The report is `resources/data-analysis/models/latest-report.html`. The executed notebook is saved beside it as `latest-run.ipynb`. Edit the notebook's Configuration cell to change the subreddit or sample size, then rerun. If execution fails, the command exits with an error and keeps the previous report.
+
+## Optional Headline Meaning
+
+Include models that read headline meaning:
+
+```sh
+./resources/data-analysis/run.sh --semantic
+```
+
+The runner installs the pinned semantic dependencies automatically. The first semantic run downloads the pinned `sentence-transformers/all-MiniLM-L6-v2` model weights; later runs reuse them and cached title embeddings under ignored `models/meaning-cache/`. New headlines are encoded locally. Headline text is not sent to an inference service. The encoder uses Apple MPS when available, otherwise CPU. Add `--no-open` to save results without opening a browser.
+
+The report says whether headline meaning was tested. Testing it does not guarantee it wins: each experiment chooses its model using older validation posts, then checks it on the newest test posts. Run without `--semantic` for the standard word-pattern models.
 
 ## Credentials
 
@@ -24,15 +36,15 @@ Configuration defaults to up to 50,000 recently inserted posts from `politics`. 
 
 ## Results
 
-The low range is split into 0–499 and 500–999. Higher ranges remain 1,000–4,999, 5,000–9,999, 10,000–24,999, 25,000–49,999, and 50,000+. The report includes sample size, date span, fetch time, and training time.
+Every range covers 500 upvotes: 0–499, 500–999, 1,000–1,499, and so on. The error-distance chart shows how many ranges each guess missed by. Correct Range means the guess was right; each step means another 500-upvote range, rather than an exact 500-upvote error. The report includes sample size, date span, fetch time, and training time.
 
-The notebook displays cleaning counts, observation ages, bucket coverage, chronological train/test ranges, accuracy, macro F1, weighted F1, a majority-class baseline, a classification report, a confusion matrix, and sample predictions with model scores.
+The notebook displays cleaning counts, observation ages, bucket coverage, chronological train/test ranges, accuracy, macro F1, weighted F1, a majority-class baseline, a classification report, error distance, and sample predictions with model scores. The separate binary experiment reports accuracy, balanced accuracy, precision, recall, and F1 for reaching at least 1,000 saved upvotes, alongside its majority-answer baseline. Its model and Yes-score threshold are selected on validation posts before test evaluation.
 
-The scraper stores the latest observed score, not a final popularity label. The sample is selected from scraped rising posts. Deduplication removes normalized title repeats before a chronological 60/20/20 training, validation, and test split. Five finalists compare headline patterns, a word/letter Naive Bayes model, and source website/posting clues on validation weighted F1. The selected settings are refit on older training plus validation posts, then evaluated alongside a headline-only reference on the same newest test posts. Website, posting hour/day, post type, and title shape are available before votes arrive; upvotes, fetch time, and observation age are excluded from model inputs. Scores may have been updated after the split date, so this is not a historical backtest. Missing buckets cannot be learned, and probability scores are not calibrated guarantees.
+The scraper stores the latest observed score, not a final popularity label. The sample is selected from scraped rising posts. Deduplication removes normalized title repeats before a chronological 60/20/20 training, validation, and test split. The detailed range models use a faster training method for the many 500-upvote ranges. Five standard models compare headline patterns, a word/letter Naive Bayes model, and source website/posting clues on validation weighted F1. With `--semantic`, three more models compare headline meaning. The selected settings are refit on older training plus validation posts, then evaluated alongside a headline-only reference on the same newest test posts. Website, posting hour/day, post type, and title shape are available before votes arrive; upvotes, fetch time, and observation age are excluded from model inputs. Scores may have been updated after the split date, so this is not a historical backtest. Missing buckets cannot be learned, and probability scores are not calibrated guarantees.
 
 `MIN_OBSERVATION_AGE_HOURS` optionally excludes scores recorded before a chosen post age. It measures `fetchedAt - created_utc`, rather than how long ago a document was fetched.
 
-The saved pipeline uses the local `analysis_models.py` module, which must remain available when loading it. It accepts post DataFrames with `title`, `domain`, `created_utc`, `is_self`, and `is_video`; missing optional clues become unknown. The pipeline and metric summary are saved under ignored `resources/data-analysis/models/`. Only load trusted model files. Keep database-derived outputs out of commits; committed notebook cells must have cleared outputs.
+Saved models need `analysis_models.py`. Meaning models also need `semantic_analysis.py` and the semantic dependencies. It accepts post DataFrames with `title`, `domain`, `created_utc`, `is_self`, and `is_video`; missing optional clues become unknown. The pipeline and metric summary are saved under ignored `resources/data-analysis/models/`. The Yes/No model file contains its pipeline, chosen threshold, and target. Apply that threshold to the Yes probability when using it. Only load trusted model files. Keep database-derived outputs out of commits; committed notebook cells must have cleared outputs.
 
 ## Optional MLflow
 

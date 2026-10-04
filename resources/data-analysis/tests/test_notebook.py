@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 
 NOTEBOOK = Path(__file__).resolve().parents[1] / "f5-spark-analysis.ipynb"
-BUCKET_LABELS = ["0–499", "500–999", "1,000–4,999", "5,000–9,999", "10,000–24,999", "25,000–49,999", "50,000+"]
+BUCKET_SIZE = 500
 
 
 class NotebookTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class NotebookTests(unittest.TestCase):
         cls.cache.cleanup()
 
     def setUp(self):
-        self.ns = {"BUCKET_LABELS": BUCKET_LABELS, "BUCKET_EDGES": [500, 1000, 5000, 10000, 25000, 50000]}
+        self.ns = {"BUCKET_SIZE": BUCKET_SIZE, "RUN_SEMANTIC": False}
         self.run_tag("imports")
         self.ns["plt"].switch_backend("Agg")
         self.run_tag("definitions")
@@ -49,7 +49,7 @@ class NotebookTests(unittest.TestCase):
         values = [0, 499, 500, 999, 1000, 4999, 5000, 9999, 10000, 24999, 25000, 49999, 50000, 100000]
         records = [self.record(f"Article {i}", value, 1700000000 + i) for i, value in enumerate(values)]
         df, summary = self.ns["prepare_posts"](records)
-        self.assertEqual(df["bucket"].tolist(), [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6])
+        self.assertEqual(df["bucket"].tolist(), [0, 0, 1, 1, 2, 9, 10, 19, 20, 49, 50, 99, 100, 200])
         self.assertEqual(summary, {"loaded": 14, "excluded": 0, "duplicate_titles": 0, "usable": 14})
 
     def test_invalid_records_and_latest_title_dedup(self):
@@ -64,7 +64,7 @@ class NotebookTests(unittest.TestCase):
         df, summary = self.ns["prepare_posts"](records)
         self.assertEqual(summary, {"loaded": 14, "excluded": 12, "duplicate_titles": 1, "usable": 1})
         self.assertEqual(df.iloc[0]["title"], "shared title")
-        self.assertEqual(df.iloc[0]["bucket"], 3)
+        self.assertEqual(df.iloc[0]["bucket"], 10)
         self.assertEqual(str(df["created_at"].dt.tz), "UTC")
         self.assertEqual(df.iloc[0]["observation_age_hours"], 3)
 
@@ -152,7 +152,7 @@ class NotebookTests(unittest.TestCase):
                 return np.array([[0.1, 0.2, 0.7], [0.1, 0.8, 0.1]])
         predictions = self.ns["predict_titles"](FakeModel(), ["First", "Second"])
         self.assertEqual(predictions["Bucket"].tolist(), [5, 2])
-        self.assertEqual(predictions["Upvote Range"].tolist(), [BUCKET_LABELS[5], BUCKET_LABELS[2]])
+        self.assertEqual(predictions["Upvote Range"].tolist(), ["2,500–2,999", "1,000–1,499"])
         np.testing.assert_allclose(predictions["Confidence"], [0.7, 0.8])
 
     def test_metrics_distinguish_accuracy_f1_and_majority_baseline(self):
@@ -161,7 +161,7 @@ class NotebookTests(unittest.TestCase):
         metrics = self.ns["evaluate_predictions"](actual, baseline.predict(["b"] * 4))
         self.assertAlmostEqual(metrics["accuracy"], 0.75)
         self.assertAlmostEqual(metrics["weighted_f1"], 9 / 14)
-        self.assertAlmostEqual(metrics["macro_f1"], 6 / 49)
+        self.assertAlmostEqual(metrics["macro_f1"], 3 / 7)
         self.assertNotEqual(metrics["accuracy"], metrics["weighted_f1"])
 
     def test_joblib_roundtrip_preserves_predictions(self):
@@ -201,9 +201,32 @@ class NotebookTests(unittest.TestCase):
             loaded = self.ns["joblib"].load(path)
             self.ns["np"].testing.assert_allclose(model.predict_proba(posts), loaded.predict_proba(posts))
             guesses = self.ns["predict_posts"](loaded, posts.head(2))
-            self.assertEqual(guesses["Actual Range"].tolist(), [BUCKET_LABELS[0]] * 2)
+            self.assertEqual(guesses["Actual Range"].tolist(), ["0–499"] * 2)
             changed = posts.assign(upvoteCount=100000, fetchedAt="bad")
             self.ns["np"].testing.assert_allclose(loaded.predict_proba(posts), loaded.predict_proba(changed))
+
+    def test_sgd_candidate_multiclass_probabilities_and_joblib_roundtrip(self):
+        pd = self.ns["pd"]
+        np = self.ns["np"]
+        posts = pd.DataFrame({"title": ["Apple orchard fruit"] * 12 +
+                                      ["Banana market yellow"] * 12 + ["Cherry harvest red"] * 12})
+        labels = [0] * 12 + [10] * 12 + [100] * 12
+        heldout = pd.DataFrame({"title": ["Apple orchard", "Banana market", "Cherry harvest"]})
+        model = self.ns["build_candidate"]({"kind": "char", "classifier": "sgd", "alpha": 0.001})
+        model.fit(posts, labels)
+        expected = model.predict_proba(heldout)
+        self.assertEqual(model.classes_.tolist(), [0, 10, 100])
+        self.assertEqual(model.predict(heldout).tolist(), [0, 10, 100])
+        np.testing.assert_allclose(expected.sum(axis=1), 1)
+        self.assertTrue(np.isfinite(expected).all())
+        self.assertEqual(self.ns["predict_posts"](model, heldout.assign(bucket=[0, 10, 100]))[
+            "Guessed Range"].tolist(), ["0–499", "5,000–5,499", "50,000–50,499"])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sgd-model.joblib"
+            self.ns["joblib"].dump(model, path)
+            loaded = self.ns["joblib"].load(path)
+            np.testing.assert_allclose(loaded.predict_proba(heldout), expected)
+            self.assertEqual(loaded.predict(heldout).tolist(), [0, 10, 100])
 
     def test_mongo_read_is_bounded_projected_and_client_closes(self):
         calls = []
