@@ -19,13 +19,27 @@ requirements_file="$analysis_dir/requirements-runner.txt"
 requirements_files=("$analysis_dir/requirements.txt" "$requirements_file")
 runner_file="$analysis_dir/run_notebook.py"
 semantic_dependencies=0
+report_mode="notebook"
 for argument in "$@"; do
-  if [ "$argument" = "--semantic" ] || [ "$argument" = "--experiments" ]; then
+  if [ "$argument" = "--semantic" ] || [ "$argument" = "--experiments" ] || [ "$argument" = "--topics" ]; then
     semantic_dependencies=1
     export F5_SEMANTIC=1
   fi
   if [ "$argument" = "--experiments" ]; then
+    if [ "$report_mode" = "topics" ]; then
+      echo "Choose --experiments or --topics." >&2
+      exit 1
+    fi
+    report_mode="experiments"
     runner_file="$analysis_dir/run_experiments.py"
+  fi
+  if [ "$argument" = "--topics" ]; then
+    if [ "$report_mode" = "experiments" ]; then
+      echo "Choose --experiments or --topics." >&2
+      exit 1
+    fi
+    report_mode="topics"
+    runner_file="$analysis_dir/run_topics.py"
   fi
 done
 if [ "$semantic_dependencies" = "1" ]; then
