@@ -22,6 +22,30 @@ class RunnerKernelManager(AsyncKernelManager):
         )
 
 
+def render_report(notebook):
+    """Show results without the notebook's setup and explanatory prose."""
+    report_notebook = nbformat.v4.new_notebook(cells=[nbformat.v4.new_markdown_cell(
+        "# F5 News Results\n\nPredicts observed upvote ranges from titles. Scores are not final popularity."
+    )])
+    sections = {
+        "evaluate": ("Model vs. Baseline", (0, 2)),
+        "coverage": ("Upvote Distribution", (1,)),
+        "predict": ("Sample Predictions", (0,)),
+    }
+    for tag, (heading, output_indices) in sections.items():
+        cell = next(c for c in notebook.cells if tag in c.metadata.get("tags", []))
+        report_notebook.cells.append(nbformat.v4.new_markdown_cell(f"## {heading}"))
+        report_notebook.cells.append(nbformat.v4.new_code_cell(
+            source="", outputs=[cell.outputs[i] for i in output_indices],
+        ))
+    config = Config()
+    config.HTMLExporter.exclude_input = True
+    config.HTMLExporter.theme = "dark"
+    exporter = HTMLExporter(config=config, template_name="lab")
+    report, _ = exporter.from_notebook_node(report_notebook)
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-open", action="store_true", help="Save the report without opening a browser")
@@ -49,11 +73,7 @@ def main():
     # Launch this environment directly; no registered kernel or editor discovery is needed.
     try:
         client.execute()
-        config = Config()
-        config.HTMLExporter.exclude_input = True
-        config.HTMLExporter.theme = "dark"
-        exporter = HTMLExporter(config=config, template_name="lab")
-        report, _ = exporter.from_notebook_node(notebook)
+        report = render_report(notebook)
     except Exception:
         print(
             f"Analysis failed in {current_section}. Check root .env Vault access, database reachability, "
