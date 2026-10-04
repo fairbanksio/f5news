@@ -28,16 +28,30 @@ def render_report(notebook):
         "# F5 News Results\n\nPredicts observed upvote ranges from titles. Scores are not final popularity."
     )])
     sections = {
-        "evaluate": ("Model vs. Baseline", (0, 2)),
-        "coverage": ("Upvote Distribution", (1,)),
-        "predict": ("Sample Predictions", (0,)),
+        "evaluate": ("Model vs. Baseline", (
+            (0, "Accuracy is the share of correct predictions. F1 balances precision and recall; "
+                "macro F1 weights all six ranges equally, while weighted F1 reflects their frequency. "
+                "Higher is better. The baseline always predicts the most common training range."),
+            (2, "Rows show observed ranges; columns show predicted ranges. "
+                "Diagonal counts are correct predictions. Off-diagonal counts are errors."),
+        )),
+        "coverage": ("Upvote Distribution", (
+            (1, "Bars count sampled posts in each upvote range. "
+                "Rare ranges give the model fewer examples to learn from."),
+        )),
+        "predict": ("Sample Predictions", (
+            (0, "Each title gets a predicted upvote range. "
+                "Confidence is the model's score for that range, not a guarantee."),
+        )),
     }
-    for tag, (heading, output_indices) in sections.items():
+    for tag, (heading, outputs) in sections.items():
         cell = next(c for c in notebook.cells if tag in c.metadata.get("tags", []))
         report_notebook.cells.append(nbformat.v4.new_markdown_cell(f"## {heading}"))
-        report_notebook.cells.append(nbformat.v4.new_code_cell(
-            source="", outputs=[cell.outputs[i] for i in output_indices],
-        ))
+        for output_index, caption in outputs:
+            report_notebook.cells.append(nbformat.v4.new_markdown_cell(caption))
+            report_notebook.cells.append(nbformat.v4.new_code_cell(
+                source="", outputs=[cell.outputs[output_index]],
+            ))
     config = Config()
     config.HTMLExporter.exclude_input = True
     config.HTMLExporter.theme = "dark"
