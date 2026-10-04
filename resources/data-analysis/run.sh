@@ -17,13 +17,21 @@ if [ ! -x "$venv_dir/bin/python" ]; then
 fi
 requirements_file="$analysis_dir/requirements-runner.txt"
 requirements_files=("$analysis_dir/requirements.txt" "$requirements_file")
+runner_file="$analysis_dir/run_notebook.py"
+semantic_dependencies=0
 for argument in "$@"; do
-  if [ "$argument" = "--semantic" ]; then
-    requirements_file="$analysis_dir/requirements-semantic.txt"
-    requirements_files+=("$requirements_file")
+  if [ "$argument" = "--semantic" ] || [ "$argument" = "--experiments" ]; then
+    semantic_dependencies=1
     export F5_SEMANTIC=1
   fi
+  if [ "$argument" = "--experiments" ]; then
+    runner_file="$analysis_dir/run_experiments.py"
+  fi
 done
+if [ "$semantic_dependencies" = "1" ]; then
+  requirements_file="$analysis_dir/requirements-semantic.txt"
+  requirements_files+=("$requirements_file")
+fi
 requirements_hash="$(cat "${requirements_files[@]}" | shasum -a 256 | cut -d ' ' -f 1)"
 stamp="$venv_dir/.requirements-hash"
 if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$requirements_hash" ]; then
@@ -32,4 +40,4 @@ if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$requirements_hash" ]; then
   printf '%s\n' "$requirements_hash" > "$stamp"
 fi
 export PYTHONDONTWRITEBYTECODE=1
-exec "$venv_dir/bin/python" "$analysis_dir/run_notebook.py" "$@"
+exec "$venv_dir/bin/python" "$runner_file" "$@"

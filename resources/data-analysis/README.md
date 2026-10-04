@@ -26,6 +26,30 @@ The runner installs the pinned semantic dependencies automatically. The first se
 
 The report says whether headline meaning was tested. Testing it does not guarantee it wins: each experiment chooses its model using older validation posts, then checks it on the newest test posts. Run without `--semantic` for the standard word-pattern models.
 
+## Seven News Experiments
+
+Run the whole suite and open its report:
+
+```sh
+./resources/data-analysis/run.sh --experiments
+```
+
+This reads up to 100,000 posts across all available subreddits. It reuses the local headline-meaning cache. Use `--limit 50000`, `--subreddit politics`, or `--no-open` as needed. The original upvote notebook still runs without `--experiments`.
+
+| Experiment | What to Look For |
+| --- | --- |
+| Group the Same Story | Do the suggested headline groups cover the same event? |
+| Spot Growing Topics | Which topics gained a larger share of the collected sample? |
+| Find Similar Stories | Do the earlier matches provide useful context? |
+| Build a Balanced Feed | Does a more varied feed still contain useful stories? |
+| Predict Discussion | Can it spot posts with 100+ saved comments better than a simple guess? |
+| Compare Publishers | Which websites draw more engagement within the same subreddit? |
+| Compare Posting Times | How do saved counts differ by day and time in Pacific time? |
+
+The concise report is `models/experiments/latest-experiments.html`; detailed results are in the JSON file beside it. All outputs remain ignored. Story matches need manual review. Weekly trends describe collected posts, and publisher/time comparisons cannot prove causes. Discussion settings are selected on older posts before checking newer ones; the target is a saved comment total.
+
+Each run also retains new scraper readings in local `models/experiments/observations.sqlite`. Repeating an unchanged scraper reading does not create another observation. This prepares a history for later growth forecasts; it does not change production scraping or schedule collection. Future popularity remains marked as needing history. No reader activity is available to test personalized recommendations.
+
 ## Credentials
 
 Vault is the default credential source. Put `VAULT_ADDR` and `VAULT_TOKEN` in the repository root's ignored `.env` or export them in the kernel environment. The KV v2 secret defaults to mount `kv`, path `f5.news`, with string keys `mongo_uri`, `database`, and `collection`. Override the mount/path with `VAULT_KV_MOUNT` and `VAULT_SECRET_PATH` in the root `.env`. The token needs only read access to the analysis secret.
