@@ -62,6 +62,18 @@ By default, the latest seven days are compared with the previous seven. Change t
 
 The report is `models/topics/latest-topics.html`, with detailed results beside it in `latest-topics.json`. Topic names are automatic hints, so check the example headlines. Reaction comparisons use counts saved 12–48 hours after posting and need enough examples in both periods. Results describe the scraped news sample, not all Reddit activity or future popularity.
 
+## GDELT News Topics
+
+```sh
+python3 resources/data-analysis/run_gdelt.py --bulk --country US --topics
+```
+
+This downloads the latest public GDELT batch and saves `models/gdelt/latest-us-topics.html`, with headlines, topic groups, and related links. It uses the download feed because search requests were rate-limited. Headlines come from GDELT’s page metadata.
+
+Topics are ranked by distinct websites in that batch, not reader popularity or growth. Articles may appear in several groups. The US-source filter uses GDELT’s 2018 publisher directory and can misclassify outlets; it does not require US subject matter.
+
+A conservative headline filter removes quizzes, advice, shopping, entertainment, and unclear news events. Review Excluded Articles for mistakes. Use `--include-all` to keep everything. No user discussion or sentiment is included. Older stories can appear when GDELT newly processes them.
+
 ## Credentials
 
 Vault is the default credential source. Put `VAULT_ADDR` and `VAULT_TOKEN` in the repository root's ignored `.env` or export them in the kernel environment. The KV v2 secret defaults to mount `kv`, path `f5.news`, with string keys `mongo_uri`, `database`, and `collection`. Override the mount/path with `VAULT_KV_MOUNT` and `VAULT_SECRET_PATH` in the root `.env`. The token needs only read access to the analysis secret.
