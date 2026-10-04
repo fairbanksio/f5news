@@ -21,12 +21,20 @@ runner_file="$analysis_dir/run_notebook.py"
 semantic_dependencies=0
 report_mode="notebook"
 for argument in "$@"; do
-  if [ "$argument" = "--semantic" ] || [ "$argument" = "--experiments" ] || [ "$argument" = "--topics" ]; then
+  if [ "$argument" = "--gdelt" ]; then
+    if [ "$report_mode" != "notebook" ] && [ "$report_mode" != "gdelt" ]; then
+      echo "Choose one report: --gdelt, --experiments, or --topics." >&2
+      exit 1
+    fi
+    report_mode="gdelt"
+    runner_file="$analysis_dir/run_gdelt.py"
+  fi
+  if [ "$argument" = "--semantic" ] || [ "$argument" = "--experiments" ] || [ "$argument" = "--topics" ] || [ "$argument" = "--gdelt" ]; then
     semantic_dependencies=1
     export F5_SEMANTIC=1
   fi
   if [ "$argument" = "--experiments" ]; then
-    if [ "$report_mode" = "topics" ]; then
+    if [ "$report_mode" = "topics" ] || [ "$report_mode" = "gdelt" ]; then
       echo "Choose --experiments or --topics." >&2
       exit 1
     fi
@@ -34,7 +42,7 @@ for argument in "$@"; do
     runner_file="$analysis_dir/run_experiments.py"
   fi
   if [ "$argument" = "--topics" ]; then
-    if [ "$report_mode" = "experiments" ]; then
+    if [ "$report_mode" = "experiments" ] || [ "$report_mode" = "gdelt" ]; then
       echo "Choose --experiments or --topics." >&2
       exit 1
     fi

@@ -40,7 +40,7 @@ class GdeltTopicReportTests(unittest.TestCase):
                      "2 websites · 3 articles", "United States websites only.",
                      "This single batch cannot show whether interest is rising.",
                      "not verified headlines", "1 article did not fit a topic", "Oct 4, 2026 1:03 PM PDT",
-                     "An article can appear under several topics."]:
+                     "Each article appears in at most one group."]:
             self.assertIn(text, report)
         self.assertIn("color-scheme:dark", report)
         self.assertFalse(set(document.tags) & {"script", "link", "img", "iframe"})

@@ -65,14 +65,16 @@ The report is `models/topics/latest-topics.html`, with detailed results beside i
 ## GDELT News Topics
 
 ```sh
-python3 resources/data-analysis/run_gdelt.py --bulk --country US --topics
+./resources/data-analysis/run.sh --gdelt
 ```
 
 This downloads the latest public GDELT batch and saves `models/gdelt/latest-us-topics.html`, with headlines, topic groups, and related links. It uses the download feed because search requests were rate-limited. Headlines come from GDELT’s page metadata.
 
-Topics are ranked by distinct websites in that batch, not reader popularity or growth. Articles may appear in several groups. The US-source filter uses GDELT’s 2018 publisher directory and can misclassify outlets; it does not require US subject matter.
+Headlines are grouped by meaning into specific related stories, rather than broad categories. Each article belongs to at most one group; unmatched articles stay under Other News. Topics are ranked by distinct websites in that batch, not reader popularity or growth. The US-source filter uses GDELT’s 2018 publisher directory and can misclassify outlets; it does not require US subject matter.
 
-A conservative headline filter removes quizzes, advice, shopping, entertainment, and unclear news events. Review Excluded Articles for mistakes. Use `--include-all` to keep everything. No user discussion or sentiment is included. Older stories can appear when GDELT newly processes them.
+A conservative headline filter removes quizzes, advice, shopping, entertainment, and unclear news events. Review Excluded Articles for mistakes. Use `--include-all` to keep everything. Use `--saved` to regroup the downloaded sample without another request and `--no-open` to save without opening a browser. The dedicated `f5-news-topics.ipynb` notebook uses the same grouping and report code, without MongoDB access. It starts with the saved batch; set `USE_SAVED_BATCH = False` for a fresh download.
+
+No user discussion or sentiment is included. Older stories can appear when GDELT newly processes them.
 
 ## Credentials
 

@@ -2,6 +2,7 @@
 import re
 
 EXCLUSIONS = [
+    ('Promotion Or Giveaway', r'\b(giveaway|win (?:your )?tickets|chances? to win|last chance to win)\b'),
     ('Quiz Or Puzzle', r'\b(quiz|crossword|spelling bee|connections hints|hints and answers|reveals your|your perfect)\b'),
     ('Advice Or Shopping', r'\b(dear abby|asking eric|wedding warning|how posh|wardrobe|fashion|swimwear|best dressed|vinted|you need to watch|things made|dishes to avoid|should never order|best pumpkin|auction deals|gift card|account manager|insurance journal jobs)\b'),
     ('Lists And Memes', r'\b(memes|spelling fails|funniest posts|fake online identities|historical photos|\d+ (wives|men|plane passengers))\b'),

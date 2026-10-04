@@ -89,7 +89,7 @@ footer{{font-size:.85rem;margin-top:32px}}.empty{{padding:24px 0}}section,detail
 </style></head><body><main>
 <h1>Topics In This News Batch</h1>
 <p>Ranked by the number of websites covering each topic. This single batch cannot show whether interest is rising.</p>
-<p class="muted">An article can appear under several topics. These groups use GDELT’s tags and headline mentions.</p>
+<p class="muted">Groups compare headline meaning. Each article appears in at most one group. Several websites may carry the same syndicated story.</p>
 <p class="muted">{_escape(result.get("country_note", ""))}</p>
 <div class="batch"><div><b>{_escape(result.get("article_count", 0))}</b>Articles</div><div><b>{_escape(result.get("source_count", 0))}</b>Websites</div><div><b>{len(topics)}</b>Topics</div></div>
 {filter_note}{url_note}{content}{other_section}{excluded_section}

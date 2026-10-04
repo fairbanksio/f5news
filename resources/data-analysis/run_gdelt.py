@@ -105,6 +105,9 @@ def render_batch(payload):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--gdelt', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--no-open', action='store_true', help='Save without opening the report')
+    parser.add_argument('--saved', action='store_true', help='Regroup the saved batch without a network request')
     parser.add_argument('--include-all', action='store_true', help='Keep lifestyle and entertainment in topic reports')
     parser.add_argument('--topics', action='store_true', help='Also group the public batch into topics')
     parser.add_argument('--country', choices=('US',), help='Limit to US publishers')
@@ -113,14 +116,23 @@ def main():
     parser.add_argument('--hours', type=int, default=6)
     parser.add_argument('--limit', type=int, default=100)
     args = parser.parse_args()
+    if args.gdelt:
+        args.bulk = True
+        args.topics = True
+        args.country = args.country or 'US'
     if not 1 <= args.hours <= 72 or not 1 <= args.limit <= 250:
         parser.error('Use 1–72 hours and 1–250 articles.')
     if args.topics and not args.bulk:
         parser.error('--topics requires --bulk.')
     if args.bulk:
         try:
-            payload = pull_latest_batch()
-            if args.country:
+            if args.saved:
+                saved_stem = 'latest-us' if args.country else 'latest-batch'
+                saved_path = Path(__file__).resolve().parent / f'models/gdelt/{saved_stem}.json'
+                payload = json.loads(saved_path.read_text())
+            else:
+                payload = pull_latest_batch()
+            if args.country and not args.saved:
                 payload = filter_country(payload, args.country)
             report = render_batch(payload)
         except Exception as error:
@@ -143,6 +155,10 @@ def main():
             (output / f'{topic_stem}.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
             (output / f'{topic_stem}.html').write_text(render_topics(result), encoding='utf-8')
             print(f'Topics: {output / f"{topic_stem}.html"}')
+            if args.gdelt and not args.no_open:
+                import subprocess, sys
+                if sys.platform == 'darwin':
+                    subprocess.run(['open', str(output / f'{topic_stem}.html')], check=False)
         print(f'Saved {len(payload["articles"]):,} article links: {output / f"{stem}.html"}')
         return 0
     query = args.query + (f' sourcecountry:{args.country}' if args.country else '')

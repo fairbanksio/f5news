@@ -6,7 +6,7 @@ from gdelt_news_filter import news_reason,filter_news
 
 class NewsFilterTests(unittest.TestCase):
     def test_excludes_lifestyle_with_misleading_tags(self):
-        for title in ['Your Perfect Autumn Reveals Your Intimacy Spice Level','How posh is your wardrobe?','NYT Mini Crossword Hints And Answers','Dear Abby: My family hurt me','50 Wives Post Ridiculous Things']:
+        for title in ['Your Perfect Autumn Reveals Your Intimacy Spice Level','How posh is your wardrobe?','NYT Mini Crossword Hints And Answers','Dear Abby: My family hurt me','50 Wives Post Ridiculous Things', 'More chances to win tickets to see a concert']:
             self.assertIsNotNone(news_reason(dict(title=title,themes='ELECTION;MEDICAL')))
 
     def test_retains_events(self):
