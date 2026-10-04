@@ -26,40 +26,49 @@ class RunnerKernelManager(AsyncKernelManager):
 def render_report(notebook, summary=None):
     """Show results without the notebook's setup and explanatory prose."""
     report_notebook = nbformat.v4.new_notebook(cells=[nbformat.v4.new_markdown_cell(
-        "# F5 News Results\n\nPredicts observed upvote ranges from titles. Scores are not final popularity."
+        "# Can Headlines Predict Upvotes?\n\nThe computer learns from older posts, then tries to guess "
+        "the upvote range of newer posts. These are saved upvote counts, not final totals."
     )])
     if summary:
         cleaning = summary["cleaning"]
         description = (
-            f"{cleaning['usable']:,} usable posts · {summary['test_posts']:,} test posts · "
-            f"{summary['first_post'][:10]} to {summary['last_post'][:10]}\n\n"
-            f"Fetched in {summary['fetch_seconds']:.1f}s; compared and trained models in "
-            f"{summary['training_seconds']:.1f}s. Selected by validation weighted F1."
+            f"Used **{cleaning['usable']:,} posts** and checked guesses on **{summary['test_posts']:,} newer posts**. "
+            f"Posts span {summary['first_post'][:10]} to {summary['last_post'][:10]}. "
+            f"Reading data took {summary['fetch_seconds']:.1f}s; learning and comparing took "
+            f"{summary['training_seconds']:.1f}s."
         )
         report_notebook.cells.append(nbformat.v4.new_markdown_cell(description))
-        model_metrics = summary["model_metrics"]
-        baseline_metrics = summary["baseline_metrics"]
-        result_note = (
-            f"Weighted F1: {model_metrics['weighted_f1']:.3f} for the model vs. "
-            f"{baseline_metrics['weighted_f1']:.3f} for the baseline. "
-            f"Accuracy: {model_metrics['accuracy']:.1%} vs. {baseline_metrics['accuracy']:.1%}."
+        accuracy = summary["model_metrics"]["accuracy"]
+        baseline_accuracy = summary["baseline_metrics"]["accuracy"]
+        verdict = (
+            "The headline model gets more ranges right than the simple guess."
+            if accuracy > baseline_accuracy else
+            "The headline model still gets fewer ranges right than the simple guess."
+            if accuracy < baseline_accuracy else
+            "The headline model and simple guess get the same share right."
         )
-        report_notebook.cells.append(nbformat.v4.new_markdown_cell(result_note))
+        if accuracy < 0.5:
+            verdict += " It misses more than half, so don't rely on these predictions yet."
+        report_notebook.cells.append(nbformat.v4.new_markdown_cell(
+            f"## Is It Useful Yet?\n\n{verdict}\n\n"
+            "| Approach | Guesses in the Correct Range |\n| --- | --- |\n"
+            f"| Learn From Headlines | {accuracy:.1%} |\n"
+            f"| Always Guess the Most Common Range | {baseline_accuracy:.1%} |"
+        ))
     sections = {
-        "evaluate": ("Model vs. Baseline", (
-            (0, "Accuracy is the share of correct predictions. F1 balances precision and recall; "
-                "macro F1 weights all ranges equally, while weighted F1 reflects their frequency. "
-                "Higher is better. The baseline always predicts the most common training range."),
-            (2, "Rows show observed ranges; columns show predicted ranges. "
-                "Diagonal counts are correct predictions. Off-diagonal counts are errors."),
+        "evaluate": ("Where the Guesses Go Wrong", (
+            (2, "Find the real upvote range on the left and the guessed range along the bottom. "
+                "Numbers on the top-left to bottom-right line are right guesses; the others are mistakes. "
+                "Look for large numbers away from that line to see which ranges get confused."),
         )),
-        "coverage": ("Upvote Distribution", (
-            (1, "Bars count sampled posts in each upvote range. "
-                "Rare ranges give the model fewer examples to learn from."),
+        "coverage": ("What It Learned From", (
+            (1, "Taller bars mean more posts in that upvote range. "
+                "Small bars mean fewer examples, so those ranges are harder to learn."),
         )),
-        "predict": ("Sample Predictions", (
-            (0, "Each title gets a predicted upvote range. "
-                "Model Score reflects the model's preference for that range, not a guarantee."),
+        "predict": ("Try a Few Headlines", (
+            (0, "These are example headlines, not real test results. "
+                "The percentage shows how strongly the computer favors its guess, not a proven chance of being right. "
+                "Change the sample headlines in the notebook and rerun to try your own."),
         )),
     }
     for tag, (heading, outputs) in sections.items():

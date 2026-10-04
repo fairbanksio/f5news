@@ -12,7 +12,7 @@ From the repository root:
 
 The command creates an environment under ignored `models/`, installs dependencies on the first run, executes the notebook, and opens an HTML report in your browser. Later runs reuse the environment. Python 3.11 is required (`brew install python@3.11` if missing). Use `--no-open` to save results without opening a browser.
 
-The report shows model and baseline metrics, two charts, and sample predictions. Setup instructions and detailed diagnostics stay in the notebook. The report is `resources/data-analysis/models/latest-report.html`. The executed notebook is saved beside it as `latest-run.ipynb`. Edit the notebook's Configuration cell to change the subreddit or sample size, then rerun the command. If execution fails, the command exits with an error and keeps the previous report.
+The report explains whether headline guesses beat always choosing the most common range, shows two charts, and lets you inspect example guesses. Detailed metrics stay in the notebook. Setup instructions and detailed diagnostics stay in the notebook. The report is `resources/data-analysis/models/latest-report.html`. The executed notebook is saved beside it as `latest-run.ipynb`. Edit the notebook's Configuration cell to change the subreddit or sample size, then rerun the command. If execution fails, the command exits with an error and keeps the previous report.
 
 ## Credentials
 
