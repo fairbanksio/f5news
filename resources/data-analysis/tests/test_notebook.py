@@ -128,17 +128,21 @@ class NotebookTests(unittest.TestCase):
         train = pd.DataFrame({"title": ["apple orchard"] * 6 + ["banana market"] * 4, "bucket": [0] * 6 + [2] * 4})
         validation = pd.DataFrame({"title": ["apple validationonly", "banana validationonly"], "bucket": [0, 2]})
         model, options, scores = self.ns["select_model"](train, validation)
-        self.assertEqual(len(scores), 6)
+        self.assertEqual(len(scores), 5)
         self.assertAlmostEqual(scores["weighted_f1"].max(), self.ns["evaluate_predictions"](
-            validation["bucket"], model.predict(validation["title"]))["weighted_f1"])
-        self.assertNotIn("validationonly", model.named_steps["tfidf"].vocabulary_)
+            validation["bucket"], model.predict(validation))["weighted_f1"])
+        for value in model.get_params(deep=True).values():
+            if hasattr(value, "vocabulary_"):
+                self.assertNotIn("validationonly", value.vocabulary_)
         self.ns.update(train=train, validation=validation, development=pd.concat([train, validation]), RANDOM_SEED=123456)
         self.run_tag("train")
         fitted = self.ns["model"]
-        before = dict(fitted.named_steps["tfidf"].vocabulary_)
-        fitted.predict(["testonly future title"])
-        self.assertEqual(before, fitted.named_steps["tfidf"].vocabulary_)
-        self.assertNotIn("testonly", before)
+        vectorizers = [value for value in fitted.get_params(deep=True).values() if hasattr(value, "vocabulary_")]
+        before = [dict(value.vocabulary_) for value in vectorizers]
+        fitted.predict(pd.DataFrame({"title": ["testonly future title"]}))
+        self.assertEqual(before, [value.vocabulary_ for value in vectorizers])
+        for vocabulary in before:
+            self.assertNotIn("testonly", vocabulary)
 
     def test_confidence_maps_probability_columns_to_present_classes(self):
         np = self.ns["np"]
@@ -169,6 +173,37 @@ class NotebookTests(unittest.TestCase):
             loaded = self.ns["joblib"].load(path)
             self.ns["np"].testing.assert_allclose(model.predict_proba(titles), loaded.predict_proba(titles))
             self.ns["pd"].testing.assert_frame_equal(self.ns["predict_titles"](model, titles), self.ns["predict_titles"](loaded, titles))
+
+    def test_posting_features_exclude_scores_fetch_times_and_unknown_values(self):
+        pd = self.ns["pd"]
+        posts = pd.DataFrame([self.record("Apple orchard?", domain="EXAMPLE.COM", is_self=False),
+                              self.record("Banana market", created=1700003600)])
+        features = self.ns["model_features"](posts)
+        self.assertEqual(features.iloc[0]["domain"], "example.com")
+        self.assertEqual(features.iloc[1]["domain"], "unknown")
+        self.assertNotIn("upvoteCount", features)
+        self.assertNotIn("fetchedAt", features)
+        changed = posts.assign(upvoteCount=999999, fetchedAt="changed", observation_age_hours=10000)
+        pd.testing.assert_frame_equal(features, self.ns["model_features"](changed))
+        unknown = self.ns["model_features"](pd.DataFrame({"title": ["", "New headline"]}))
+        self.assertEqual(unknown["hour"].tolist(), ["unknown", "unknown"])
+        self.assertTrue(self.ns["np"].isfinite(unknown["caps"]).all())
+
+    def test_richer_model_roundtrip_and_real_post_examples(self):
+        pd = self.ns["pd"]
+        posts = pd.DataFrame([self.record(f"Apple orchard {i}", domain="fruit.example") for i in range(6)] +
+                             [self.record(f"Banana market {i}", votes=2000, domain="market.example") for i in range(6)])
+        posts["bucket"] = [0] * 6 + [2] * 6
+        model = self.ns["build_candidate"]({"kind": "context_char", "C": 1, "metadata_weight": 0.25}).fit(posts, posts["bucket"])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "richer-model.joblib"
+            self.ns["joblib"].dump(model, path)
+            loaded = self.ns["joblib"].load(path)
+            self.ns["np"].testing.assert_allclose(model.predict_proba(posts), loaded.predict_proba(posts))
+            guesses = self.ns["predict_posts"](loaded, posts.head(2))
+            self.assertEqual(guesses["Actual Range"].tolist(), [BUCKET_LABELS[0]] * 2)
+            changed = posts.assign(upvoteCount=100000, fetchedAt="bad")
+            self.ns["np"].testing.assert_allclose(loaded.predict_proba(posts), loaded.predict_proba(changed))
 
     def test_mongo_read_is_bounded_projected_and_client_closes(self):
         calls = []
@@ -201,7 +236,7 @@ class NotebookTests(unittest.TestCase):
         with patch.dict(self.ns, {"MongoClient": FakeClient}):
             self.assertEqual(self.ns["load_posts"](config, 25, "politics"), records)
         self.assertEqual(calls[1:3], [("select", "fixture"), ("select", "newposts")])
-        self.assertEqual(calls[3], ("find", {"sub": "politics"}, {"_id": 0, "title": 1, "upvoteCount": 1, "created_utc": 1, "fetchedAt": 1, "sub": 1}))
+        self.assertEqual(calls[3], ("find", {"sub": "politics"}, {"_id": 0, "title": 1, "upvoteCount": 1, "created_utc": 1, "fetchedAt": 1, "sub": 1, "domain": 1, "is_self": 1, "is_video": 1}))
         self.assertEqual(calls[4:], [("sort", "_id", -1), ("limit", 25), ("timeout", 20000), ("close",)])
         self.assertEqual(calls[0][2]["serverSelectionTimeoutMS"], 10000)
         for limit in [0, 100001, True, 2.5]:

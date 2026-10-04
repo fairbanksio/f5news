@@ -12,7 +12,7 @@ From the repository root:
 
 The command creates an environment under ignored `models/`, installs dependencies on the first run, executes the notebook, and opens an HTML report in your browser. Later runs reuse the environment. Python 3.11 is required (`brew install python@3.11` if missing). Use `--no-open` to save results without opening a browser.
 
-The report explains whether headline guesses beat always choosing the most common range, shows two charts, and lets you inspect example guesses. Detailed metrics stay in the notebook. Setup instructions and detailed diagnostics stay in the notebook. The report is `resources/data-analysis/models/latest-report.html`. The executed notebook is saved beside it as `latest-run.ipynb`. Edit the notebook's Configuration cell to change the subreddit or sample size, then rerun the command. If execution fails, the command exits with an error and keeps the previous report.
+The report compares headline-only guesses, richer guesses, and always choosing the most common range. It shows two charts and six randomly chosen real test posts with their actual and guessed ranges. Detailed metrics stay in the notebook. Setup instructions and detailed diagnostics stay in the notebook. The report is `resources/data-analysis/models/latest-report.html`. The executed notebook is saved beside it as `latest-run.ipynb`. Edit the notebook's Configuration cell to change the subreddit or sample size, then rerun the command. If execution fails, the command exits with an error and keeps the previous report.
 
 ## Credentials
 
@@ -28,11 +28,11 @@ The low range is split into 0–499 and 500–999. Higher ranges remain 1,000–
 
 The notebook displays cleaning counts, observation ages, bucket coverage, chronological train/test ranges, accuracy, macro F1, weighted F1, a majority-class baseline, a classification report, a confusion matrix, and sample predictions with model scores.
 
-The scraper stores the latest observed score, not a final popularity label. The sample is selected from scraped rising posts. Deduplication removes normalized title repeats before a chronological 60/20/20 training, validation, and test split. Six word/character TF-IDF models compare class weights and regularization on validation weighted F1. The selected settings are refit on older training plus validation posts, then evaluated on the newest test posts. Scores may have been updated after the split date, so this is not a historical backtest. Missing buckets cannot be learned, and probability scores are not calibrated guarantees.
+The scraper stores the latest observed score, not a final popularity label. The sample is selected from scraped rising posts. Deduplication removes normalized title repeats before a chronological 60/20/20 training, validation, and test split. Five finalists compare headline patterns, a word/letter Naive Bayes model, and source website/posting clues on validation weighted F1. The selected settings are refit on older training plus validation posts, then evaluated alongside a headline-only reference on the same newest test posts. Website, posting hour/day, post type, and title shape are available before votes arrive; upvotes, fetch time, and observation age are excluded from model inputs. Scores may have been updated after the split date, so this is not a historical backtest. Missing buckets cannot be learned, and probability scores are not calibrated guarantees.
 
 `MIN_OBSERVATION_AGE_HOURS` optionally excludes scores recorded before a chosen post age. It measures `fetchedAt - created_utc`, rather than how long ago a document was fetched.
 
-The pipeline and metric summary are saved under ignored `resources/data-analysis/models/`. Only load trusted model files. Keep database-derived outputs out of commits; committed notebook cells must have cleared outputs.
+The saved pipeline uses the local `analysis_models.py` module, which must remain available when loading it. It accepts post DataFrames with `title`, `domain`, `created_utc`, `is_self`, and `is_video`; missing optional clues become unknown. The pipeline and metric summary are saved under ignored `resources/data-analysis/models/`. Only load trusted model files. Keep database-derived outputs out of commits; committed notebook cells must have cleared outputs.
 
 ## Optional MLflow
 

@@ -26,7 +26,7 @@ class RunnerKernelManager(AsyncKernelManager):
 def render_report(notebook, summary=None):
     """Show results without the notebook's setup and explanatory prose."""
     report_notebook = nbformat.v4.new_notebook(cells=[nbformat.v4.new_markdown_cell(
-        "# Can Headlines Predict Upvotes?\n\nThe computer learns from older posts, then tries to guess "
+        "# Can We Predict Upvotes?\n\nThe computer learns from older headlines, websites, and posting times, then tries to guess "
         "the upvote range of newer posts. These are saved upvote counts, not final totals."
     )])
     if summary:
@@ -41,19 +41,21 @@ def render_report(notebook, summary=None):
         accuracy = summary["model_metrics"]["accuracy"]
         baseline_accuracy = summary["baseline_metrics"]["accuracy"]
         verdict = (
-            "The headline model gets more ranges right than the simple guess."
+            "The computer gets more ranges right than the simple guess."
             if accuracy > baseline_accuracy else
-            "The headline model still gets fewer ranges right than the simple guess."
+            "The computer still gets fewer ranges right than the simple guess."
             if accuracy < baseline_accuracy else
-            "The headline model and simple guess get the same share right."
+            "The computer and simple guess get the same share right."
         )
         if accuracy < 0.5:
             verdict += " It misses more than half, so don't rely on these predictions yet."
         report_notebook.cells.append(nbformat.v4.new_markdown_cell(
             f"## Is It Useful Yet?\n\n{verdict}\n\n"
             "| Approach | Guesses in the Correct Range |\n| --- | --- |\n"
-            f"| Learn From Headlines | {accuracy:.1%} |\n"
-            f"| Always Guess the Most Common Range | {baseline_accuracy:.1%} |"
+            f"| Headlines and Posting Clues | {accuracy:.1%} |\n"
+            + (f"| Headlines Only | {summary['headline_reference_metrics']['accuracy']:.1%} |\n"
+               if "headline_reference_metrics" in summary else "")
+            + f"| Always Guess the Most Common Range | {baseline_accuracy:.1%} |"
         ))
     sections = {
         "evaluate": ("Where the Guesses Go Wrong", (
@@ -65,10 +67,10 @@ def render_report(notebook, summary=None):
             (1, "Taller bars mean more posts in that upvote range. "
                 "Small bars mean fewer examples, so those ranges are harder to learn."),
         )),
-        "predict": ("Try a Few Headlines", (
-            (0, "These are example headlines, not real test results. "
+        "predict": ("Check Real Examples", (
+            (0, "These are randomly chosen real posts the computer was not taught from. Compare its guess with the actual range. "
                 "The percentage shows how strongly the computer favors its guess, not a proven chance of being right. "
-                "Change the sample headlines in the notebook and rerun to try your own."),
+                "Yes means it got the range right; No means it missed."),
         )),
     }
     for tag, (heading, outputs) in sections.items():
