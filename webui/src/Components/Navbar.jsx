@@ -109,7 +109,7 @@ export default function Nav() {
                       <Menu.RadioItem gap={0} value='30'><Box as="span" display="inline-flex" alignItems="center" justifyContent="center" flexShrink={0} fontSize="0.8em" w="1em" mr="0.75rem"><Menu.ItemIndicator position="static" transform="none"><svg viewBox="0 0 14 14" width="1em" height="1em"><polygon fill="currentColor" points="5.5 11.9993304 14 3.49933039 12.5 2 5.5 8.99933039 1.5 4.9968652 0 6.49933039" /></svg></Menu.ItemIndicator></Box><Text>30s</Text></Menu.RadioItem>
                       <Menu.RadioItem gap={0} value='60'><Box as="span" display="inline-flex" alignItems="center" justifyContent="center" flexShrink={0} fontSize="0.8em" w="1em" mr="0.75rem"><Menu.ItemIndicator position="static" transform="none"><svg viewBox="0 0 14 14" width="1em" height="1em"><polygon fill="currentColor" points="5.5 11.9993304 14 3.49933039 12.5 2 5.5 8.99933039 1.5 4.9968652 0 6.49933039" /></svg></Menu.ItemIndicator></Box><Text>1m</Text></Menu.RadioItem>
                       <Menu.RadioItem gap={0} value='120'><Box as="span" display="inline-flex" alignItems="center" justifyContent="center" flexShrink={0} fontSize="0.8em" w="1em" mr="0.75rem"><Menu.ItemIndicator position="static" transform="none"><svg viewBox="0 0 14 14" width="1em" height="1em"><polygon fill="currentColor" points="5.5 11.9993304 14 3.49933039 12.5 2 5.5 8.99933039 1.5 4.9968652 0 6.49933039" /></svg></Menu.ItemIndicator></Box><Text>2m</Text></Menu.RadioItem>
-                      <Menu.RadioItem gap={0} value='600'><Box as="span" display="inline-flex" alignItems="center" justifyContent="center" flexShrink={0} fontSize="0.8em" w="1em" mr="0.75rem"><Menu.ItemIndicator position="static" transform="none"><svg viewBox="0 0 14 14" width="1em" height="1em"><polygon fill="currentColor" points="5.5 11.9993304 14 3.49933039 12.5 2 5.5 8.99933039 1.5 4.9968652 0 6.49933039" /></svg></Menu.ItemIndicator></Box><Text>5m</Text></Menu.RadioItem>
+                      <Menu.RadioItem gap={0} value='300'><Box as="span" display="inline-flex" alignItems="center" justifyContent="center" flexShrink={0} fontSize="0.8em" w="1em" mr="0.75rem"><Menu.ItemIndicator position="static" transform="none"><svg viewBox="0 0 14 14" width="1em" height="1em"><polygon fill="currentColor" points="5.5 11.9993304 14 3.49933039 12.5 2 5.5 8.99933039 1.5 4.9968652 0 6.49933039" /></svg></Menu.ItemIndicator></Box><Text>5m</Text></Menu.RadioItem>
                     </Menu.RadioItemGroup>
 
                     <Menu.Separator />
@@ -141,7 +141,7 @@ export default function Nav() {
                       <Menu.Item value='30' onClick={() => setRefreshInterval(30)}>30s</Menu.Item>
                       <Menu.Item value='60' onClick={() => setRefreshInterval(60)}>1m</Menu.Item>
                       <Menu.Item value='120' onClick={() => setRefreshInterval(120)}>2m</Menu.Item>
-                      <Menu.Item value='600' onClick={() => setRefreshInterval(600)}>5m</Menu.Item>
+                      <Menu.Item value='300' onClick={() => setRefreshInterval(300)}>5m</Menu.Item>
                     </Menu.Content></Menu.Positioner></Portal>
                     
                   </Menu.Root>

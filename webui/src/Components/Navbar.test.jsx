@@ -7,6 +7,13 @@ import { SubredditContext } from '../Contexts/SubredditContext';
 import { ViewModeContext } from '../Contexts/ViewModeContext';
 import Nav, { getRefreshIntervalMenuValue } from './Navbar';
 
+const viewport = vi.hoisted(() => ({ desktop: false }));
+
+vi.mock('@chakra-ui/react', async importOriginal => ({
+  ...(await importOriginal()),
+  useBreakpointValue: values => values[viewport.desktop ? 'md' : 'base'],
+}));
+
 vi.mock('react-ga4', () => ({
   default: {
     event: vi.fn(),
@@ -39,6 +46,7 @@ const renderNavbar = ({
 
 beforeEach(() => {
   window.scrollTo = vi.fn();
+  viewport.desktop = false;
 });
 
 test('normalizes refresh interval menu values for Chakra radio state', () => {
@@ -55,14 +63,24 @@ test('renders the current subreddit and lets users choose another one', async ()
   expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
 });
 
-test('updates the refresh interval from the mobile menu', async () => {
+test('sets a five-minute refresh interval from the mobile menu', async () => {
   const { setRefreshInterval } = renderNavbar({ refreshInterval: 60 });
 
   fireEvent.click(screen.getByRole('button', { name: /open display settings/i }));
   expect(await screen.findByRole('menuitemradio', { name: '1m' })).toHaveAttribute('aria-checked', 'true');
   fireEvent.click(screen.getByRole('menuitemradio', { name: '5m' }));
 
-  await waitFor(() => expect(setRefreshInterval).toHaveBeenCalledWith(600));
+  await waitFor(() => expect(setRefreshInterval).toHaveBeenCalledWith(300));
+});
+
+test('sets a five-minute refresh interval from the desktop menu', async () => {
+  viewport.desktop = true;
+  const { setRefreshInterval } = renderNavbar({ refreshInterval: 60 });
+
+  fireEvent.click(await screen.findByRole('button', { name: '60s' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: '5m' }));
+
+  expect(setRefreshInterval).toHaveBeenCalledWith(300);
 });
 
 test('shows a determinate progress bar when not loading', () => {
