@@ -1,4 +1,5 @@
 import React from 'react';
+import placeholderSrc from '../assets/placeholder.png?inline';
 import { fireEvent, screen } from '@testing-library/react';
 import { render } from '../test-utils';
 import { ModalContext } from '../Contexts/ModalContext';
@@ -217,4 +218,28 @@ test.each(['spoiler', 'over_18', 'preview_disabled'])('keeps Reddit-supplied pre
   );
   fireEvent.click(screen.getByRole('button', { name: /preview image/i }));
   expect(setModalData).toHaveBeenCalledWith(flaggedPost);
+});
+
+
+test('keeps external actions safe and replaces broken thumbnails', () => {
+  renderPostCard(vi.fn());
+  screen.getAllByRole('link').forEach(link => {
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+  const image = screen.getByRole('img');
+  fireEvent.error(image);
+  expect(image).toHaveAttribute('src', placeholderSrc);
+});
+
+test('preserves video previews after the Chakra migration', () => {
+  const setModalData = vi.fn();
+  const videoPost = { ...post, is_video: true, media: { reddit_video: { dash_url: 'https://v.redd.it/video.mpd' } } };
+  render(
+    <ModalContext.Provider value={{ setModalData }}>
+      <PostCard post={videoPost} elId={0} />
+    </ModalContext.Provider>
+  );
+  fireEvent.click(screen.getByRole('button', { name: /preview video/i }));
+  expect(setModalData).toHaveBeenCalledWith(videoPost);
 });

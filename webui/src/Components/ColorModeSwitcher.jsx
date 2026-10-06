@@ -1,5 +1,6 @@
 import React, { useContext } from 'react';
-import { useColorMode, useColorModeValue, Button, Box, MenuItem, Text} from '@chakra-ui/react';
+import { Button, Box, Menu, Text} from '@chakra-ui/react';
+import { useColorMode, useColorModeValue } from '../Contexts/ColorModeContext';
 import { FaMoon, FaSun } from 'react-icons/fa';
 import { SubredditContext } from '../Contexts/SubredditContext';
 import { trackColorModeChange } from '../analytics';
@@ -42,9 +43,9 @@ export const ColorModeSwitcherMenuItem = props => {
   const SwitchIcon = useColorModeValue(FaMoon, FaSun);
   const SwitchText = useColorModeValue('Dark mode', 'Light mode');
   return (
-    <MenuItem onClick={changeMode} >
+    <Menu.Item value="ColorModeSwitcher" onClick={changeMode} >
       <Box as={SwitchIcon} ml={0} mr={2}/> 
       <Text as='span' textStyle='control'>{SwitchText}</Text>
-    </MenuItem>
+    </Menu.Item>
   );
 };

@@ -38,6 +38,28 @@ test('refresh interval provider reads and persists localStorage values', () => {
   expect(localStorage.getItem('refreshInterval')).toBe('60');
 });
 
+test('corrects previously saved five-minute intervals and persists them across remounts', () => {
+  localStorage.setItem('refreshInterval', '600');
+
+  const Probe = () => {
+    const { refreshInterval } = useContext(RefreshIntervalContext);
+    return <span>refresh {refreshInterval}</span>;
+  };
+  const App = () => (
+    <RefreshIntervalProvider>
+      <Probe />
+    </RefreshIntervalProvider>
+  );
+
+  const { unmount } = render(<App />);
+  expect(screen.getByText('refresh 300')).toBeInTheDocument();
+  expect(localStorage.getItem('refreshInterval')).toBe('300');
+
+  unmount();
+  render(<App />);
+  expect(screen.getByText('refresh 300')).toBeInTheDocument();
+});
+
 test('view mode provider reads and persists localStorage values', () => {
   localStorage.setItem('viewMode', 'list');
 

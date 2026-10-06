@@ -16,6 +16,7 @@ import { ViewModeProvider } from './Contexts/ViewModeContext'
 import { LoadingProvider } from './Contexts/LoadingContext'
 import { ModalProvider, ModalContext } from './Contexts/ModalContext'
 import { initializeAnalytics, trackPageView } from './analytics';
+import { ColorModeProvider } from './Contexts/ColorModeContext';
 
 const LazyMediaModal = lazy(() => import('./Components/MediaModal').then(module => ({ default: module.MediaModal })));
 
@@ -38,7 +39,8 @@ const ThemedApp = () => {
   }, [location]);
 
   return (
-    <ChakraProvider theme={CustomTheme}>
+    <ChakraProvider value={CustomTheme.system}>
+      <ColorModeProvider initialColorMode={CustomTheme.config.initialColorMode}>
       <RefreshIntervalProvider>
         <SubredditProvider>
           <ViewModeProvider>
@@ -61,6 +63,7 @@ const ThemedApp = () => {
           </ViewModeProvider>
         </SubredditProvider>
       </RefreshIntervalProvider>
+      </ColorModeProvider>
     </ChakraProvider>
   )
 }
