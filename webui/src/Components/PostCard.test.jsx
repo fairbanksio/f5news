@@ -166,7 +166,7 @@ describe('PostCard', () => {
     renderPostCard(vi.fn());
 
     expect(screen.getByTestId('post-card-title-zone')).toHaveStyle({
-      minHeight: '4.5rem',
+      minHeight: '72px',
     });
     expect(screen.getByTestId('post-card-actions')).toHaveStyle({
       marginTop: 'auto',

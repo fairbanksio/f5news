@@ -8,9 +8,9 @@ Object.defineProperty(window, 'matchMedia', {
 });
 
 setMedia({
-  widthPx: 1024,
-  heightPx: 768,
-  mediaType: 'screen',
+  width: 1024,
+  height: 768,
+  type: 'screen',
 });
 
 Object.defineProperty(Element.prototype, 'scrollTo', {
