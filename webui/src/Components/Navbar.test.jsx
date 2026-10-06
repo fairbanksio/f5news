@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { render } from '../test-utils';
 import { LoadingContext } from '../Contexts/LoadingContext';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext';
@@ -45,23 +45,24 @@ test('normalizes refresh interval menu values for Chakra radio state', () => {
   expect(getRefreshIntervalMenuValue(120)).toBe('120');
 });
 
-test('renders the current subreddit and lets users choose another one', () => {
+test('renders the current subreddit and lets users choose another one', async () => {
   const { setSubreddit } = renderNavbar();
 
   fireEvent.click(screen.getByRole('button', { name: /r\/politics/i }));
-  fireEvent.click(screen.getByText('technology').closest('button'));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'technology' }));
 
   expect(setSubreddit).toHaveBeenCalledWith('technology');
   expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
 });
 
-test('updates the desktop refresh interval from the menu', () => {
+test('updates the refresh interval from the mobile menu', async () => {
   const { setRefreshInterval } = renderNavbar({ refreshInterval: 60 });
 
   fireEvent.click(screen.getByRole('button', { name: /open display settings/i }));
-  fireEvent.click(screen.getByText('5m').closest('button'));
+  expect(await screen.findByRole('menuitemradio', { name: '1m' })).toHaveAttribute('aria-checked', 'true');
+  fireEvent.click(screen.getByRole('menuitemradio', { name: '5m' }));
 
-  expect(setRefreshInterval).toHaveBeenCalledWith(600);
+  await waitFor(() => expect(setRefreshInterval).toHaveBeenCalledWith(600));
 });
 
 test('shows a determinate progress bar when not loading', () => {
@@ -81,4 +82,21 @@ test('toggles the logo artwork with pointer and keyboard activation', () => {
 
   fireEvent.keyDown(logoButton, { key: 'Enter' });
   expect(screen.queryByRole('img')).not.toBeInTheDocument();
+});
+
+
+test('supports keyboard navigation and Escape in the subreddit menu', async () => {
+  const { setSubreddit } = renderNavbar();
+  const trigger = screen.getByRole('button', { name: /r\/politics/i });
+  trigger.focus();
+  fireEvent.keyDown(trigger, { key: 'ArrowDown', code: 'ArrowDown' });
+  const firstItem = await screen.findByRole('menuitem', { name: 'politics' });
+  const menu = screen.getByRole('menu');
+  await waitFor(() => expect(menu).toHaveAttribute('aria-activedescendant', firstItem.id));
+  fireEvent.keyDown(menu, { key: 'ArrowDown', code: 'ArrowDown' });
+  const secondItem = screen.getByRole('menuitem', { name: 'technology' });
+  await waitFor(() => expect(menu).toHaveAttribute('aria-activedescendant', secondItem.id));
+  fireEvent.keyDown(menu, { key: 'Escape', code: 'Escape' });
+  await waitFor(() => expect(trigger).toHaveAttribute('aria-expanded', 'false'));
+  expect(setSubreddit).not.toHaveBeenCalled();
 });

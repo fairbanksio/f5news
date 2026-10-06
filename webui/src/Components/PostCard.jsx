@@ -10,11 +10,11 @@ import {
   Link,
   Stack,
   Text,
-  Tooltip,
   useBreakpointValue,
-  useColorModeValue,
 } from '@chakra-ui/react';
-import { ExternalLinkIcon } from '@chakra-ui/icons';
+import { useColorModeValue } from '../Contexts/ColorModeContext';
+import { Tooltip } from './Tooltip';
+import { ExternalLinkIcon } from './LegacyIcons';
 import { timeAgoShort } from '../Util/FormattedTime'
 import { FaVideo, FaLink, FaImage, FaImages, FaComment, FaRedditAlien } from 'react-icons/fa'
 import {ModalContext} from '../Contexts/ModalContext'
@@ -276,7 +276,7 @@ export const PostCard = ({post, elId}) => {
       <Box
         as={Link}
         href={redditUrl}
-        isExternal
+        target="_blank" rel="noopener noreferrer"
         position='relative'
         bg={mediaBg}
         display='block'
@@ -290,7 +290,7 @@ export const PostCard = ({post, elId}) => {
           h={imageHeight}
           objectFit='cover'
           position='relative'
-          fallbackSrc={placeholderSrc}
+          onError={event => { event.currentTarget.onerror = null; event.currentTarget.src = placeholderSrc; }}
         />
 
         <Tooltip placement='left' label={media.label}>
@@ -319,22 +319,26 @@ export const PostCard = ({post, elId}) => {
           borderRadius='md'
           px={2}
           py={1}
+          textTransform='uppercase'
           textStyle='control'
+          fontSize='xs'
+          fontWeight='bold'
+          lineHeight='base'
         >
-          <Text as='span' isTruncated display='block'>{sourceLabel}</Text>
+          <Text as='span' truncate display='block'>{sourceLabel}</Text>
         </Badge>
       </Box>
 
-      <Stack p={4} spacing={3} flex='1'>
+      <Stack p={4} gap={3} flex='1'>
         <Flex align='center' justify='space-between' gap={3}>
           <Link
             href={redditUrl}
             color={metaColor}
-            isExternal
+            target="_blank" rel="noopener noreferrer"
             id={"reddit-url-"+elId}
             aria-label={`Open Reddit comments for ${title}`}
             textStyle='meta'
-            noOfLines={1}
+            lineClamp={1}
             onClick={() => trackSelection('reddit_comments')}
           >
             {post.upvoteCount} upvotes &bull; {post.commentCount} comments &bull; {timeAgoShort(post.created_utc)}
@@ -345,11 +349,11 @@ export const PostCard = ({post, elId}) => {
           <Tooltip placement='bottom-start' label={title} openDelay={500}>
             <Link
               href={post.url}
-              isExternal
+              target="_blank" rel="noopener noreferrer"
               id={"external-url-"+elId}
               color={titleColor}
               textStyle='cardTitle'
-              noOfLines={3}
+              lineClamp={3}
               _hover={{color: titleHoverColor, textDecoration: 'none'}}
               onClick={() => trackSelection('article')}
             >
@@ -362,25 +366,27 @@ export const PostCard = ({post, elId}) => {
           <Button
             as={Link}
             href={post.url}
-            isExternal
+            target="_blank" rel="noopener noreferrer"
             size='sm'
-            rightIcon={<ExternalLinkIcon />}
+            gap={2}
             aria-label={`Open article: ${title}`}
             id={"external-action-url-"+elId}
             _hover={{textDecoration: 'none'}}
             onClick={() => trackSelection('article')}
           >
             Article
+            <ExternalLinkIcon />
           </Button>
 
           {media.canPreview ? (
             <Button
               size='sm'
-              leftIcon={<Icon as={media.icon} />}
+              gap={2}
               aria-label={`Preview ${media.label.toLowerCase()}: ${title}`}
               onClick={previewMedia}
               variant='ghost'
             >
+              <Icon as={media.icon} />
               Preview
             </Button>
           ) : null}
@@ -388,15 +394,16 @@ export const PostCard = ({post, elId}) => {
           <Button
             as={Link}
             href={redditUrl}
-            isExternal
+            target="_blank" rel="noopener noreferrer"
             size='sm'
-            leftIcon={<FaRedditAlien />}
+            gap={2}
             aria-label={`Open Reddit comments for ${title}`}
             id={"reddit-action-url-"+elId}
             variant='ghost'
             _hover={{textDecoration: 'none'}}
             onClick={() => trackSelection('reddit_comments')}
           >
+            <FaRedditAlien />
             Comments
           </Button>
         </Flex>

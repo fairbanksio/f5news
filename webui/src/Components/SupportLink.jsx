@@ -4,7 +4,7 @@ import {
   Button,
   Icon,
   Link,
-  MenuItem,
+  Menu,
 } from '@chakra-ui/react';
 import { FaSmileBeam } from 'react-icons/fa';
 import { trackSupportClick } from '../analytics';
@@ -41,15 +41,17 @@ export const SupportButton = ({ children = 'Support F5 News', ...props }) => (
 );
 
 export const SupportMenuItem = () => (
-  <MenuItem
-    as="a"
+  <Menu.Item
+    value="support"
+    asChild
     textStyle="control"
     onClick={() => trackSupportClick({ surface: 'mobile' })}
-    {...externalLinkProps}
   >
-    <Box as={FaSmileBeam} ml={0} mr={2} />
-    <span>Support F5 News</span>
-  </MenuItem>
+    <a {...externalLinkProps}>
+      <Box as={FaSmileBeam} ml={0} mr={2} />
+      <span>Support F5 News</span>
+    </a>
+  </Menu.Item>
 );
 
 export const SupportMessage = props => (

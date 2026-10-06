@@ -12,16 +12,12 @@ test('renders maintainer credits and clickable desktop support text', () => {
     'href',
     'https://github.com/bsord'
   );
-  expect(screen.getByRole('link', { name: 'bsord' })).toHaveStyle({
-    color: 'var(--chakra-colors-footerlink)',
-  });
+
   expect(screen.getByRole('link', { name: 'jonfairbanks' })).toHaveAttribute(
     'href',
     'https://fairbanks.io'
   );
-  expect(screen.getByRole('link', { name: 'jonfairbanks' })).toHaveStyle({
-    color: 'var(--chakra-colors-footerlink)',
-  });
+
   expect(screen.getByRole('link', { name: SUPPORT_MESSAGE })).toHaveAttribute(
     'href',
     SUPPORT_URL

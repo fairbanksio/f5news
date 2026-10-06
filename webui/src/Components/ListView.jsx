@@ -1,21 +1,16 @@
 import React from 'react';
 import {
   Table,
-  Thead,
-  Tbody,
-  Tr,
-  Td,
-  Th,
   Flex,
   Link,
   Text,
-  Tooltip,
   Container,
   IconButton,
   useBreakpointValue,
-  useColorModeValue,
 } from '@chakra-ui/react';
-import { LinkIcon, ChatIcon, ArrowUpIcon, TimeIcon } from '@chakra-ui/icons'
+import { LinkIcon, ChatIcon, ArrowUpIcon, TimeIcon } from './LegacyIcons';
+import { useColorModeValue } from '../Contexts/ColorModeContext';
+import { Tooltip } from './Tooltip';
 import { timeAgoShort } from '../Util/FormattedTime'
 import { getHeatTone } from './PostCard';
 import { useContext } from 'react';
@@ -46,10 +41,10 @@ const ListView = ({posts}) => {
         >
 
       {posts && posts.length > 0 ?
-        <Table
+        <Table.Root
           size='sm'
           textAlign='left'
-          sx={{
+          css={{
             th: {
               color: 'textSubtle',
               textStyle: 'meta',
@@ -61,33 +56,33 @@ const ListView = ({posts}) => {
           }}
         >
 
-          <Thead>
-            <Tr >
-              <Th w={1} aria-label='Comments'>
+          <Table.Header>
+            <Table.Row >
+              <Table.ColumnHeader w={1} aria-label='Comments'>
                 <Flex as='span' align='center' gap={2}>
-                  <ChatIcon  w={4} h={4}/>
+                  <ChatIcon w={4} h={4}/>
                   {showHeaderLabels ? <Text as='span'>Comments</Text> : null}
                 </Flex>
-              </Th>
-              <Th w={1} aria-label='Upvotes sorted descending' aria-sort='descending'>
+              </Table.ColumnHeader>
+              <Table.ColumnHeader w={1} aria-label='Upvotes sorted descending' aria-sort='descending'>
                 <Flex as='span' align='center' gap={2}>
                   <ArrowUpIcon w={5} h={5}/>
                   {showHeaderLabels ? <Text as='span'>Upvotes</Text> : null}
                 </Flex>
-              </Th>
-              {mobileMode?null:<Th w={1} aria-label='Posted'>
+              </Table.ColumnHeader>
+              {mobileMode?null:<Table.ColumnHeader w={1} aria-label='Posted'>
                 <Flex as='span' align='center' gap={2}>
                   <TimeIcon w={4} h={4}/>
                   {showHeaderLabels ? <Text as='span'>Posted</Text> : null}
                 </Flex>
-              </Th>}
-              <Th>Title</Th>
-              {mobileMode?null:<Th>Source</Th>}
-              <Th>Action</Th>
-            </Tr>
-          </Thead>
+              </Table.ColumnHeader>}
+              <Table.ColumnHeader>Title</Table.ColumnHeader>
+              {mobileMode?null:<Table.ColumnHeader>Source</Table.ColumnHeader>}
+              <Table.ColumnHeader>Action</Table.ColumnHeader>
+            </Table.Row>
+          </Table.Header>
 
-          <Tbody>
+          <Table.Body>
             {
             posts.map((post, i) => {
               const title = post.title.replace(/amp;/g,'');
@@ -102,63 +97,63 @@ const ListView = ({posts}) => {
                 });
               };
               return [
-                  <Tr
+                  <Table.Row
                     key={i}
                     bg={getHeatRowBg(post.upvoteCount, heatColorMode)}
                     borderLeftWidth='4px'
                     borderLeftColor={getHeatBorderColor(post.upvoteCount, heatColorMode)}
                     _hover={{bg: rowHoverBg}}
                   >
-                    <Td >{post.commentCount}</Td>
-                    <Td>{post.upvoteCount}</Td>
-                    {mobileMode?null:<Td>{timeAgoShort(post.created_utc)}</Td>}
-                    <Td>
+                    <Table.Cell >{post.commentCount}</Table.Cell>
+                    <Table.Cell>{post.upvoteCount}</Table.Cell>
+                    {mobileMode?null:<Table.Cell>{timeAgoShort(post.created_utc)}</Table.Cell>}
+                    <Table.Cell>
                       <Tooltip label={title} openDelay={500} placement='bottom-start'>
-                        <Link href={post.url} isExternal color='link' id={"external-url-"+i} onClick={() => trackSelection('article')}>
-                          <Text noOfLines={noOfLines} textStyle='listTitle'>{title}</Text>
+                        <Link href={post.url} target="_blank" rel="noopener noreferrer" color='link' id={"external-url-"+i} onClick={() => trackSelection('article')}>
+                          <Text lineClamp={noOfLines} textStyle='listTitle'>{title}</Text>
                         </Link>
                       </Tooltip>
-                    </Td>
-                    {mobileMode?null:<Td>
-                      <Text noOfLines={1} textStyle='body'>{post.domain}</Text>
-                    </Td>}
-                    <Td>
+                    </Table.Cell>
+                    {mobileMode?null:<Table.Cell>
+                      <Text lineClamp={1} textStyle='body'>{post.domain}</Text>
+                    </Table.Cell>}
+                    <Table.Cell>
                       <Tooltip label='Reddit comments'>
                         <IconButton
                           as={Link}
                           href={'https://reddit.com' + post.commentLink}
-                          isExternal
+                          target="_blank" rel="noopener noreferrer"
                           color='link'
                           id={"reddit-url-"+i}
                           aria-label={`Open Reddit comments for ${title}`}
-                          icon={<ChatIcon/>}
+
                           size='sm'
                           variant='ghost'
                           onClick={() => trackSelection('reddit_comments')}
-                        />
+                        ><ChatIcon /></IconButton>
                       </Tooltip>
                       <Tooltip label='Open article'>
                         <IconButton
                           as={Link}
                           href={post.url}
-                          isExternal
+                          target="_blank" rel="noopener noreferrer"
                           color='link'
                           id={"external-action-url-"+i}
                           aria-label={`Open article: ${title}`}
-                          icon={<LinkIcon/>}
+
                           size='sm'
                           variant='ghost'
                           onClick={() => trackSelection('article')}
-                        />
+                        ><LinkIcon /></IconButton>
                       </Tooltip>
-                    </Td>
-                  </Tr>
+                    </Table.Cell>
+                  </Table.Row>
                 ];
             })
             }
-          </Tbody>
+          </Table.Body>
 
-        </Table>
+        </Table.Root>
       :null}
 
     </Container>

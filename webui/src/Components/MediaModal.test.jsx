@@ -1,7 +1,8 @@
-import React from 'react';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import React, { lazy, StrictMode, Suspense, useContext } from 'react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { render } from '../test-utils';
-import { ModalContext } from '../Contexts/ModalContext';
+import { ModalContext, ModalProvider } from '../Contexts/ModalContext';
+import { PostCard } from './PostCard';
 import { MediaModal } from './MediaModal';
 
 vi.mock('react-player', () => ({
@@ -153,4 +154,31 @@ test('renders a publisher-hosted video despite a legacy derived suppression flag
 test('renders Reddit-supplied NSFW content', () => {
   renderMediaModal({ over_18: true, post_hint: 'image', thumbnail: 'https://example.com/photo.jpg' });
   expect(screen.getByRole('dialog')).toBeInTheDocument();
+});
+
+
+test('closes video previews with Escape', async () => {
+  const setModalData = renderMediaModal({ is_video: true, media: { reddit_video: { dash_url: 'https://v.redd.it/video.mpd' } } });
+  await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+  fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+  await waitFor(() => expect(setModalData).toHaveBeenCalledWith(null));
+});
+
+
+test('opens a lazy loaded preview through the real card and modal provider', async () => {
+  const LazyMediaModal = lazy(() => import('./MediaModal').then(module => ({ default: module.MediaModal })));
+  const ActiveMediaModal = () => {
+    const { modalData } = useContext(ModalContext);
+    return modalData ? <Suspense fallback={null}><LazyMediaModal /></Suspense> : null;
+  };
+  const imagePost = { title: 'Preview integration', post_hint: 'image', thumbnail: 'https://example.com/image.jpg', url: 'https://example.com/story', commentLink: '/r/news/comments/a', created_utc: Date.now() / 1000 };
+  const previewApp = () => <StrictMode><ModalProvider><ActiveMediaModal /><PostCard post={imagePost} elId={0} /></ModalProvider></StrictMode>;
+  const { rerender } = render(previewApp());
+  fireEvent.click(screen.getByRole('button', { name: /preview image: preview integration/i }));
+  expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  rerender(previewApp());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)); });
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /close/i }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
