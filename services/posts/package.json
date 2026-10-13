@@ -14,13 +14,13 @@
   "license": "ISC",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.11.0",
-    "globals": "^17.12.0",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
     "serverless": "^4.43.0",
     "serverless-domain-manager": "^10.3.1",
-    "serverless-offline": "^14.8.2"
+    "serverless-offline": "^14.8.3"
   },
   "dependencies": {
-    "mongoose": "^9.10.2"
+    "mongoose": "^9.11.0"
   }
 }
