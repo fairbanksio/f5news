@@ -1,6 +1,7 @@
 const mongoose = require("./db");
 const Post = require("./models/post");
 const { createCorsHeaders, isAllowedOrigin } = require("./cors");
+const { errorFields } = require("./telemetry");
 
 const configuredSubreddits = require("./subreddits.json");
 const subredditNames = new Map(configuredSubreddits.map((name) => [name.toLowerCase(), name]));
@@ -20,27 +21,45 @@ const createGetPostsBySubreddit = ({
   mongooseClient = mongoose,
   postModel = Post,
   now = () => new Date(),
+  logger = console,
 } = {}) => {
   const cache = new Map();
   const pending = new Map();
-  const loadPosts = async (subreddit) => {
+  const loadPosts = async (subreddit, requestContext) => {
     const currentDate = now();
     const cached = cache.get(subreddit);
     if (cached && cached.expiresAt > currentDate.getTime()) return cached.posts;
     if (pending.has(subreddit)) return pending.get(subreddit);
 
     const request = (async () => {
-      await mongooseClient.connect();
-      const hours = currentDate.getUTCHours();
-      const searchTime = Math.floor(currentDate.getTime() / 1000) -
-        (hours >= 11 && hours <= 23 ? 14400 : 28800);
-      const posts = await postModel.find({
-        created_utc: { $gt: searchTime },
-        upvoteCount: { $gt: 5 },
-        sub: subreddit,
-      }).sort({ upvoteCount: -1, created_utc: 1 }).maxTimeMS(2000).limit(20);
-      cache.set(subreddit, { posts, expiresAt: now().getTime() + 10000 });
-      return posts;
+      const startedAt = now().getTime();
+      let failedStage = "mongo_connect";
+      try {
+        await mongooseClient.connect();
+        failedStage = "mongo_query";
+        const hours = currentDate.getUTCHours();
+        const searchTime = Math.floor(currentDate.getTime() / 1000) -
+          (hours >= 11 && hours <= 23 ? 14400 : 28800);
+        const posts = await postModel.find({
+          created_utc: { $gt: searchTime },
+          upvoteCount: { $gt: 5 },
+          sub: subreddit,
+        }).sort({ upvoteCount: -1, created_utc: 1 }).maxTimeMS(2000).limit(20);
+        cache.set(subreddit, { posts, expiresAt: now().getTime() + 10000 });
+        return posts;
+      } catch (error) {
+        logger.error(JSON.stringify({
+          eventType: "POSTS_FETCH_FAILED",
+          service: "posts",
+          operation: "get_posts_by_subreddit",
+          subreddit,
+          failedStage,
+          durationMs: Math.max(0, now().getTime() - startedAt),
+          ...requestContext,
+          ...errorFields(error),
+        }));
+        throw error;
+      }
     })();
     pending.set(subreddit, request);
     try {
@@ -50,7 +69,7 @@ const createGetPostsBySubreddit = ({
     }
   };
 
-  return async (event = {}) => {
+  return async (event = {}, context = {}) => {
     const origin = getRequestOrigin(event);
 
     if (!isAllowedOrigin(origin)) {
@@ -76,7 +95,10 @@ const createGetPostsBySubreddit = ({
     }
 
     try {
-      const posts = await loadPosts(canonicalSubreddit);
+      const posts = await loadPosts(canonicalSubreddit, {
+        requestId: context.awsRequestId,
+        apiRequestId: event.requestContext?.requestId,
+      });
 
       // return results
       return jsonResponse(200, {

@@ -1,4 +1,5 @@
 const mongoose = require("./db");
+const { errorFields, sanitizeImageFailure, sanitizeUrl } = require("./telemetry");
 const newPost = require("./models/newPost");
 const { normalizeFetch } = require("./fetchInterop");
 const {
@@ -37,17 +38,23 @@ const shouldTrackImageResolution = (data) => {
 };
 
 const logStructured = (logger, payload) => {
-  logger.log(JSON.stringify(payload));
+  if (payload._aws || payload.eventType === "POST_BATCH") {
+    logger.log(JSON.stringify(payload));
+    return;
+  }
+  const severity = /ERROR|FAILED/.test(payload.eventType) ? "error" : /MISSING/.test(payload.eventType) || payload.outcome === "degraded" ? "warn" : "info";
+  const output = logger[severity === "info" ? "log" : severity] || logger.log;
+  output.call(logger, JSON.stringify({ ...payload, severity }));
 };
 
-const createImageFailureDiagnostics = () => {
+const createImageFailureDiagnostics = (secrets = []) => {
   const failures = [];
 
   return {
     failures,
     options: {
       onArticleImageFailure: (failure) => {
-        failures.push(failure);
+        failures.push(sanitizeImageFailure(failure, secrets));
       },
     },
   };
@@ -70,6 +77,8 @@ const createImageResolutionMetrics = (subreddit, operation) => ({
   resolved: 0,
   missing: 0,
   errors: 0,
+  dependencyFailures: 0,
+  updateErrors: 0,
 });
 
 const logImageResolutionMetrics = (logger, metrics) => {
@@ -101,6 +110,7 @@ const logImageResolutionMetrics = (logger, metrics) => {
               Name: "PostImageResolutionErrors",
               Unit: "Count",
             },
+            { Name: "PostImageDependencyFailures", Unit: "Count" },
           ],
         },
       ],
@@ -112,6 +122,7 @@ const logImageResolutionMetrics = (logger, metrics) => {
     PostImageResolutionResolved: metrics.resolved,
     PostImageResolutionMissing: metrics.missing,
     PostImageResolutionErrors: metrics.errors,
+    PostImageDependencyFailures: metrics.dependencyFailures,
   });
 };
 
@@ -166,88 +177,76 @@ const updatePostThumbnail = (newPostModel, data, thumbnail) => {
   );
 };
 
+// Callbacks report exhausted failures, never retries that later recover.
+const dependencyFailed = (diagnostics) => diagnostics.failures.some((failure) =>
+  ["http_status", "request_timeout", "empty_response", "body_read_error", "body_read_timeout", "fetch_error", "redirect_missing_location", "too_many_redirects"].includes(failure.reason)
+);
+
+const resolvePostImage = async (post, subreddit, operation, metrics, imageSourceImpl, logger, secrets = []) => {
+  const diagnostics = createImageFailureDiagnostics(secrets);
+  let thumbnail = post.thumbnail || "";
+  let resolutionError;
+  const tracked = shouldTrackImageResolution(post);
+  if (tracked) metrics.attempts += 1;
+  try {
+    thumbnail = await imageSourceImpl(post, diagnostics.options);
+  } catch (error) {
+    resolutionError = error;
+    if (tracked) metrics.errors += 1;
+  }
+  if (tracked && dependencyFailed(diagnostics)) metrics.dependencyFailures += 1;
+  const resolved = hasUsableThumbnail(thumbnail);
+  if (tracked) metrics[resolved ? "resolved" : "missing"] += 1;
+  if (resolutionError || (tracked && !resolved)) {
+    const prefix = operation === "backfill" ? "POST_IMAGE_BACKFILL" : "POST_IMAGE_RESOLUTION";
+    logStructured(logger, {
+      eventType: `${prefix}_${resolutionError ? "ERROR" : "MISSING"}`,
+      subreddit, domain: getPostDomain(post), postId: getPostId(post),
+      postUrl: sanitizeUrl(getPostUrl(post)), title: post.title,
+      ...(resolutionError ? errorFields(resolutionError, secrets) : { redditThumbnail: hasUsableThumbnail(post.thumbnail) ? sanitizeUrl(post.thumbnail) : post.thumbnail || "" }),
+      ...imageFailureLogFields(diagnostics),
+    });
+  }
+  return resolved ? thumbnail : "";
+};
+
+const saveOptionalThumbnail = async (newPostModel, post, thumbnail, subreddit, operation, metrics, logger, secrets = []) => {
+  try {
+    await updatePostThumbnail(newPostModel, post, thumbnail);
+  } catch (error) {
+    metrics.updateErrors += 1;
+    logStructured(logger, {
+      eventType: "POST_IMAGE_UPDATE_ERROR", subreddit, operation,
+      postId: getPostId(post), domain: getPostDomain(post), ...errorFields(error, secrets),
+    });
+  }
+};
+
 const backfillMissingPostImages = async (
   subreddit,
-  {
-    imageSourceImpl = imageSource,
-    logger = console,
-    newPostModel = newPost,
-    now = () => new Date(),
-  } = {}
+  { imageSourceImpl = imageSource, logger = console, newPostModel = newPost, now = () => new Date(), redactionValues = [] } = {}
 ) => {
-  const imageMetrics = createImageResolutionMetrics(subreddit, "backfill");
+  const metrics = createImageResolutionMetrics(subreddit, "backfill");
   let posts;
-
   try {
     posts = await findMissingThumbnailPosts(newPostModel, subreddit, { now });
   } catch (error) {
-    logger.warn(`Error finding posts missing images @ ${Date.now()}: ${error}`);
-    return;
+    logStructured(logger, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit, stage: "backfill_query", ...errorFields(error, redactionValues) });
+    return { ...metrics, queryErrors: 1 };
   }
-
-  await mapWithConcurrency(
-    posts || [],
-    IMAGE_BACKFILL_CONCURRENCY,
-    async (post) => {
-      if (!shouldTrackImageResolution(post)) {
-        return;
-      }
-
-      imageMetrics.attempts += 1;
-      let thumbnail = "";
-      const diagnostics = createImageFailureDiagnostics();
-
-      try {
-        thumbnail = await imageSourceImpl(post, diagnostics.options);
-      } catch (error) {
-        imageMetrics.errors += 1;
-        logStructured(logger, {
-          eventType: "POST_IMAGE_BACKFILL_ERROR",
-          subreddit,
-          domain: getPostDomain(post),
-          postId: getPostId(post),
-          postUrl: getPostUrl(post),
-          title: post.title,
-          errorMessage: error.message,
-          ...imageFailureLogFields(diagnostics),
-        });
-      }
-
-      if (hasUsableThumbnail(thumbnail)) {
-        imageMetrics.resolved += 1;
-        await updatePostThumbnail(newPostModel, post, thumbnail);
-        logStructured(logger, {
-          eventType: "POST_IMAGE_BACKFILL_RESOLVED",
-          subreddit,
-          domain: getPostDomain(post),
-          postId: getPostId(post),
-          postUrl: getPostUrl(post),
-          title: post.title,
-        });
-        return;
-      }
-
-      imageMetrics.missing += 1;
-      logStructured(logger, {
-        eventType: "POST_IMAGE_BACKFILL_MISSING",
-        subreddit,
-        domain: getPostDomain(post),
-        postId: getPostId(post),
-        postUrl: getPostUrl(post),
-        title: post.title,
-        redditThumbnail: post.thumbnail || "",
-        ...imageFailureLogFields(diagnostics),
-      });
-    }
-  );
-
-  logImageResolutionMetrics(logger, imageMetrics);
+  await mapWithConcurrency(posts || [], IMAGE_BACKFILL_CONCURRENCY, async (post) => {
+    if (!shouldTrackImageResolution(post)) return;
+    const thumbnail = await resolvePostImage(post, subreddit, "backfill", metrics, imageSourceImpl, logger, redactionValues);
+    if (thumbnail) await saveOptionalThumbnail(newPostModel, post, thumbnail, subreddit, "backfill", metrics, logger, redactionValues);
+  });
+  logImageResolutionMetrics(logger, metrics);
+  return metrics;
 };
 
 const insertNewPosts = (
   newPosts,
   subreddit,
-  { imageSourceImpl = imageSource, logger = console, newPostModel = newPost } = {}
+  { imageSourceImpl = imageSource, logger = console, newPostModel = newPost, job = {}, redactionValues = [] } = {}
 ) => {
   logStructured(logger, { eventType: "POST_BATCH", subreddit, count: newPosts.length });
   const imageMetrics = createImageResolutionMetrics(subreddit, "scrape");
@@ -283,73 +282,18 @@ const insertNewPosts = (
       };
 
       const postKey = createPostKey(value.data);
-      const trackImageResolution = shouldTrackImageResolution(value.data);
-
-      if (trackImageResolution) {
-        imageMetrics.attempts += 1;
-      }
-
       await newPostModel.findOneAndUpdate(postKey, postUpdate, { upsert: true });
-
-      let thumbnail = value.data.thumbnail || "";
-      const diagnostics = createImageFailureDiagnostics();
-      try {
-        thumbnail = await imageSourceImpl(value.data, diagnostics.options);
-      } catch (error) {
-        if (trackImageResolution) {
-          imageMetrics.errors += 1;
-          logStructured(logger, {
-            eventType: "POST_IMAGE_RESOLUTION_ERROR",
-            subreddit,
-            domain: getPostDomain(value.data),
-            postId: getPostId(value.data),
-            postUrl: getPostUrl(value.data),
-            title: value.data.title,
-            errorMessage: error.message,
-            ...imageFailureLogFields(diagnostics),
-          });
-        }
-        logger.warn(
-          `Error resolving post image source @ ${Date.now()}: ${error}`
-        );
-      }
-
-      const hasResolvedThumbnail = hasUsableThumbnail(thumbnail);
-
-      if (hasResolvedThumbnail) {
-        if (trackImageResolution) {
-          imageMetrics.resolved += 1;
-        }
-        return updatePostThumbnail(newPostModel, value.data, thumbnail);
-      }
-
-      if (trackImageResolution) {
-        imageMetrics.missing += 1;
-        logStructured(logger, {
-          eventType: "POST_IMAGE_RESOLUTION_MISSING",
-          subreddit,
-          domain: getPostDomain(value.data),
-          postId: getPostId(value.data),
-          postUrl: getPostUrl(value.data),
-          title: value.data.title,
-          redditThumbnail: value.data.thumbnail || "",
-          ...imageFailureLogFields(diagnostics),
-        });
-      }
-
+      job.savedCount = (job.savedCount || 0) + 1;
+      const thumbnail = await resolvePostImage(value.data, subreddit, "scrape", imageMetrics, imageSourceImpl, logger, redactionValues);
+      if (thumbnail) await saveOptionalThumbnail(newPostModel, value.data, thumbnail, subreddit, "scrape", imageMetrics, logger, redactionValues);
       return null;
     }
   );
 
-  return insertPromises
-    .then((result) => {
-      logImageResolutionMetrics(logger, imageMetrics);
-      return result;
-    })
-    .catch((e) => {
-      logger.warn(`Error Inserting Posts @ ${Date.now()}: ${e}`);
-      logImageResolutionMetrics(logger, imageMetrics);
-    });
+  return insertPromises.finally(() => {
+    job.scrapeImages = imageMetrics;
+    logImageResolutionMetrics(logger, imageMetrics);
+  });
 };
 
 const createFetchPosts = ({
@@ -363,95 +307,67 @@ const createFetchPosts = ({
 } = {}) => {
   const normalizedFetch = normalizeFetch(fetchImpl);
 
-  return async (event) => {
-    logger.log(event);
+  return async (event = {}, context = {}) => {
+    const startedAt = Date.now();
     const subreddit = event.subreddit || "politics";
     const redditUrl = `https://oauth.reddit.com/r/${subreddit}/rising`;
-    logger.log(redditUrl);
-
-    await mongooseClient.connect();
-
-    // reddit api auth
-    var username = env["REDDIT_USERNAME"];
-    var password = env["REDDIT_PASSWORD"];
-    var client_id = env["REDDIT_CLIENT_ID"];
-    var client_secret = env["REDDIT_SECRET_KEY"];
-
-    var details = {
-      username: username,
-      password: password,
-      grant_type: "password",
-    };
-    var formBody = [];
-    for (var property in details) {
-      var encodedKey = encodeURIComponent(property);
-      var encodedValue = encodeURIComponent(details[property]);
-      formBody.push(encodedKey + "=" + encodedValue);
-    }
-    formBody = formBody.join("&");
-
-    const access_token = await normalizedFetch(
-      "https://www.reddit.com/api/v1/access_token",
-      {
+    const job = { savedCount: 0, fetchedCount: 0 };
+    const redactionValues = [env.MONGO_CONNECTION_STRING, env.REDDIT_CLIENT_ID, env.REDDIT_SECRET_KEY, env.REDDIT_USERNAME, env.REDDIT_PASSWORD];
+    let stage = "database_connect";
+    let terminalError;
+    try {
+      await mongooseClient.connect();
+      stage = "reddit_auth";
+      const authResponse = await normalizedFetch("https://www.reddit.com/api/v1/access_token", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          Authorization: "Basic " + btoa(client_id + ":" + client_secret),
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Authorization: "Basic " + btoa(env.REDDIT_CLIENT_ID + ":" + env.REDDIT_SECRET_KEY),
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         },
-        body: formBody,
-      }
-    )
-      .then((response) => {
-        return response.json();
-      })
-      .then((json) => {
-        return json.access_token;
+        body: new URLSearchParams({ username: env.REDDIT_USERNAME, password: env.REDDIT_PASSWORD, grant_type: "password" }).toString(),
       });
-
-    await normalizedFetch(redditUrl, {
-      method: "GET",
-      headers: {
-        Authorization: "bearer " + access_token,
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 f5",
-      },
-    })
-      .then((response) => {
-        return response.json();
-      })
-      .then((json) => {
-        return json.data.children;
-      })
-      .then((posts) => {
-        return insertNewPosts(posts, subreddit, {
-          imageSourceImpl,
-          logger,
-          newPostModel,
-        });
-      })
-      .then(() => {
-        return backfillMissingPostImages(subreddit, {
-          imageSourceImpl,
-          logger,
-          newPostModel,
-          now,
-        });
-      })
-      .then(() => {
-        logger.log(`Saved New Posts @ ${Date.now()}`);
-        logger.log(
-          `Currently using ${(
-            process.memoryUsage().heapUsed /
-            1024 /
-            1024
-          ).toFixed(2)} MB of memory \n`
-        );
-      })
-      .catch((error) => {
-        logger.log("Error fetching posts:", error);
+      if (authResponse.ok === false) throw Object.assign(new Error("Reddit authentication request failed"), { status: authResponse.status });
+      const auth = await authResponse.json();
+      if (!auth.access_token) throw new Error("Reddit authentication response missing access token");
+      stage = "reddit_listing";
+      const listingResponse = await normalizedFetch(redditUrl, {
+        method: "GET",
+        headers: { Authorization: "bearer " + auth.access_token, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 f5" },
       });
+      if (listingResponse.ok === false) throw Object.assign(new Error("Reddit listing request failed"), { status: listingResponse.status });
+      const listing = await listingResponse.json();
+      if (!Array.isArray(listing?.data?.children)) throw new Error("Reddit listing response missing posts");
+      job.fetchedCount = listing.data.children.length;
+      stage = "post_write";
+      await insertNewPosts(listing.data.children, subreddit, { imageSourceImpl, logger, newPostModel, job, redactionValues });
+      stage = "image_backfill";
+      job.backfillImages = await backfillMissingPostImages(subreddit, { imageSourceImpl, logger, newPostModel, now, redactionValues });
+      stage = "complete";
+    } catch (error) {
+      const safe = errorFields(error, redactionValues);
+      terminalError = Object.assign(new Error(safe.errorMessage), { name: safe.errorName, code: safe.errorCode, status: safe.status });
+      if (safe.stack) terminalError.stack = safe.stack;
+      throw terminalError;
+    } finally {
+      const imageCounts = [job.scrapeImages, job.backfillImages].filter(Boolean);
+      const degraded = imageCounts.some((metrics) => metrics.missing || metrics.errors || metrics.dependencyFailures || metrics.updateErrors || metrics.queryErrors);
+      logStructured(logger, {
+        eventType: terminalError ? "SCRAPER_JOB_FAILED" : "SCRAPER_JOB_COMPLETED",
+        subreddit, stage, outcome: terminalError ? "failed" : degraded ? "degraded" : "success",
+        durationMs: Date.now() - startedAt, requestId: context.awsRequestId || "",
+        fetchedCount: job.fetchedCount, savedCount: job.savedCount,
+        imageAttempts: imageCounts.reduce((count, metrics) => count + metrics.attempts, 0),
+        imageResolved: imageCounts.reduce((count, metrics) => count + metrics.resolved, 0),
+        imageMissing: imageCounts.reduce((count, metrics) => count + metrics.missing, 0),
+        imageErrors: imageCounts.reduce((count, metrics) => count + metrics.errors, 0),
+        imageDependencyFailures: imageCounts.reduce((count, metrics) => count + metrics.dependencyFailures, 0),
+        imageUpdateErrors: imageCounts.reduce((count, metrics) => count + metrics.updateErrors, 0),
+        backfillQueryErrors: job.backfillImages?.queryErrors || 0,
+        heapUsedMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        ...(terminalError ? errorFields(terminalError, redactionValues) : {}),
+      });
+    }
   };
 };
 

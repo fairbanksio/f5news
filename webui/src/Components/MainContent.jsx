@@ -28,23 +28,73 @@ const STALE_POSTS_THRESHOLD_MS =
   SCRAPER_REFRESH_INTERVAL_MS + SCRAPER_FRESHNESS_GRACE_MS;
 const MIN_RESUME_REFRESH_AGE_MS = 1000 * 30;
 
-const isOlderThanExpectedScraperWindow = date => {
-  const latestExpectedFetch = Date.now() - STALE_POSTS_THRESHOLD_MS;
-  return new Date(date).getTime() < latestExpectedFetch;
-};
+const FRESHNESS_LOG_SUMMARY_INTERVAL_MS = 1000 * 60 * 5;
 
-const findLatestFetch = posts => {
-  let latestFetch;
-  for (let i = 0; i < posts.length; i++) {
-    let currentPostFetchedAt = new Date(posts[i].fetchedAt).getTime();
-
-    if (latestFetch == null) {
-      latestFetch = currentPostFetchedAt;
-    } else if (currentPostFetchedAt > latestFetch) {
-      latestFetch = currentPostFetchedAt;
+export const getPostsFreshness = (posts, now = Date.now()) => {
+  let latestFetch = null;
+  let invalidTimestampCount = 0;
+  for (const post of posts) {
+    const fetchedAt = post.fetchedAt;
+    const timestamp = typeof fetchedAt === 'string' && fetchedAt.trim() !== ''
+      ? new Date(fetchedAt).getTime()
+      : typeof fetchedAt === 'number' ? new Date(fetchedAt).getTime() : NaN;
+    if (!Number.isFinite(timestamp)) {
+      invalidTimestampCount++;
+    } else if (latestFetch === null || timestamp > latestFetch) {
+      latestFetch = timestamp;
     }
   }
-  return latestFetch;
+
+  return {
+    state: posts.length === 0 ? 'empty' : latestFetch === null ? 'unknown' :
+      now - latestFetch > STALE_POSTS_THRESHOLD_MS ? 'stale' : 'fresh',
+    postCount: posts.length,
+    invalidTimestampCount,
+    latestFetchedAt: latestFetch === null ? null : new Date(latestFetch).toISOString(),
+    expectedFreshWithinSeconds: STALE_POSTS_THRESHOLD_MS / 1000,
+  };
+};
+
+// Summarize repeated observations while retaining transitions and recovery.
+export const createFreshnessReporter = () => {
+  let previous;
+  return (subreddit, posts, now = Date.now()) => {
+    const freshness = getPostsFreshness(posts, now);
+    const changed = !previous || previous.subreddit !== subreddit ||
+      previous.state !== freshness.state;
+    const prior = previous && previous.subreddit === subreddit ? previous : null;
+    if (changed) {
+      previous = { subreddit, state: freshness.state, count: 0, firstSeenAt: now, lastLoggedAt: now };
+    }
+    previous.count++;
+    const problem = freshness.state === 'stale' || freshness.state === 'unknown';
+    const recovered = changed && prior && (prior.state === 'stale' || prior.state === 'unknown') && !problem;
+    if (!(problem && (changed || now - previous.lastLoggedAt >= FRESHNESS_LOG_SUMMARY_INTERVAL_MS)) && !recovered) {
+      return;
+    }
+
+    const context = {
+      subreddit,
+      ...freshness,
+      observationCount: previous.count,
+      firstObservedAt: new Date(previous.firstSeenAt).toISOString(),
+      lastObservedAt: new Date(now).toISOString(),
+      event: recovered && freshness.state === 'fresh' ? 'recovery' : changed ? 'transition' : 'summary',
+      ...(changed && prior ? {
+        previousState: prior.state,
+        previousObservationCount: prior.count,
+        previousFirstObservedAt: new Date(prior.firstSeenAt).toISOString(),
+      } : {}),
+    };
+    previous.lastLoggedAt = now;
+    if (recovered) {
+      console.info('Posts freshness changed after a warning.', context);
+    } else {
+      console.warn(freshness.state === 'stale'
+        ? 'Posts look stale relative to the expected refresh window.'
+        : 'Posts freshness is unknown because fetchedAt timestamps are missing or invalid.', context);
+    }
+  };
 };
 
 const getValidatedPosts = json => {
@@ -66,22 +116,13 @@ export const sortPostsByUpvotes = posts =>
     return Number(a.created_utc || 0) - Number(b.created_utc || 0);
   });
 
-const logDelayedPosts = (subreddit, posts) => {
-  const latestFetch = findLatestFetch(posts);
-  const latestFetchIso = latestFetch ? new Date(latestFetch).toISOString() : null;
-
-  console.warn('Posts look stale relative to the expected refresh window.', {
-    subreddit,
-    postCount: posts.length,
-    latestFetchedAt: latestFetchIso,
-    expectedFreshWithinSeconds: STALE_POSTS_THRESHOLD_MS / 1000,
-  });
-};
-
-const logPostFetchFailure = (error, subreddit) => {
+const logPostFetchFailure = (error, subreddit, startedAt) => {
   console.error('Failed to refresh posts. Keeping the last successful results until the next valid response.', {
     subreddit,
     error: error.message,
+    errorType: error.name,
+    status: error.status || null,
+    durationMs: Date.now() - startedAt,
     endpoint: getPostsUrl(subreddit),
   });
 };
@@ -96,6 +137,10 @@ const PostView = () => {
   const [posts, setPosts] = useState([]);
   const [hasLoadedPosts, setHasLoadedPosts] = useState(false);
   const lastFetchStartedAtRef = useRef(0);
+  const freshnessReporterRef = useRef(null);
+  if (freshnessReporterRef.current === null) {
+    freshnessReporterRef.current = createFreshnessReporter();
+  }
   const [error, setError] = useState({
     level: 'warning',
     show: false,
@@ -112,7 +157,8 @@ const PostView = () => {
   });
 
   const fetchPosts = () => {
-    lastFetchStartedAtRef.current = Date.now();
+    const startedAt = Date.now();
+    lastFetchStartedAtRef.current = startedAt;
     setLoading(true);
     const url = getPostsUrl(subreddit);
     Promise.resolve().then(() => {
@@ -121,7 +167,9 @@ const PostView = () => {
     })
       .then(response => {
         if (!response.ok) {
-          throw new Error(`Failed to fetch posts: ${response.status}`);
+          const error = new Error(`Failed to fetch posts: ${response.status}`);
+          error.status = response.status;
+          throw error;
         }
 
         return response.json();
@@ -136,15 +184,10 @@ const PostView = () => {
           setLoading(false);
         }, 1700);
 
-        if (
-          nextPosts.length > 0 &&
-          isOlderThanExpectedScraperWindow(findLatestFetch(nextPosts))
-        ) {
-          logDelayedPosts(subreddit, nextPosts);
-        }
+        freshnessReporterRef.current(subreddit, nextPosts);
       })
       .catch(error => {
-        logPostFetchFailure(error, subreddit);
+        logPostFetchFailure(error, subreddit, startedAt);
         setError({
           level: 'error',
           show: true,

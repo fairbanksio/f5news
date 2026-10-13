@@ -48,6 +48,7 @@ const createHandler = ({
   posts = [{ title: "Story" }],
   mongooseClient,
   postModel,
+  logger = { error: () => {} },
 } = {}) => {
   let connectCount = 0;
   const model = postModel || createPostModel(posts);
@@ -58,6 +59,7 @@ const createHandler = ({
       },
     },
     postModel: model,
+    logger,
     now: () => now || new Date("2024-03-10T12:00:00.000Z"),
   });
 
@@ -114,6 +116,61 @@ test("queries recent popular posts for the requested subreddit", async () => {
     count: 1,
     data: [{ title: "Story" }],
   });
+});
+
+test("logs connection and query failures with bounded diagnostics and correlation", async () => {
+  for (const failedStage of ["mongo_connect", "mongo_query"]) {
+    const logs = [];
+    const cause = new Error("Dependency unavailable at mongodb://user:private-marker@db.example/news");
+    cause.name = "MongoServerSelectionError";
+    cause.code = "ETIMEDOUT";
+    const context = createHandler({
+      logger: { error: (line) => logs.push(JSON.parse(line)) },
+      mongooseClient: { connect: async () => {
+        if (failedStage === "mongo_connect") throw cause;
+      } },
+      postModel: { find: () => { throw cause; } },
+    });
+    const response = await context.handler(allowedEvent({
+      pathParameters: { subreddit: "NEWS" },
+      requestContext: { requestId: "api-request" },
+    }), { awsRequestId: "lambda-request" });
+
+    assert.equal(response.statusCode, 500);
+    assert.deepEqual(getJsonBody(response), { success: false, error: "Failed to fetch posts" });
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0].eventType, "POSTS_FETCH_FAILED");
+    assert.equal(logs[0].failedStage, failedStage);
+    assert.equal(logs[0].subreddit, "news");
+    assert.equal(logs[0].requestId, "lambda-request");
+    assert.equal(logs[0].apiRequestId, "api-request");
+    assert.equal(logs[0].errorType, "MongoServerSelectionError");
+    assert.equal(logs[0].errorCode, "ETIMEDOUT");
+    assert.match(logs[0].errorMessage, /Dependency unavailable/);
+    assert.match(logs[0].stack, /index.test.js/);
+    assert.equal(logs[0].durationMs, 0);
+    assert.ok(!JSON.stringify(logs).includes("private-marker"));
+  }
+});
+
+test("logs a coalesced database failure once without logging successful reads", async () => {
+  const logs = [];
+  let rejectConnection;
+  const context = createHandler({
+    logger: { error: (line) => logs.push(JSON.parse(line)) },
+    mongooseClient: { connect: () => new Promise((_resolve, reject) => { rejectConnection = reject; }) },
+  });
+  const event = allowedEvent({ pathParameters: { subreddit: "news" } });
+  const first = context.handler(event, { awsRequestId: "first" });
+  const second = context.handler(event, { awsRequestId: "second" });
+  rejectConnection(new Error("query unavailable"));
+  assert.deepEqual((await Promise.all([first, second])).map(response => response.statusCode), [500, 500]);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].requestId, "first");
+
+  const success = createHandler({ logger: { error: (line) => logs.push(JSON.parse(line)) } });
+  assert.equal((await success.handler(event)).statusCode, 200);
+  assert.equal(logs.length, 1);
 });
 
 test("rejects disallowed origins before querying posts", async () => {
