@@ -32,8 +32,12 @@ const createLogger = () => ({
   log(...args) {
     this.logs.push(args);
   },
+  error(...args) {
+    this.logs.push(args);
+  },
   warn(...args) {
     this.warnings.push(args);
+    this.logs.push(args);
   },
 });
 
@@ -403,6 +407,7 @@ test("fetchPosts logs missing article image metrics for graphing", async () => {
   assert.equal(missingLogs.length, 1);
   assert.deepEqual(missingLogs[0], {
     eventType: "POST_IMAGE_RESOLUTION_MISSING",
+    severity: "warn",
     subreddit: "news",
     domain: "reuters.com",
     postId: "post1",
@@ -548,13 +553,17 @@ test("fetchPosts logs image resolution errors separately from missing thumbnails
     "POST_IMAGE_RESOLUTION_ERROR"
   );
   assert.equal(errorLogs.length, 1);
-  assert.deepEqual(errorLogs[0], {
+  assert.ok(errorLogs[0].stack.includes("index.test.js"));
+  assert.deepEqual({ ...errorLogs[0], stack: undefined }, {
+    stack: undefined,
+    severity: "error",
     eventType: "POST_IMAGE_RESOLUTION_ERROR",
     subreddit: "news",
     domain: "publisher.example",
     postId: "t3_post2",
     postUrl: "https://publisher.example/story",
     title: "Blocked Publisher Story",
+    errorName: "Error",
     errorMessage: "publisher blocked metadata fetch",
   });
 
@@ -644,19 +653,11 @@ test("fetchPosts backfills recent posts with missing thumbnails", async () => {
     { upsert: false },
   ]);
 
-  const resolvedLogs = parseStructuredLogs(
-    logger,
-    "POST_IMAGE_BACKFILL_RESOLVED"
-  );
-  assert.equal(resolvedLogs.length, 1);
-  assert.deepEqual(resolvedLogs[0], {
-    eventType: "POST_IMAGE_BACKFILL_RESOLVED",
-    subreddit: "news",
-    domain: "reuters.com",
-    postId: "mongo-id-1",
-    postUrl: "https://www.reuters.com/world/story",
-    title: "Reuters Story",
-  });
+  const [completion] = parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED");
+  assert.equal(completion.imageAttempts, 1);
+  assert.equal(completion.imageMissing, 0);
+  assert.equal(completion.outcome, "success");
+  assert.equal(parseStructuredLogs(logger, "POST_IMAGE_BACKFILL_RESOLVED").length, 0);
 
   const metricLog = parseStructuredLogs(logger).find(
     (entry) => entry._aws && entry.Operation === "backfill"
@@ -809,7 +810,7 @@ test("backfillMissingPostImages logs missing and error outcomes without writing 
   assert.equal(writes.length, 0);
   assert.equal(
     parseStructuredLogs(logger, "POST_IMAGE_BACKFILL_MISSING").length,
-    2
+    1
   );
   assert.deepEqual(
     parseStructuredLogs(logger, "POST_IMAGE_BACKFILL_MISSING")[0]
@@ -924,7 +925,7 @@ test("fetchPosts does not write posts when reddit listing is malformed", async (
     },
   });
 
-  await handler({ subreddit: "news" });
+  await assert.rejects(handler({ subreddit: "news" }), /Reddit listing response missing posts/);
 
   assert.equal(writeCount, 0);
 });
@@ -964,4 +965,224 @@ test("stores ordinary thumbnails without deriving suppression from preview.enabl
   assert.equal(writes[0][1].$set.preview_disabled, undefined);
   assert.equal(writes[0][1].$set.thumbnail, undefined);
   assert.equal(writes[1][1].$set.thumbnail, thumbnail);
+});
+
+const diagnosticPost = (id = "post1") => ({ data: {
+  id, title: "Story", author: "author", created_utc: 1710000000,
+  domain: "publisher.example", url: "https://reader:password@publisher.example/story?token=url-secret#fragment",
+  thumbnail: "", is_self: false, is_video: false,
+} });
+
+const diagnosticHandler = (overrides = {}) => createFetchPosts({
+  fetchImpl: createFetcher({ posts: [diagnosticPost()] }).fetchImpl,
+  imageSourceImpl: async () => "",
+  mongooseClient: { connect: async () => {} },
+  newPostModel: { findOneAndUpdate: async () => {}, find: async () => [] },
+  ...overrides,
+});
+
+test("listing, auth and database failures reject with one sanitized job failure", async (t) => {
+  for (const [stage, overrides] of [
+    ["database_connect", { mongooseClient: { connect: async () => { throw Object.assign(new Error("connect mongodb+srv://reader:db-secret@mongo.example/db"), { code: "ECONNREFUSED", cause: new Error("private-cause") }); } } }],
+    ["reddit_auth", { fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ error: "private-body" }) }) }],
+    ["reddit_listing", { fetchImpl: async (url) => url.includes("access_token") ? { json: async () => ({ access_token: "token" }) } : { ok: false, status: 503 } }],
+    ["post_write", { newPostModel: { findOneAndUpdate: async () => { throw new Error("write https://reader:password@publisher.example/story?token=url-secret"); } } }],
+  ]) {
+    await t.test(stage, async () => {
+      const logger = createLogger();
+      let rejection;
+      await assert.rejects(diagnosticHandler({ logger, ...overrides })({ subreddit: "news", payload: "private-event" }, { awsRequestId: "request1" }), (error) => {
+        rejection = error;
+        return true;
+      });
+      const failures = parseStructuredLogs(logger, "SCRAPER_JOB_FAILED");
+      assert.equal(failures.length, 1);
+      assert.equal(failures[0].stage, stage);
+      assert.equal(failures[0].outcome, "failed");
+      assert.equal(failures[0].requestId, "request1");
+      assert.ok(Number.isFinite(failures[0].durationMs));
+      assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 0);
+      const emitted = JSON.stringify(logger.logs) + rejection.stack;
+      for (const secret of ["db-secret", "url-secret", "reader:", "private-cause", "private-event", "private-body"]) assert.ok(!emitted.includes(secret), secret);
+      if (stage === "database_connect") assert.equal(failures[0].errorCode, "ECONNREFUSED");
+    });
+  }
+});
+
+test("job failure waits for concurrent writes and records partial progress", async () => {
+  const pending = createDeferred();
+  const logger = createLogger();
+  let delayedStarted = false;
+  // Post keys use the existing title/author/created identity.
+  const fetcher = createFetcher({ posts: [
+    { data: { ...diagnosticPost().data, title: "broken" } },
+    { data: { ...diagnosticPost().data, title: "delayed" } },
+  ] });
+  const run = createFetchPosts({
+    fetchImpl: fetcher.fetchImpl, logger, imageSourceImpl: async () => "",
+    mongooseClient: { connect: async () => {} },
+    newPostModel: {
+      findOneAndUpdate: async (key) => {
+        if (key.title === "broken") throw new Error("database unavailable");
+        delayedStarted = true;
+        await pending.promise;
+      },
+    },
+  })({ subreddit: "news" });
+  const rejected = assert.rejects(run, /database unavailable/);
+  await waitUntil(() => delayedStarted);
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_FAILED").length, 0);
+  pending.resolve();
+  await rejected;
+  const [failure] = parseStructuredLogs(logger, "SCRAPER_JOB_FAILED");
+  assert.equal(failure.fetchedCount, 2);
+  assert.equal(failure.savedCount, 1);
+  assert.equal(parseStructuredLogs(logger).at(-1).eventType, "SCRAPER_JOB_FAILED");
+});
+
+test("optional thumbnail writes and backfill query failure complete degraded", async () => {
+  const logger = createLogger();
+  const handler = diagnosticHandler({
+    logger,
+    imageSourceImpl: async () => "https://cdn.example/photo.jpg",
+    newPostModel: {
+      findOneAndUpdate: async (key, update, options) => { if (!options.upsert) throw new Error("thumbnail write failed"); },
+      find: async () => { throw new Error("backfill query failed"); },
+    },
+  });
+  await handler({ subreddit: "news" });
+  const [completion] = parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED");
+  assert.equal(completion.outcome, "degraded");
+  assert.equal(completion.savedCount, 1);
+  assert.equal(completion.imageUpdateErrors, 1);
+  assert.equal(completion.backfillQueryErrors, 1);
+  assert.equal(parseStructuredLogs(logger, "POST_IMAGE_UPDATE_ERROR").length, 1);
+});
+
+test("terminal dependency failures count once with compatible EMF dimensions", async () => {
+  const { imageSource, fetchArticleImage } = require("./imageSource");
+  const logger = createLogger();
+  let requests = 0;
+  await diagnosticHandler({
+    logger,
+    imageSourceImpl: (post, options) => imageSource(post, { ...options,
+      fetchArticleImageImpl: (url, callbacks) => fetchArticleImage(url, { ...callbacks,
+        resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+        fetchImpl: async () => { requests += 1; return { ok: false, status: 503, headers: { get: () => "" } }; },
+      }),
+    }),
+  })({ subreddit: "news" });
+  assert.equal(requests, 2);
+  const [missing] = parseStructuredLogs(logger, "POST_IMAGE_RESOLUTION_MISSING");
+  assert.equal(missing.postUrl, "https://publisher.example/story");
+  assert.equal(missing.imageResolutionFailures[0].url, "https://publisher.example/story");
+  assert.equal(missing.imageResolutionFailures[0].retryCount, 1);
+  const metric = parseStructuredLogs(logger).find((entry) => entry._aws);
+  assert.equal(metric.PostImageDependencyFailures, 1);
+  assert.equal(metric.PostImageResolutionErrors, 0);
+  assert.equal(metric.PostImageResolutionMissing, 1);
+  assert.deepEqual(metric._aws.CloudWatchMetrics[0].Dimensions, [["Service", "Subreddit", "Operation"]]);
+  for (const definition of metric._aws.CloudWatchMetrics[0].Metrics) {
+    assert.equal(definition.Unit, "Count");
+    assert.ok(Number.isFinite(metric[definition.Name]));
+  }
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED")[0].outcome, "degraded");
+});
+
+test("recovered article retries resolve without counting terminal dependency failure", async () => {
+  const { imageSource, fetchArticleImage } = require("./imageSource");
+  const logger = createLogger();
+  let requests = 0;
+  await diagnosticHandler({
+    logger,
+    imageSourceImpl: (post, options) => imageSource(post, { ...options,
+      fetchArticleImageImpl: (url, callbacks) => fetchArticleImage(url, { ...callbacks,
+        resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+        fetchImpl: async () => {
+          requests += 1;
+          if (requests === 1) throw new Error("temporary network failure");
+          return { ok: true, status: 200, headers: { get: () => "text/html" }, text: async () => '<meta property="og:image" content="https://cdn.example/photo.jpg">' };
+        },
+      }),
+    }),
+  })({ subreddit: "news" });
+  assert.equal(requests, 2);
+  const metric = parseStructuredLogs(logger).find((entry) => entry._aws);
+  assert.equal(metric.PostImageDependencyFailures, 0);
+  assert.equal(metric.PostImageResolutionErrors, 0);
+  assert.equal(metric.PostImageResolutionResolved, 1);
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED")[0].outcome, "success");
+});
+
+test("known environment secrets are redacted from job and Lambda rejection diagnostics", async () => {
+  const logger = createLogger();
+  const env = {
+    MONGO_CONNECTION_STRING: "unprefixed-db-value",
+    REDDIT_CLIENT_ID: "unprefixed-client-value",
+    REDDIT_SECRET_KEY: "unprefixed-secret-value",
+    REDDIT_USERNAME: "unprefixed-user-value",
+    REDDIT_PASSWORD: "unprefixed-password-value",
+  };
+  let runtimeError;
+  await assert.rejects(diagnosticHandler({
+    logger, env,
+    mongooseClient: { connect: async () => {
+      throw Object.assign(new Error(`Failed with ${Object.values(env).join(" ")}`), { code: "ETIMEDOUT" });
+    } },
+  })({ subreddit: "news" }), (error) => { runtimeError = error; return true; });
+  const emitted = JSON.stringify(logger.logs) + runtimeError.stack + runtimeError.message;
+  for (const secret of Object.values(env)) assert.ok(!emitted.includes(secret), secret);
+  assert.match(emitted, /\[redacted\]/);
+  const [failure] = parseStructuredLogs(logger, "SCRAPER_JOB_FAILED");
+  assert.equal(failure.severity, "error");
+  assert.equal(failure.errorCode, "ETIMEDOUT");
+  assert.match(failure.stack, /index.test.js/);
+});
+
+test("image exceptions emit one diagnostic and retain missing/error metric overlap", async () => {
+  const logger = createLogger();
+  await diagnosticHandler({ logger, imageSourceImpl: async () => { throw new Error("image resolver failed"); } })({ subreddit: "news" });
+  assert.equal(parseStructuredLogs(logger, "POST_IMAGE_RESOLUTION_ERROR").length, 1);
+  assert.equal(parseStructuredLogs(logger, "POST_IMAGE_RESOLUTION_MISSING").length, 0);
+  assert.equal(logger.warnings.filter((args) => String(args[0]).includes("Error resolving post image")).length, 0);
+  const metric = parseStructuredLogs(logger).find((entry) => entry._aws);
+  assert.equal(metric.PostImageResolutionErrors, 1);
+  assert.equal(metric.PostImageResolutionMissing, 1);
+});
+
+test("unexpected article adapter exceptions retain sanitized terminal diagnostics", async () => {
+  const { imageSource } = require("./imageSource");
+  const logger = createLogger();
+  await diagnosticHandler({ logger, imageSourceImpl: (post, options) => imageSource(post, {
+    ...options,
+    fetchArticleImageImpl: async () => { throw new Error("Failed https://reader:password@publisher.example/story?token=url-secret"); },
+  }) })({ subreddit: "news" });
+  const [missing] = parseStructuredLogs(logger, "POST_IMAGE_RESOLUTION_MISSING");
+  assert.equal(missing.imageResolutionFailures[0].reason, "fetch_error");
+  assert.equal(missing.imageResolutionFailures[0].errorName, "Error");
+  assert.ok(!JSON.stringify(logger.logs).includes("url-secret"));
+  const metric = parseStructuredLogs(logger).find((entry) => entry._aws);
+  assert.equal(metric.PostImageResolutionErrors, 0);
+  assert.equal(metric.PostImageDependencyFailures, 1);
+});
+
+test("backfill thumbnail write failures stay optional and report degraded counts", async () => {
+  const logger = createLogger();
+  const post = { ...diagnosticPost().data, _id: "backfill1" };
+  const handler = diagnosticHandler({ logger,
+    fetchImpl: createFetcher().fetchImpl,
+    imageSourceImpl: async () => "https://cdn.example/photo.jpg",
+    newPostModel: {
+      find: async () => [post],
+      findOneAndUpdate: async () => { throw new Error("optional image write failed"); },
+    },
+  });
+  await handler({ subreddit: "news" });
+  const [completion] = parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED");
+  assert.equal(completion.outcome, "degraded");
+  assert.equal(completion.imageResolved, 1);
+  assert.equal(completion.imageUpdateErrors, 1);
+  const [error] = parseStructuredLogs(logger, "POST_IMAGE_UPDATE_ERROR");
+  assert.equal(error.operation, "backfill");
+  assert.equal(error.postId, "post1");
 });

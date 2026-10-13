@@ -1,4 +1,5 @@
 const dns = require("dns").promises;
+const { errorFields, sanitizeImageFailure } = require("./telemetry");
 const http = require("http");
 const https = require("https");
 const net = require("net");
@@ -267,9 +268,12 @@ const mapWithConcurrency = async (items, concurrency, mapper) => {
     }
   };
 
-  await Promise.all(
+  // Drain active workers before reporting failure so completion counts stay final.
+  const workers = await Promise.allSettled(
     Array.from({ length: Math.min(limit, items.length) }, () => worker())
   );
+  const failed = workers.find((result) => result.status === "rejected");
+  if (failed) throw failed.reason;
 
   return results;
 };
@@ -367,11 +371,11 @@ const reportArticleImageFailure = (options, failure) => {
     return;
   }
 
-  options.onArticleImageFailure({
+  options.onArticleImageFailure(sanitizeImageFailure({
     url: failure.url,
     reason: failure.reason,
     ...(failure.details || {}),
-  });
+  }));
 };
 
 const withTimeout = async (operation, timeoutMs, onTimeout) => {
@@ -660,6 +664,7 @@ const imageSource = async (data, options = {}) => {
     const articleImage = await fetchArticleImageImpl(articleUrl, options);
     return articleImage || data.thumbnail || "";
   } catch (error) {
+    reportArticleImageFailure(options, { url: articleUrl, reason: "fetch_error", details: errorFields(error) });
     return data.thumbnail || "";
   }
 };

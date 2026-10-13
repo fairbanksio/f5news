@@ -282,6 +282,29 @@ describe('MainContent', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  test('records HTTP status and request duration when a refresh fails', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+
+    await act(async () => {
+      renderMainContent();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        subreddit: 'politics',
+        errorType: 'Error',
+        status: 503,
+        durationMs: 0,
+        endpoint: 'https://api.f5.test/posts/politics',
+      })
+    );
+    errorLog.mockRestore();
+  });
+
   test('refreshes posts when a stale suspended tab receives focus', async () => {
     const stalePost = {
       title: 'Before laptop sleep headline',
