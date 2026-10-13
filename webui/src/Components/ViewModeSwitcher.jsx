@@ -1,5 +1,5 @@
 import React,{useContext} from 'react';
-import { Button, MenuItem, Box, Text} from '@chakra-ui/react';
+import { Button, Menu, Box, Text} from '@chakra-ui/react';
 import { BsGridFill, BsListUl } from 'react-icons/bs';
 import { ViewModeContext } from '../Contexts/ViewModeContext'
 import { SubredditContext } from '../Contexts/SubredditContext';
@@ -46,9 +46,9 @@ export const ViewModeSwitcherMenuItem = props => {
     });
   }
   return (
-    <MenuItem onClick={(e)=>{switchViewMode()}} >
+    <Menu.Item value="ViewModeSwitcher" onClick={(e)=>{switchViewMode()}} >
       <Box as={viewMode === 'grid'? BsListUl : BsGridFill} ml={0} mr={2}/> 
       <Text as='span' textStyle='control'>{viewMode === 'grid'? 'List view' : 'Grid view'}</Text>
-    </MenuItem>
+    </Menu.Item>
   );
 };

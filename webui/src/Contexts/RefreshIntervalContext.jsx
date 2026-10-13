@@ -12,8 +12,12 @@ export const RefreshIntervalProvider = (props) => {
     setState({...state, refreshInterval: refreshInterval})
   }
 
+  const storedInterval = localStorage.getItem('refreshInterval')
+  // Earlier five-minute selections were saved as ten minutes.
+  if (storedInterval === '600') localStorage.setItem('refreshInterval', '300')
+
   const initState = {
-    refreshInterval: localStorage.getItem('refreshInterval') ? localStorage.getItem('refreshInterval') : 30,
+    refreshInterval: storedInterval === '600' ? '300' : storedInterval || 30,
     setRefreshInterval: setRefreshInterval
   } 
 

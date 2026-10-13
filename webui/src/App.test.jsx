@@ -8,12 +8,7 @@ import { SubredditContext } from './Contexts/SubredditContext';
 import { ThemeContext } from './Contexts/ThemeContext';
 import { ViewModeContext } from './Contexts/ViewModeContext';
 import { getRefreshIntervalMenuValue } from './Components/Navbar';
-const { matchMedia, setMedia } = require("mock-match-media");
-
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: matchMedia,
-});
+import { setMedia } from 'mock-match-media';
 
 const renderNavbar = ({ refreshInterval = 30 } = {}) =>
   render(<StrictMode>
@@ -32,18 +27,27 @@ const renderNavbar = ({ refreshInterval = 30 } = {}) =>
 
 beforeEach(() => {
   setMedia({
-    width: '1024px',
+    width: 1024,
     type: 'screen',
   });
 });
 
-test('renders F5 News header', () => {
+test('renders F5 News header and desktop controls', async () => {
   renderNavbar();
   const headerLogoControl = screen.getByRole('button', { name: /toggle f5 news logo/i });
   expect(headerLogoControl).toBeInTheDocument();
+  expect(await screen.findByRole('button', { name: '30s' })).toBeInTheDocument();
 });
 
 test('marks the active refresh interval in mobile settings when it came from storage', () => {
   expect(getRefreshIntervalMenuValue('30')).toBe('30');
   expect(getRefreshIntervalMenuValue(30)).toBe('30');
+});
+
+test('shows mobile settings at a narrow viewport', async () => {
+  setMedia({ width: 390, height: 844 });
+  renderNavbar();
+
+  expect(await screen.findByRole('button', { name: /open display settings/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '30s' })).not.toBeInTheDocument();
 });
