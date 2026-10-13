@@ -6,7 +6,6 @@ import {
   RefreshIntervalProvider,
 } from './RefreshIntervalContext';
 import { ViewModeContext, ViewModeProvider } from './ViewModeContext';
-import { ThemeContext, ThemeProvider } from './ThemeContext';
 import { LoadingContext, LoadingProvider } from './LoadingContext';
 import { ModalContext, ModalProvider } from './ModalContext';
 
@@ -78,26 +77,6 @@ test('view mode provider reads and persists localStorage values', () => {
 
   expect(screen.getByRole('button', { name: /view grid/i })).toBeInTheDocument();
   expect(localStorage.getItem('viewMode')).toBe('grid');
-});
-
-test('theme provider reads and persists localStorage values', () => {
-  localStorage.setItem('theme', 'classic');
-
-  const Probe = () => {
-    const { theme, setTheme } = useContext(ThemeContext);
-    return <button onClick={() => setTheme('custom')}>theme {theme}</button>;
-  };
-
-  render(
-    <ThemeProvider>
-      <Probe />
-    </ThemeProvider>
-  );
-
-  fireEvent.click(screen.getByRole('button', { name: /theme classic/i }));
-
-  expect(screen.getByRole('button', { name: /theme custom/i })).toBeInTheDocument();
-  expect(localStorage.getItem('theme')).toBe('custom');
 });
 
 test('loading provider exposes mutable loading state', () => {

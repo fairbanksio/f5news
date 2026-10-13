@@ -136,7 +136,7 @@ npm run deploy
 
 Notes:
 
-- `npm run lint` is currently a placeholder and does not perform linting.
+- `npm run lint` runs ESLint with no warnings allowed.
 - Deployment scripts shell out to AWS CLI and read SSM parameters.
 
 ### Lambda Services
@@ -148,7 +148,7 @@ cd /Users/jonfairbanks/Documents/GitHub/f5oclock/services/<service-name>
 npm ci
 ```
 
-Placeholder test command for services:
+Tests for each service:
 
 ```bash
 cd /Users/jonfairbanks/Documents/GitHub/f5oclock/services/<service-name>
@@ -157,8 +157,8 @@ npm test
 
 Notes:
 
-- Most service `npm test` scripts are placeholders and currently exit with an error.
-- Do not rely on service tests for validation unless you add real tests as part of your change.
+- `npm test` runs the Node.js test runner.
+- Tests mock database and network dependencies; they do not verify production state.
 
 Deploy a service locally:
 
@@ -247,16 +247,16 @@ When changing deploy logic, keep local commands aligned with the workflow.
 ### Frontend Conventions
 
 - Use function components and hooks.
-- Existing UI is Chakra UI v1-based. Reuse Chakra primitives before adding new UI dependencies.
-- Existing tests use React Testing Library and Jest.
+- The UI uses Chakra UI v3 with a system-based custom theme and a local color-mode provider. Reuse Chakra primitives before adding UI dependencies.
+- The frontend uses Vite and Vitest, with React Testing Library for component tests.
 - When adding frontend tests, prefer behavior-focused tests over implementation details.
 - Preserve the current route structure: `/r/:subredditPath`.
-- Runtime API configuration comes from `window.REACT_APP_API` in `webui/public/config.js` or `process.env.REACT_APP_API`.
+- Runtime API configuration comes from `window.REACT_APP_API` in `webui/public/config.js` or Vite environment variables. `REACT_APP_POSTS_API` can override the posts endpoint.
 
 ### Service Conventions
 
 - Services are small entrypoints; keep handlers focused and avoid mixing unrelated responsibilities.
-- Reuse the existing Mongo connection helpers per service rather than creating new connection logic.
+- Posts and scraper use their existing Mongo connection helpers. The subreddit API serves a static list and has no database dependency.
 - Keep environment-driven configuration in `serverless.yml` and SSM, not inline in handlers.
 - Maintain compatibility with the current CommonJS module layout.
 
@@ -270,18 +270,17 @@ When changing deploy logic, keep local commands aligned with the workflow.
 
 Minimum validation for most changes:
 
-- Frontend-only changes: run `CI=true npm test -- --watchAll=false` in `webui`
+- Frontend-only changes: run `npm run lint`, `CI=true npm test -- --watchAll=false`, and `npm run build` in `webui`
 - Infrastructure-only changes: run `terraform fmt -check` and `terraform validate`
-- Service-only changes: there are no meaningful automated tests today, so validate with targeted reasoning, local invocation if available, and deployment-safe review
+- Service-only changes: run `npm run lint` and `npm test` in each affected service. For subreddit changes, also run `npm run test:coverage`.
 
 If you cannot run a meaningful validation step, say so explicitly in your final summary.
 
 ## Known Gaps
 
 - No root-level task runner
-- No real test suites in most services
-- Frontend lint script is a placeholder
-- Browser and scraper services have dependency debt; be careful when upgrading them because transitive changes may be large
+- Mocked tests do not establish live API, database, or deployment behavior
+- Dependency updates can affect media playback and scraper network behavior; verify those paths when changing their dependencies
 
 ## Files Worth Reading Before Large Changes
 
