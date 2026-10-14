@@ -13,8 +13,6 @@
 
 Trending news site built with AWS Lambdas that monitor web trends, storing data in a cloud-hosted MongoDB and presenting it to users via an AWS-hosted React UI.
 
-See [Application Telemetry](docs/telemetry.md) for failure events, image metrics, and rollout checks.
-
 ### Live Site
 
 <span style="font-size: 20px;">
