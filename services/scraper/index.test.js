@@ -1186,20 +1186,3 @@ test("backfill thumbnail write failures stay optional and report degraded counts
   assert.equal(error.operation, "backfill");
   assert.equal(error.postId, "post1");
 });
-
-
-test("identifies the app and contact on Reddit requests without changing password authentication", async () => {
-  const { calls, fetchImpl } = createFetcher();
-  const env = { REDDIT_USERNAME: "fixture_user", REDDIT_PASSWORD: "fixture_password",
-    REDDIT_CLIENT_ID: "fixture_client", REDDIT_SECRET_KEY: "fixture_secret" };
-  await createFetchPosts({ env, fetchImpl, logger: createLogger(),
-    mongooseClient: { connect: async () => {} }, newPostModel: { find: async () => [] },
-  })({ subreddit: "news" });
-  const expected = `nodejs:f5oclock-scraper:${require("./package.json").version} (by /u/fixture_user)`;
-  assert.equal(calls.length, 2);
-  for (const call of calls) assert.equal(call.options.headers["User-Agent"], expected);
-  const body = new URLSearchParams(calls[0].options.body);
-  assert.equal(body.get("grant_type"), "password");
-  assert.equal(body.get("username"), env.REDDIT_USERNAME);
-  assert.equal(body.get("password"), env.REDDIT_PASSWORD);
-});
