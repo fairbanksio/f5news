@@ -2,6 +2,12 @@
 
 This file gives automation agents and contributors the minimum repo-specific context needed to work safely in `f5oclock`.
 
+## Privacy Check Before Publishing
+
+- Treat internal reviews, audit findings, incident notes, telemetry investigations, remediation plans, and working reports as private, even when they contain no secrets.
+- Keep these materials outside tracked repository files. Do not publish them in a public repository, PR description, issue, comment, or attachment unless the user explicitly authorizes that specific content for publication. A request to review, fix code, or open a PR does not grant that permission.
+- Before committing, pushing, or updating a public PR, inspect the staged diff, added and untracked artifacts, and outgoing text for private material. Remove it and any links to it before publishing. Keep public change summaries limited to the code changes and relevant test results.
+
 ## Repo Overview
 
 This repository is a small serverless news app with three main parts:

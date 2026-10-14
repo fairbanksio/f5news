@@ -121,7 +121,7 @@ export const trackPostSelection = ({
     'select_content',
     compactParams({
       content_type: contentType,
-      item_id: post.id,
+      item_id: post._id || post.commentLink,
       item_name: post.title?.replace(/amp;/g, ''),
       source_domain: post.domain,
       position,

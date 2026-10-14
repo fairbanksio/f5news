@@ -12,7 +12,7 @@ const PostSchema = new mongoose.Schema({
   author: 'string',
   fetchedAt: {
     type: Date,
-    default: new Date(),
+    default: Date.now,
     expires: 31536000
   },
   is_video: Boolean,

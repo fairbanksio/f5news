@@ -95,7 +95,7 @@ test('tracks article and comment selections as content selections', () => {
   trackPostSelection({
     contentType: 'article',
     post: {
-      id: 'abc123',
+      _id: '507f1f77bcf86cd799439011',
       title: 'Existing headline',
       domain: 'example.com',
       upvoteCount: 542,
@@ -109,7 +109,7 @@ test('tracks article and comment selections as content selections', () => {
 
   expect(ReactGA.event).toHaveBeenCalledWith('select_content', {
     content_type: 'article',
-    item_id: 'abc123',
+    item_id: '507f1f77bcf86cd799439011',
     item_name: 'Existing headline',
     source_domain: 'example.com',
     position: 1,
@@ -131,4 +131,18 @@ test('tracks support clicks with the clicked surface', () => {
     surface: 'footer',
     link_url: 'https://www.buymeacoffee.com/f5news',
   });
+});
+
+
+test('uses the comment permalink when a serialized post has no database ID', () => {
+  initializeAnalytics({ measurementId: 'G-TEST123', hostname: 'localhost' });
+  trackPostSelection({
+    contentType: 'reddit_comments',
+    post: { title: 'Headline', commentLink: '/r/news/comments/abc/headline' },
+    subreddit: 'news',
+    viewMode: 'list',
+  });
+  expect(ReactGA.event).toHaveBeenCalledWith('select_content', expect.objectContaining({
+    item_id: '/r/news/comments/abc/headline',
+  }));
 });

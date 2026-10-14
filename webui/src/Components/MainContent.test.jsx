@@ -423,7 +423,23 @@ test('does not overlap interval and resume refreshes with an active request', as
   vi.useRealTimers();
 });
 
-test('cancels delayed loading updates on unmount', async () => {
+test('stops loading as soon as a successful response renders', async () => {
+  vi.useFakeTimers();
+  const pending = deferred();
+  const setLoading = vi.fn();
+  global.fetch = vi.fn().mockReturnValue(pending.promise);
+  const view = renderMainContent({ setLoading, refreshInterval: 600 });
+  expect(setLoading).toHaveBeenLastCalledWith(true);
+  await act(async () => pending.resolve(responseFor('Loaded headline')));
+  expect(screen.getByText('Loaded headline')).toBeInTheDocument();
+  expect(setLoading).toHaveBeenLastCalledWith(false);
+  setLoading.mockClear();
+  await act(async () => vi.advanceTimersByTime(1700));
+  expect(setLoading).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test('does not update loading after unmount', async () => {
   vi.useFakeTimers();
   const setLoading = vi.fn();
   global.fetch = vi.fn().mockResolvedValue(responseFor('Loaded headline'));
@@ -452,7 +468,7 @@ test('ignores a rejected request after unmount', async () => {
 });
 
 
-test('clears a previous success timer before starting another refresh', async () => {
+test('keeps loading active while the next refresh is pending', async () => {
   vi.useFakeTimers();
   const pending = deferred();
   const setLoading = vi.fn();

@@ -66,7 +66,7 @@ resource "aws_ssm_parameter" "primary_domain_cdn" {
   description = "Bucket ID of primary domain CDN"
 }
 
-# Allow public access to the S3 Bucket
+# Keep existing ACL ownership while migrating the bucket to private access.
 resource "aws_s3_bucket_ownership_controls" "primary_domain_cdn_ownership_controls" {
   bucket = aws_s3_bucket.primary_domain_cdn.id
   rule {
@@ -78,13 +78,16 @@ resource "aws_s3_bucket_ownership_controls" "primary_domain_cdn_ownership_contro
 resource "aws_s3_bucket_public_access_block" "primary_domain_cdn_access_block" {
   bucket = aws_s3_bucket.primary_domain_cdn.id
 
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
+  # Tighten access after CloudFront has switched to its signed REST origin.
+  depends_on = [aws_s3_bucket_policy.primary_domain_cdn_bucket_policy]
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
-# Set ACL for the S3 Bucket to public-read
+# Reset the existing public ACL without changing object ownership.
 resource "aws_s3_bucket_acl" "primary_domain_cdn_acl" {
   depends_on = [
     aws_s3_bucket_ownership_controls.primary_domain_cdn_ownership_controls,
@@ -92,17 +95,16 @@ resource "aws_s3_bucket_acl" "primary_domain_cdn_acl" {
   ]
 
   bucket = aws_s3_bucket.primary_domain_cdn.id
-  acl    = "public-read"
+  acl    = "private"
 }
 
-# Configure S3 Bucket for website hosting
+# Retain website settings during the origin migration; public access is blocked.
 resource "aws_s3_bucket_website_configuration" "primary_domain_cdn_hosting_config" {
   bucket = aws_s3_bucket.primary_domain_cdn.id
 
   index_document {
     suffix = "index.html"
   }
-
 }
 
 # Validate ACM certificate
@@ -112,24 +114,27 @@ resource "aws_acm_certificate_validation" "primary_domain_cert_validation" {
   validation_record_fqdns = [for record in aws_route53_record.primary_domain_cert_validation_records : record.fqdn]
 }
 
+# Sign CloudFront requests to the private S3 REST origin.
+resource "aws_cloudfront_origin_access_control" "primary_domain_cdn" {
+  name                              = "${var.primary_domain}-cdn"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
 # Create CloudFront distribution for the CDN
 resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
-  enabled         = true
-  is_ipv6_enabled = true
-  depends_on      = [aws_acm_certificate_validation.primary_domain_cert_validation]
+  enabled             = true
+  is_ipv6_enabled     = true
+  default_root_object = "index.html"
+  depends_on          = [aws_acm_certificate_validation.primary_domain_cert_validation]
   origin {
-    domain_name = aws_s3_bucket_website_configuration.primary_domain_cdn_hosting_config.website_endpoint
-    origin_id   = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
+    domain_name              = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
+    origin_id                = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
+    origin_access_control_id = aws_cloudfront_origin_access_control.primary_domain_cdn.id
 
-    custom_origin_config {
-      http_port                = 80
-      https_port               = 443
-      origin_keepalive_timeout = 5
-      origin_protocol_policy   = "http-only"
-      origin_read_timeout      = 30
-      origin_ssl_protocols = [
-        "TLSv1.2",
-      ]
+    s3_origin_config {
+      origin_access_identity = ""
     }
   }
 
@@ -151,17 +156,25 @@ resource "aws_cloudfront_distribution" "primary_domain_cdn_distribution" {
   }
 
   default_cache_behavior {
-    cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6"
-    viewer_protocol_policy = "redirect-to-https"
-    compress               = true
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD"]
-    target_origin_id       = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
+    cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+    # AWS managed SecurityHeadersPolicy; this policy does not include CSP.
+    response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03"
+    viewer_protocol_policy     = "redirect-to-https"
+    compress                   = true
+    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
+    cached_methods             = ["GET", "HEAD"]
+    target_origin_id           = aws_s3_bucket.primary_domain_cdn.bucket_regional_domain_name
+  }
+  # S3 returns 403 for missing keys without ListBucket permission.
+  custom_error_response {
+    error_code         = 403
+    response_code      = 200
+    response_page_path = "/index.html"
   }
   custom_error_response {
     error_code         = 404
     response_code      = 200
-    response_page_path = "/"
+    response_page_path = "/index.html"
   }
 
 }
@@ -187,24 +200,43 @@ resource "aws_route53_record" "pimary_domain_cdn_cname" {
   }
 }
 
-# Configure S3 Bucket policy for public access
+# Add aliases without changing the existing apex A resource address.
+resource "aws_route53_record" "primary_domain_cdn_aliases" {
+  for_each = {
+    www_a     = { name = "www.${var.primary_domain}", type = "A" }
+    apex_aaaa = { name = var.primary_domain, type = "AAAA" }
+    www_aaaa  = { name = "www.${var.primary_domain}", type = "AAAA" }
+  }
+
+  zone_id = aws_route53_zone.primary_domain.id
+  name    = each.value.name
+  type    = each.value.type
+
+  alias {
+    name                   = aws_cloudfront_distribution.primary_domain_cdn_distribution.domain_name
+    zone_id                = aws_cloudfront_distribution.primary_domain_cdn_distribution.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+# Replace public access after CloudFront deploys its signed REST origin.
 resource "aws_s3_bucket_policy" "primary_domain_cdn_bucket_policy" {
-  bucket     = aws_s3_bucket.primary_domain_cdn.id
-  depends_on = [aws_s3_bucket_acl.primary_domain_cdn_acl]
-  policy = jsonencode(
-    {
-      "Version" : "2012-10-17",
-      "Statement" : [
-        {
-          "Sid" : "PublicReadGetObject",
-          "Effect" : "Allow",
-          "Principal" : "*",
-          "Action" : "s3:GetObject",
-          "Resource" : "arn:aws:s3:::${aws_s3_bucket.primary_domain_cdn.id}/*"
+  bucket = aws_s3_bucket.primary_domain_cdn.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowCloudFrontReadOnly"
+      Effect    = "Allow"
+      Principal = { Service = "cloudfront.amazonaws.com" }
+      Action    = "s3:GetObject"
+      Resource  = "${aws_s3_bucket.primary_domain_cdn.arn}/*"
+      Condition = {
+        StringEquals = {
+          "AWS:SourceArn" = aws_cloudfront_distribution.primary_domain_cdn_distribution.arn
         }
-      ]
-    }
-  )
+      }
+    }]
+  })
 }
 
 # Store Reddit app details in SSM Parameter Store
