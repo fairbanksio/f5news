@@ -161,7 +161,6 @@ const PostView = () => {
     if (!isVisible || !refreshInterval || refreshInterval <= 0) return undefined;
     let disposed = false;
     let activeRequest = null;
-    let loadingTimeout;
     let requestDeadline;
 
     const fetchPosts = async () => {
@@ -172,7 +171,6 @@ const PostView = () => {
       const isCurrent = () => !disposed && activeRequest === controller && !controller.signal.aborted;
       const startedAt = Date.now();
       lastFetchStartedAtRef.current = startedAt;
-      clearTimeout(loadingTimeout);
       setLoading(true);
       const url = getPostsUrl(subreddit);
       try {
@@ -201,9 +199,7 @@ const PostView = () => {
         setPosts(nextPosts);
         setHasLoadedPosts(true);
         setError({ show: false });
-        loadingTimeout = setTimeout(() => {
-          if (!disposed) setLoading(false);
-        }, 1700);
+        setLoading(false);
         freshnessReporterRef.current(subreddit, nextPosts);
       } catch (error) {
         if (disposed || activeRequest !== controller || (controller.signal.aborted && !timedOut)) return;
@@ -235,7 +231,6 @@ const PostView = () => {
       disposed = true;
       activeRequest?.abort();
       clearInterval(interval);
-      clearTimeout(loadingTimeout);
       clearTimeout(requestDeadline);
       window.removeEventListener('focus', refreshPostsAfterResume);
       window.removeEventListener('pageshow', refreshPostsAfterResume);

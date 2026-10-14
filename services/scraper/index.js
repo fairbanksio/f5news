@@ -1,4 +1,5 @@
 const mongoose = require("./db");
+const { version } = require("./package.json");
 const { errorFields, sanitizeImageFailure, sanitizeUrl } = require("./telemetry");
 const newPost = require("./models/newPost");
 const { normalizeFetch } = require("./fetchInterop");
@@ -306,6 +307,7 @@ const createFetchPosts = ({
   now = () => new Date(),
 } = {}) => {
   const normalizedFetch = normalizeFetch(fetchImpl);
+  const redditUserAgent = `nodejs:f5oclock-scraper:${version} (by /u/${env.REDDIT_USERNAME})`;
 
   return async (event = {}, context = {}) => {
     const startedAt = Date.now();
@@ -323,7 +325,7 @@ const createFetchPosts = ({
         headers: {
           "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
           Authorization: "Basic " + btoa(env.REDDIT_CLIENT_ID + ":" + env.REDDIT_SECRET_KEY),
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "User-Agent": redditUserAgent,
         },
         body: new URLSearchParams({ username: env.REDDIT_USERNAME, password: env.REDDIT_PASSWORD, grant_type: "password" }).toString(),
       });
@@ -333,7 +335,7 @@ const createFetchPosts = ({
       stage = "reddit_listing";
       const listingResponse = await normalizedFetch(redditUrl, {
         method: "GET",
-        headers: { Authorization: "bearer " + auth.access_token, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 f5" },
+        headers: { Authorization: "bearer " + auth.access_token, "User-Agent": redditUserAgent },
       });
       if (listingResponse.ok === false) throw Object.assign(new Error("Reddit listing request failed"), { status: listingResponse.status });
       const listing = await listingResponse.json();
