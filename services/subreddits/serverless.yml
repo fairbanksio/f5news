@@ -6,7 +6,6 @@ provider:
   runtime: nodejs24.x
   region: us-east-1
   environment:
-    MONGO_CONNECTION_STRING: ${ssm:/primary_db_connection_string}
     PRIMARY_DOMAIN_NAME: ${env:PRIMARY_DOMAIN_NAME, ssm:/primary_domain_name}
 
 plugins:

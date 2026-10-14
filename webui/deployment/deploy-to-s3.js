@@ -1,29 +1,28 @@
-const { exec } = require('child_process');
-const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm'); // CommonJS import
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 
-console.log('deploying to s3');
-// get parameter
-const client = new SSMClient();
-const input = {
-  // GetParameterRequest
-  Name: 'primary_domain_cdn', // required
-  WithDecryption: true,
-};
-const command = new GetParameterCommand(input);
-client.send(command).then(data => {
-  const bucket_name = data.Parameter.Value;
-  exec(`aws s3 sync build/ s3://${bucket_name}`, (error, stdout, stderr) => {
-    if (error) {
-      console.log(`error: ${error.message}`);
-      return;
-    }
-    if (stderr) {
-      console.log(`stderr: ${stderr}`);
-      return;
-    }
-    console.log(`stdout: ${stdout}`);
-    console.log('deployed to s3');
+const runCommand = promisify(execFile);
+
+async function uploadToS3() {
+  const client = new SSMClient();
+  const { Parameter } = await client.send(new GetParameterCommand({
+    Name: 'primary_domain_cdn',
+    WithDecryption: true,
+  }));
+  const { stdout, stderr } = await runCommand('aws', [
+    's3', 'sync', 'build/', `s3://${Parameter.Value}`,
+  ]);
+  if (stdout) console.log(stdout);
+  if (stderr) console.error(stderr);
+  console.log('Deployed to S3.');
+}
+
+module.exports = { uploadToS3 };
+
+if (require.main === module) {
+  uploadToS3().catch(error => {
+    console.error('S3 upload failed:', error.message);
+    process.exitCode = 1;
   });
-});
-
-//aws s3 sync build/ s3://bsord.dev-cdn
+}

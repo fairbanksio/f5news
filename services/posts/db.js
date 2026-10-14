@@ -12,6 +12,10 @@ exports.connect = async function () {
         maxPoolSize: 5,
       })
       .then(() => mongoose)
+      .catch((error) => {
+        conn = null
+        throw error
+      })
 
     // `await`ing connection after assigning to the `conn` variable
     // to avoid multiple function calls creating new connections

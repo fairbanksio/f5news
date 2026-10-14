@@ -27,6 +27,7 @@ const SCRAPER_FRESHNESS_GRACE_MS = 1000 * 60 * 2;
 const STALE_POSTS_THRESHOLD_MS =
   SCRAPER_REFRESH_INTERVAL_MS + SCRAPER_FRESHNESS_GRACE_MS;
 const MIN_RESUME_REFRESH_AGE_MS = 1000 * 30;
+const POST_REQUEST_TIMEOUT_MS = 1000 * 45;
 
 const FRESHNESS_LOG_SUMMARY_INTERVAL_MS = 1000 * 60 * 5;
 
@@ -156,37 +157,56 @@ const PostView = () => {
     '2xl': '1600px',
   });
 
-  const fetchPosts = () => {
-    const startedAt = Date.now();
-    lastFetchStartedAtRef.current = startedAt;
-    setLoading(true);
-    const url = getPostsUrl(subreddit);
-    Promise.resolve().then(() => {
-      if (!url) throw new Error('The news API is not configured.');
-      return fetch(url);
-    })
-      .then(response => {
-        if (!response.ok) {
-          const error = new Error(`Failed to fetch posts: ${response.status}`);
-          error.status = response.status;
-          throw error;
-        }
+  useEffect(() => {
+    if (!isVisible || !refreshInterval || refreshInterval <= 0) return undefined;
+    let disposed = false;
+    let activeRequest = null;
+    let loadingTimeout;
+    let requestDeadline;
 
-        return response.json();
-      })
-      .then(json => {
+    const fetchPosts = async () => {
+      if (activeRequest || disposed) return;
+      const controller = new AbortController();
+      activeRequest = controller;
+      let timedOut = false;
+      const isCurrent = () => !disposed && activeRequest === controller && !controller.signal.aborted;
+      const startedAt = Date.now();
+      lastFetchStartedAtRef.current = startedAt;
+      clearTimeout(loadingTimeout);
+      setLoading(true);
+      const url = getPostsUrl(subreddit);
+      try {
+        if (!url) throw new Error('The news API is not configured.');
+        const deadline = new Promise((resolve, reject) => {
+          requestDeadline = setTimeout(() => {
+            timedOut = true;
+            const error = new Error('The posts request timed out after 45 seconds.');
+            error.name = 'TimeoutError';
+            reject(error);
+            controller.abort();
+          }, POST_REQUEST_TIMEOUT_MS);
+        });
+        const request = async () => {
+          const response = await fetch(url, { signal: controller.signal });
+          if (!response.ok) {
+            const error = new Error(`Failed to fetch posts: ${response.status}`);
+            error.status = response.status;
+            throw error;
+          }
+          return response.json();
+        };
+        const json = await Promise.race([request(), deadline]);
+        if (!isCurrent()) return;
         const nextPosts = sortPostsByUpvotes(getValidatedPosts(json));
         setPosts(nextPosts);
         setHasLoadedPosts(true);
         setError({ show: false });
-
-        setTimeout(() => {
-          setLoading(false);
+        loadingTimeout = setTimeout(() => {
+          if (!disposed) setLoading(false);
         }, 1700);
-
         freshnessReporterRef.current(subreddit, nextPosts);
-      })
-      .catch(error => {
+      } catch (error) {
+        if (disposed || activeRequest !== controller || (controller.signal.aborted && !timedOut)) return;
         logPostFetchFailure(error, subreddit, startedAt);
         setError({
           level: 'error',
@@ -195,47 +215,33 @@ const PostView = () => {
           message: url ? 'There was a problem fetching new posts. Retrying.' : error.message,
         });
         setLoading(false);
-      });
-  };
-
-  useEffect(() => {
-    if (refreshInterval && refreshInterval > 0) {
-      if (isVisible) {
-        fetchPosts();
-        const interval = setInterval(fetchPosts, refreshInterval * 1000);
-        return () => clearInterval(interval);
+      } finally {
+        clearTimeout(requestDeadline);
+        if (activeRequest === controller) activeRequest = null;
       }
-    }
-  }, [refreshInterval, subreddit, isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!refreshInterval || refreshInterval <= 0) {
-      return undefined;
-    }
+    };
 
     const refreshPostsAfterResume = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        return;
-      }
-
-      const refreshAgeMs = Math.max(
-        Number(refreshInterval) * 1000,
-        MIN_RESUME_REFRESH_AGE_MS
-      );
-
-      if (Date.now() - lastFetchStartedAtRef.current >= refreshAgeMs) {
-        fetchPosts();
-      }
+      if (document.visibilityState === 'hidden') return;
+      const refreshAgeMs = Math.max(Number(refreshInterval) * 1000, MIN_RESUME_REFRESH_AGE_MS);
+      if (Date.now() - lastFetchStartedAtRef.current >= refreshAgeMs) fetchPosts();
     };
 
+    fetchPosts();
+    const interval = setInterval(fetchPosts, refreshInterval * 1000);
     window.addEventListener('focus', refreshPostsAfterResume);
     window.addEventListener('pageshow', refreshPostsAfterResume);
-
     return () => {
+      disposed = true;
+      activeRequest?.abort();
+      clearInterval(interval);
+      clearTimeout(loadingTimeout);
+      clearTimeout(requestDeadline);
       window.removeEventListener('focus', refreshPostsAfterResume);
       window.removeEventListener('pageshow', refreshPostsAfterResume);
+      setLoading(false);
     };
-  }, [refreshInterval, subreddit]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [refreshInterval, subreddit, isVisible, setLoading]);
 
   return (
     <Container maxW={maxW} mt={16} pl={padding} pr={padding}>

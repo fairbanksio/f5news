@@ -1,0 +1,46 @@
+name: Notebook Checks
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'resources/data-analysis/**'
+      - '.github/workflows/notebook-checks.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'resources/data-analysis/**'
+      - '.github/workflows/notebook-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  notebook:
+    name: Local Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MPLBACKEND: Agg
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: 'resources/data-analysis/requirements*.txt'
+      - name: Install Dependencies
+        run: python -m pip install -r resources/data-analysis/requirements-dev.txt
+      - name: Test Notebook
+        run: python -m unittest discover -s resources/data-analysis/tests -v
+      - name: Validate Notebook
+        run: |
+          python - <<'PY'
+          import nbformat
+          notebook = nbformat.read('resources/data-analysis/f5-spark-analysis.ipynb', as_version=4)
+          nbformat.validate(notebook)
+          assert all(not cell.outputs and cell.execution_count is None for cell in notebook.cells if cell.cell_type == 'code')
+          PY
