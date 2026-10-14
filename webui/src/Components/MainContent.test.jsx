@@ -13,15 +13,14 @@ Object.defineProperty(window, 'matchMedia', {
   value: matchMedia,
 });
 
-const renderMainContent = ({ refreshInterval = 1 } = {}) =>
-  render(
-    <LoadingContext.Provider value={{ loading: false, setLoading: vi.fn() }}>
+const mainContentTree = ({ refreshInterval = 1, subreddit = 'politics', setLoading = vi.fn() } = {}) => (
+    <LoadingContext.Provider value={{ loading: false, setLoading }}>
       <RefreshIntervalContext.Provider
         value={{ refreshInterval, setRefreshInterval: vi.fn() }}
       >
         <SubredditContext.Provider
           value={{
-            subreddit: 'politics',
+            subreddit,
             subredditList: ['politics'],
             setSubreddit: vi.fn(),
           }}
@@ -35,6 +34,8 @@ const renderMainContent = ({ refreshInterval = 1 } = {}) =>
       </RefreshIntervalContext.Provider>
     </LoadingContext.Provider>
   );
+
+const renderMainContent = options => render(mainContentTree(options));
 
 describe('MainContent', () => {
   beforeEach(() => {
@@ -368,4 +369,128 @@ test('shows a configuration error without requesting an implicit endpoint', asyn
   await waitFor(() => expect(screen.getByText('The news API is not configured.')).toBeInTheDocument());
   expect(global.fetch).not.toHaveBeenCalled();
   errorLog.mockRestore();
+});
+
+
+const deferred = () => {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+};
+const responseFor = title => ({ ok: true, json: async () => ({ data: [{
+  id: title, title, url: 'https://example.com/story', created_utc: 1780000000,
+  commentLink: '/r/science/comments/test', commentCount: 1, upvoteCount: 2,
+  fetchedAt: new Date().toISOString(),
+}] }) });
+
+describe('request lifecycle', () => {
+  beforeEach(() => { window.REACT_APP_API = 'https://api.f5.test'; });
+  afterEach(() => {
+    delete window.REACT_APP_API;
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+test('ignores the old feed response after a subreddit changes', async () => {
+  const old = deferred();
+  const next = deferred();
+  const setLoading = vi.fn();
+  global.fetch = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise);
+  const view = renderMainContent({ subreddit: 'politics', setLoading, refreshInterval: 600 });
+  view.rerender(mainContentTree({ subreddit: 'science', setLoading, refreshInterval: 600 }));
+  expect(global.fetch.mock.calls[0][1].signal.aborted).toBe(true);
+  await act(async () => next.resolve(responseFor('Science headline')));
+  expect(screen.getByText('Science headline')).toBeInTheDocument();
+  await act(async () => old.resolve(responseFor('Old politics headline')));
+  expect(screen.getByText('Science headline')).toBeInTheDocument();
+  expect(screen.queryByText('Old politics headline')).not.toBeInTheDocument();
+  view.unmount();
+});
+
+test('does not overlap interval and resume refreshes with an active request', async () => {
+  vi.useFakeTimers();
+  const pending = deferred();
+  global.fetch = vi.fn().mockReturnValue(pending.promise);
+  const view = renderMainContent({ refreshInterval: 1 });
+  await act(async () => {
+    vi.advanceTimersByTime(31000);
+    window.dispatchEvent(new Event('focus'));
+  });
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(global.fetch.mock.calls[0][1].signal.aborted).toBe(true);
+  vi.useRealTimers();
+});
+
+test('cancels delayed loading updates on unmount', async () => {
+  vi.useFakeTimers();
+  const setLoading = vi.fn();
+  global.fetch = vi.fn().mockResolvedValue(responseFor('Loaded headline'));
+  let view;
+  await act(async () => { view = renderMainContent({ setLoading, refreshInterval: 600 }); });
+  view.unmount();
+  setLoading.mockClear();
+  await act(async () => vi.advanceTimersByTime(2000));
+  expect(setLoading).not.toHaveBeenCalled();
+  vi.useRealTimers();
+});
+
+test('ignores a rejected request after unmount', async () => {
+  let reject;
+  const pending = new Promise((resolve, fail) => { reject = fail; });
+  const setLoading = vi.fn();
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  global.fetch = vi.fn().mockReturnValue(pending);
+  const view = renderMainContent({ setLoading });
+  view.unmount();
+  setLoading.mockClear();
+  await act(async () => reject(new Error('Late failure')));
+  expect(setLoading).not.toHaveBeenCalled();
+  expect(errorLog).not.toHaveBeenCalled();
+  errorLog.mockRestore();
+});
+
+
+test('clears a previous success timer before starting another refresh', async () => {
+  vi.useFakeTimers();
+  const pending = deferred();
+  const setLoading = vi.fn();
+  global.fetch = vi.fn().mockResolvedValueOnce(responseFor('Loaded headline')).mockReturnValueOnce(pending.promise);
+  let view;
+  await act(async () => { view = renderMainContent({ setLoading, refreshInterval: 1 }); });
+  await act(async () => vi.advanceTimersByTime(1000));
+  setLoading.mockClear();
+  await act(async () => vi.advanceTimersByTime(700));
+  expect(setLoading).not.toHaveBeenCalledWith(false);
+  view.unmount();
+});
+
+
+test.each(['fetch', 'body'])('retries after a never-settling %s request reaches its deadline', async phase => {
+  vi.useFakeTimers();
+  const pending = deferred();
+  const setLoading = vi.fn();
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  global.fetch = vi.fn()
+    .mockReturnValueOnce(phase === 'fetch' ? pending.promise : Promise.resolve({ ok: true, json: () => pending.promise }))
+    .mockResolvedValueOnce(responseFor('Recovered headline'));
+  let view;
+  await act(async () => { view = renderMainContent({ setLoading, refreshInterval: 30 }); });
+  await act(async () => vi.advanceTimersByTime(45000));
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(global.fetch.mock.calls[0][1].signal.aborted).toBe(true);
+  expect(screen.getByText('Refresh Failed')).toBeInTheDocument();
+  expect(setLoading).toHaveBeenLastCalledWith(false);
+  expect(errorLog).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ errorType: 'TimeoutError' }));
+  await act(async () => vi.advanceTimersByTime(15000));
+  expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(screen.getByText('Recovered headline')).toBeInTheDocument();
+  expect(screen.queryByText('Refresh Failed')).not.toBeInTheDocument();
+  await act(async () => pending.resolve(phase === 'fetch' ? responseFor('Expired headline') : { data: [] }));
+  expect(screen.getByText('Recovered headline')).toBeInTheDocument();
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 });

@@ -5,7 +5,6 @@ import Navbar from './Components/Navbar';
 import { LoadingContext } from './Contexts/LoadingContext';
 import { RefreshIntervalContext } from './Contexts/RefreshIntervalContext';
 import { SubredditContext } from './Contexts/SubredditContext';
-import { ThemeContext } from './Contexts/ThemeContext';
 import { ViewModeContext } from './Contexts/ViewModeContext';
 import { getRefreshIntervalMenuValue } from './Components/Navbar';
 import { setMedia } from 'mock-match-media';
@@ -15,11 +14,9 @@ const renderNavbar = ({ refreshInterval = 30 } = {}) =>
     <LoadingContext.Provider value={{ loading: false, setLoading: vi.fn() }}>
       <RefreshIntervalContext.Provider value={{ refreshInterval, setRefreshInterval: vi.fn() }}>
         <SubredditContext.Provider value={{ subreddit: 'news', subredditList: ['news'], setSubreddit: vi.fn() }}>
-          <ThemeContext.Provider value={{ theme: 'custom', setTheme: vi.fn() }}>
             <ViewModeContext.Provider value={{ viewMode: 'grid', setViewMode: vi.fn() }}>
               <Navbar />
             </ViewModeContext.Provider>
-          </ThemeContext.Provider>
         </SubredditContext.Provider>
       </RefreshIntervalContext.Provider>
     </LoadingContext.Provider>

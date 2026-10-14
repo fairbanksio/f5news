@@ -1,21 +1,22 @@
-const fs = require('fs');
-const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm'); // CommonJS import
+const { writeFile } = require('node:fs/promises');
+const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 
-// get parameter
-const client = new SSMClient();
-const input = {
-  // GetParameterRequest
-  Name: 'primary_domain_name', // required
-  WithDecryption: true,
-};
-const command = new GetParameterCommand(input);
-client.send(command).then(data => {
-  const api_domain = `api.${data.Parameter.Value}`;
-  const config = `window.REACT_APP_API="${api_domain}"`;
-  try {
-    fs.writeFileSync('public/config.js', config);
-    console.log('config written to public/config.js');
-  } catch (error) {
-    console.error(error);
-  }
-});
+async function generateConfig() {
+  const client = new SSMClient();
+  const { Parameter } = await client.send(new GetParameterCommand({
+    Name: 'primary_domain_name',
+    WithDecryption: true,
+  }));
+  const apiDomain = `api.${Parameter.Value}`;
+  await writeFile('public/config.js', `window.REACT_APP_API=${JSON.stringify(apiDomain)};\n`);
+  console.log('Config written to public/config.js.');
+}
+
+module.exports = { generateConfig };
+
+if (require.main === module) {
+  generateConfig().catch(error => {
+    console.error('Config generation failed:', error.message);
+    process.exitCode = 1;
+  });
+}

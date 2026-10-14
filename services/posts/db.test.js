@@ -77,3 +77,32 @@ test("connect reuses the in-flight mongoose connection", async () => {
     restore();
   }
 });
+
+
+test("connect retries after a shared connection failure", async () => {
+  let connectCount = 0;
+  const { db, restore } = loadDb({
+    connectionString: "mongodb://example.test/posts",
+    connectImpl: async () => {
+      connectCount += 1;
+      if (connectCount === 1) throw new Error("temporary mongo outage");
+    },
+  });
+
+  try {
+    const failures = await Promise.allSettled([db.connect(), db.connect()]);
+    assert.equal(connectCount, 1);
+    for (const failure of failures) {
+      assert.equal(failure.status, "rejected");
+      assert.match(failure.reason.message, /temporary mongo outage/);
+    }
+
+    const connections = await Promise.all([db.connect(), db.connect()]);
+    assert.deepEqual(connections, [mongoose, mongoose]);
+    assert.equal(connectCount, 2);
+    assert.equal(await db.connect(), mongoose);
+    assert.equal(connectCount, 2);
+  } finally {
+    restore();
+  }
+});
