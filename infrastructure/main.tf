@@ -66,11 +66,11 @@ resource "aws_ssm_parameter" "primary_domain_cdn" {
   description = "Bucket ID of primary domain CDN"
 }
 
-# Keep existing ACL ownership while migrating the bucket to private access.
+# Disable ACLs; access is controlled by the bucket policy.
 resource "aws_s3_bucket_ownership_controls" "primary_domain_cdn_ownership_controls" {
   bucket = aws_s3_bucket.primary_domain_cdn.id
   rule {
-    object_ownership = "BucketOwnerPreferred"
+    object_ownership = "BucketOwnerEnforced"
   }
 }
 
@@ -85,26 +85,6 @@ resource "aws_s3_bucket_public_access_block" "primary_domain_cdn_access_block" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
-}
-
-# Reset the existing public ACL without changing object ownership.
-resource "aws_s3_bucket_acl" "primary_domain_cdn_acl" {
-  depends_on = [
-    aws_s3_bucket_ownership_controls.primary_domain_cdn_ownership_controls,
-    aws_s3_bucket_public_access_block.primary_domain_cdn_access_block,
-  ]
-
-  bucket = aws_s3_bucket.primary_domain_cdn.id
-  acl    = "private"
-}
-
-# Retain website settings during the origin migration; public access is blocked.
-resource "aws_s3_bucket_website_configuration" "primary_domain_cdn_hosting_config" {
-  bucket = aws_s3_bucket.primary_domain_cdn.id
-
-  index_document {
-    suffix = "index.html"
-  }
 }
 
 # Validate ACM certificate
