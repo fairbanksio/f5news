@@ -20,7 +20,7 @@ Service layout:
 
 Use the versions implied by CI unless a task explicitly requires something else:
 
-- Node.js 24.x for CI-compatible installs and deploys
+- Node.js 24.15 or newer within 24.x for CI-compatible installs and deploys (required by frontend test dependencies)
 - npm
 - Terraform `1.15.4`
 - AWS credentials with access to SSM, S3, CloudFront, Route53, Lambda, and related deploy resources
