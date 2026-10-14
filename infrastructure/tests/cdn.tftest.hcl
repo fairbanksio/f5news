@@ -82,9 +82,9 @@ run "private_cdn" {
       aws_s3_bucket_public_access_block.primary_domain_cdn_access_block.block_public_policy &&
       aws_s3_bucket_public_access_block.primary_domain_cdn_access_block.ignore_public_acls &&
       aws_s3_bucket_public_access_block.primary_domain_cdn_access_block.restrict_public_buckets &&
-      aws_s3_bucket_acl.primary_domain_cdn_acl.acl == "private"
+      aws_s3_bucket_ownership_controls.primary_domain_cdn_ownership_controls.rule[0].object_ownership == "BucketOwnerEnforced"
     )
-    error_message = "The CDN bucket must block public access and replace its public ACL."
+    error_message = "The CDN bucket must block public access and disable ACLs."
   }
 
   assert {
