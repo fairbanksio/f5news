@@ -170,3 +170,29 @@ test("start uses the PORT environment override", () => {
     }
   }
 });
+
+
+test("offline server serves HTTP loopback GET and preflight while Lambda remains strict", async (t) => {
+  const previousOffline = process.env.IS_OFFLINE;
+  const previousLambda = process.env.AWS_EXECUTION_ENV;
+  t.after(() => {
+    for (const [key, value] of [["IS_OFFLINE", previousOffline], ["AWS_EXECUTION_ENV", previousLambda]]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  delete process.env.AWS_EXECUTION_ENV;
+  process.env.IS_OFFLINE = "true";
+  const origin = "http://localhost:3000";
+  const loaded = await request(createLocalServer(), "/subreddits", { headers: { origin } });
+  assert.equal(loaded.res.statusCode, 200);
+  assert.equal(loaded.res.headers["access-control-allow-origin"], origin);
+  assert.equal(JSON.parse(loaded.body).success, true);
+  const preflight = await request(createLocalServer(), "/subreddits", { method: "OPTIONS", headers: { origin } });
+  assert.equal(preflight.res.statusCode, 204);
+  assert.equal(preflight.res.headers["access-control-allow-origin"], origin);
+  process.env.AWS_EXECUTION_ENV = "AWS_Lambda_nodejs24.x";
+  const forbidden = await request(createLocalServer(), "/subreddits", { headers: { origin } });
+  assert.equal(forbidden.res.statusCode, 403);
+  assert.equal(forbidden.res.headers["access-control-allow-origin"], undefined);
+});

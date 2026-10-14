@@ -56,6 +56,10 @@ jobs:
         working-directory: infrastructure
         run: terraform validate
 
+      - name: Terraform Configuration Tests
+        working-directory: infrastructure
+        run: terraform test
+
   services:
     name: Services
     if: >-
