@@ -21,6 +21,6 @@
     "serverless-offline": "^14.8.3"
   },
   "dependencies": {
-    "mongoose": "^9.11.0"
+    "mongoose": "^9.11.1"
   }
 }
