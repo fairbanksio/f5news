@@ -134,14 +134,12 @@ def build_topics(payload, vectors=None):
         centers = features
 
     topics = []
-    assigned = set()
     for positions in groups.values():
         if len(positions) < 2:
             continue
         center = centers[positions].mean(axis=0)
         representative = positions[int(np.argmax(centers[positions] @ center))]
         matching = [articles[title_positions[position]] for position in sorted(positions)]
-        assigned.update(article['url'] for article in matching)
         topics.append(dict(name=titles[representative],
             summary='Articles about the same or a closely related story.',
             article_count=len(matching), source_count=len({article['source'] for article in matching}),

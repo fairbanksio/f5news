@@ -41,11 +41,6 @@ const textStyles = {
     fontWeight: 'normal',
     lineHeight: 'base',
   },
-  support: {
-    fontSize: 'sm',
-    fontWeight: 'medium',
-    lineHeight: 'short',
-  },
   utility: {
     fontSize: { base: 'sm', md: 'md' },
     fontWeight: 'semibold',
@@ -349,7 +344,6 @@ const chakraConfig = defineConfig({
 const CustomTheme = {
   config: {
     initialColorMode: 'dark',
-    useSystemColorMode: false,
   },
   system: createSystem(defaultConfig, chakraConfig),
 };

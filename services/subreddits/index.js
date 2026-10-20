@@ -25,7 +25,7 @@ const jsonResponse = (statusCode, body, origin) => ({
   body: JSON.stringify(body),
 });
 
-const createGetSubreddits = () => async (event = {}) => {
+const getSubreddits = async (event = {}) => {
   const origin = getRequestOrigin(event);
 
   if (!isAllowedOrigin(origin)) {
@@ -35,22 +35,11 @@ const createGetSubreddits = () => async (event = {}) => {
     }, origin);
   }
 
-  try {
-    // return results
-    return jsonResponse(200, {
-      success: true,
-      count: configuredSubreddits.length,
-      data: configuredSubreddits,
-    }, origin);
-  } catch (error) {
-    return jsonResponse(500, {
-      success: false,
-      error: "Failed to fetch subreddits",
-    }, origin);
-  }
+  return jsonResponse(200, {
+    success: true,
+    count: configuredSubreddits.length,
+    data: configuredSubreddits,
+  }, origin);
 };
 
-module.exports.createGetSubreddits = createGetSubreddits;
-
-// CREATE
-module.exports.get_subreddits = createGetSubreddits();
+module.exports.get_subreddits = getSubreddits;

@@ -372,9 +372,5 @@ const createFetchPosts = ({
 };
 
 module.exports.createFetchPosts = createFetchPosts;
-module.exports.createImageResolutionMetrics = createImageResolutionMetrics;
 module.exports.backfillMissingPostImages = backfillMissingPostImages;
-module.exports.createImageFailureDiagnostics = createImageFailureDiagnostics;
-module.exports.findMissingThumbnailPosts = findMissingThumbnailPosts;
 module.exports.fetchPosts = createFetchPosts();
-module.exports.logImageResolutionMetrics = logImageResolutionMetrics;
