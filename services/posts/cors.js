@@ -35,8 +35,6 @@ const getAllowedOrigins = () => {
   return origins;
 };
 
-const ALLOWED_ORIGINS = getAllowedOrigins();
-
 const createCorsHeaders = (origin) => {
   if (!getAllowedOrigins().has(origin)) {
     return {};
@@ -49,7 +47,6 @@ const createCorsHeaders = (origin) => {
 };
 
 module.exports = {
-  ALLOWED_ORIGINS,
   createCorsHeaders,
   getAllowedOrigins,
   isAllowedOrigin: (origin) => getAllowedOrigins().has(origin),

@@ -677,6 +677,5 @@ module.exports = {
   isSafeHttpUrl,
   mapWithConcurrency,
   makeSafeLookup,
-  redditImageSource,
   selectPublicAddress,
 };

@@ -5,7 +5,7 @@ import { FaMoon, FaSun } from 'react-icons/fa';
 import { SubredditContext } from '../Contexts/SubredditContext';
 import { trackColorModeChange } from '../analytics';
 
-export const ColorModeSwitcher = props => {
+export const ColorModeSwitcher = () => {
   const { colorMode, toggleColorMode } = useColorMode();
   const { subreddit } = useContext(SubredditContext);
   const changeMode = () => {
@@ -27,7 +27,7 @@ export const ColorModeSwitcher = props => {
   );
 };
 
-export const ColorModeSwitcherMenuItem = props => {
+export const ColorModeSwitcherMenuItem = () => {
   const { colorMode, toggleColorMode } = useColorMode();
   const { subreddit } = useContext(SubredditContext);
   const changeMode = () => {
