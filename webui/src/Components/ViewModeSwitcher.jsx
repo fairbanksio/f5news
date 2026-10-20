@@ -5,7 +5,7 @@ import { ViewModeContext } from '../Contexts/ViewModeContext'
 import { SubredditContext } from '../Contexts/SubredditContext';
 import { trackViewModeChange } from '../analytics';
 
-export const ViewModeSwitcher = props => {
+export const ViewModeSwitcher = () => {
   const { viewMode, setViewMode } = useContext(ViewModeContext)
   const { subreddit } = useContext(SubredditContext);
 
@@ -22,7 +22,7 @@ export const ViewModeSwitcher = props => {
 
   return (
     <Button
-      onClick={(e)=>{switchViewMode()}}
+      onClick={switchViewMode}
       size={'sm'}
       aria-label={viewMode === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
       textStyle='control'
@@ -32,7 +32,7 @@ export const ViewModeSwitcher = props => {
   );
 };
 
-export const ViewModeSwitcherMenuItem = props => {
+export const ViewModeSwitcherMenuItem = () => {
   const { viewMode, setViewMode } = useContext(ViewModeContext)
   const { subreddit } = useContext(SubredditContext);
   const switchViewMode = () => {
@@ -46,7 +46,7 @@ export const ViewModeSwitcherMenuItem = props => {
     });
   }
   return (
-    <Menu.Item value="ViewModeSwitcher" onClick={(e)=>{switchViewMode()}} >
+    <Menu.Item value="ViewModeSwitcher" onClick={switchViewMode} >
       <Box as={viewMode === 'grid'? BsListUl : BsGridFill} ml={0} mr={2}/> 
       <Text as='span' textStyle='control'>{viewMode === 'grid'? 'List view' : 'Grid view'}</Text>
     </Menu.Item>

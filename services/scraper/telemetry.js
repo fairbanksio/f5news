@@ -44,4 +44,4 @@ const sanitizeImageFailure = (failure, secrets = []) => {
   return sanitized;
 };
 
-module.exports = { errorFields, sanitizeImageFailure, sanitizeText, sanitizeUrl };
+module.exports = { errorFields, sanitizeImageFailure, sanitizeUrl };

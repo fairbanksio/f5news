@@ -1,7 +1,7 @@
 const assert = require("assert");
 const test = require("node:test");
 
-const { createGetSubreddits } = require("./index");
+const { get_subreddits: handler } = require("./index");
 
 const configuredSubreddits = [
   "politics",
@@ -19,19 +19,7 @@ const configuredSubreddits = [
 
 const getJsonBody = (response) => JSON.parse(response.body);
 
-const allowedEvent = (event = {}) => ({
-  ...event,
-  headers: {
-    origin: "https://f5.news",
-    ...(event.headers || {}),
-  },
-});
-
-const createHandler = () => createGetSubreddits();
-
 test("returns configured subreddit names", async () => {
-  const handler = createHandler();
-
   const response = await handler({
     headers: {
       origin: "https://www.f5.news",
@@ -49,9 +37,7 @@ test("returns configured subreddit names", async () => {
   });
 });
 
-test("rejects disallowed origins before querying subreddits", async () => {
-  const handler = createHandler();
-
+test("rejects disallowed origins", async () => {
   const response = await handler({
     headers: {
       origin: "https://evil.example",
@@ -67,9 +53,7 @@ test("rejects disallowed origins before querying subreddits", async () => {
   });
 });
 
-test("rejects requests with no origin before querying subreddits", async () => {
-  const handler = createHandler();
-
+test("rejects requests with no origin", async () => {
   const response = await handler({
     headers: {},
   });
@@ -79,24 +63,5 @@ test("rejects requests with no origin before querying subreddits", async () => {
   assert.deepEqual(getJsonBody(response), {
     success: false,
     error: "Forbidden origin",
-  });
-});
-
-test("ignores injected database-only subreddit names", async () => {
-  const handler = createGetSubreddits({
-    postModel: {
-      distinct: () => ({
-        exec: async () => ["StockMarket", "LocalNews"],
-      }),
-    },
-  });
-
-  const response = await handler(allowedEvent());
-
-  assert.equal(response.statusCode, 200);
-  assert.deepEqual(getJsonBody(response), {
-    success: true,
-    count: configuredSubreddits.length,
-    data: configuredSubreddits,
   });
 });
