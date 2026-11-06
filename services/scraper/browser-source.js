@@ -21,6 +21,7 @@ const runBrowser = ({ subreddit, allFeeds = false, imagePriorityIdsBySubreddit, 
   let diagnostics = "";
   let droppingDiagnostic = false;
   let failure;
+  let navigationRateLimit;
   const displays = new Map();
   const stopDisplays = () => {
     for (const [pid, startTime] of displays) {
@@ -44,12 +45,14 @@ const runBrowser = ({ subreddit, allFeeds = false, imagePriorityIdsBySubreddit, 
   };
   const timer = setTimeout(() => abort("Browser extraction exceeded its deadline"), timeoutMs);
   const heartbeat = setInterval(() => logger.log(JSON.stringify({ eventType: "BROWSER_PROGRESS", subreddit, stage: "extracting" })), 10_000);
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
   child.stdout.on("data", (data) => {
-    if (Buffer.byteLength(output) + data.length > 4 * 1024 * 1024) return abort("Browser output exceeded its size limit");
-    output += data.toString();
+    if (Buffer.byteLength(output) + Buffer.byteLength(data) > 4 * 1024 * 1024) return abort("Browser output exceeded its size limit");
+    output += data;
   });
   child.stderr.on("data", (data) => {
-    diagnostics += data.toString();
+    diagnostics += data;
     const lines = diagnostics.split("\n");
     diagnostics = lines.pop();
     for (const line of lines) {
@@ -58,12 +61,26 @@ const runBrowser = ({ subreddit, allFeeds = false, imagePriorityIdsBySubreddit, 
         logger.log(JSON.stringify({ eventType: "BROWSER_PROGRESS", subreddit, message: "Browser diagnostic line exceeded its size limit" }));
         continue;
       }
+      let diagnosticLine = line;
       try {
         const event = JSON.parse(line);
         if (event.eventType === "BROWSER_OWNED_DISPLAY" && Number.isSafeInteger(event.pid) && event.pid > 1 && event.pgid === event.pid && /^\d+$/.test(String(event.startTime))) displays.set(event.pid, event.startTime);
         if (event.eventType === "BROWSER_DISPLAY_STOPPED" && displays.get(event.pid) === event.startTime) displays.delete(event.pid);
+        if (event.eventType === "BROWSER_NAVIGATION_HTTP") {
+          const retry = Number.isInteger(event.retryAfterSeconds) && event.retryAfterSeconds >= 0 && event.retryAfterSeconds <= 86400 ? event.retryAfterSeconds : undefined;
+          if (event.status === 429) {
+            const delay = retry === undefined ? navigationRateLimit?.retryAfterSeconds : Math.max(retry, navigationRateLimit?.retryAfterSeconds ?? 0);
+            navigationRateLimit = { httpStatus: 429, ...(delay !== undefined ? { retryAfterSeconds: delay } : {}) };
+          }
+          diagnosticLine = JSON.stringify({ eventType: "BROWSER_NAVIGATION_HTTP",
+            ...(Number.isInteger(event.status) && event.status >= 400 && event.status <= 599 ? { status: event.status } : {}),
+            ...(retry !== undefined ? { retryAfterSeconds: retry } : {}),
+            ...(Number.isSafeInteger(event.contentLength) && event.contentLength >= 0 ? { contentLength: event.contentLength } : {}),
+            ...(typeof event.challenge === "boolean" ? { challenge: event.challenge } : {}),
+          });
+        }
       } catch { /* Normal browser progress is plain text. */ }
-      const { errorMessage: message } = errorFields({ message: line }, redactionValues);
+      const { errorMessage: message } = errorFields({ message: diagnosticLine }, redactionValues);
       logger.log(JSON.stringify({ eventType: "BROWSER_PROGRESS", subreddit, message }));
     }
     if (droppingDiagnostic || diagnostics.length > 4096) {
@@ -90,6 +107,8 @@ const runBrowser = ({ subreddit, allFeeds = false, imagePriorityIdsBySubreddit, 
       }
       return reject(error);
     }
+    if (navigationRateLimit) result.navigationRateLimit = navigationRateLimit;
+    else delete result.navigationRateLimit;
     resolve(result);
   });
 });

@@ -584,7 +584,7 @@ const createFetchPosts = ({
     let terminalError;
     try {
       await mongooseClient.connect();
-      const imagePriorityIds = await findImagePriorityIds(newPostModel, subreddit, { now, logger });
+      const imagePriorityIds = event.renewSession === true ? [] : await findImagePriorityIds(newPostModel, subreddit, { now, logger });
       stage = "browser_extract";
       const remaining = typeof context.getRemainingTimeInMillis === "function" ? context.getRemainingTimeInMillis() : 120_000;
       const session = event.session === true || (event.session !== false && env.F5_REDDIT_SESSION_ENABLED === "true");

@@ -58,6 +58,27 @@ test("browser process rejects challenges and malformed output", async () => {
   }
 });
 
+test("split UTF-8 bytes retain exact post titles and diagnostic redaction", async () => {
+  const title = "Café 🌍 reports 東京";
+  const messages = [];
+  const payload = JSON.stringify({ status: "accessible", posts: [{ title }] });
+  const code = `
+    const output = Buffer.from(${JSON.stringify(payload)});
+    const split = output.indexOf(Buffer.from("🌍")) + 2;
+    process.stdout.write(output.subarray(0, split));
+    process.stderr.write(Buffer.from("private-login-"));
+    setTimeout(() => {
+      process.stdout.write(output.subarray(split));
+      console.error("password");
+    }, 50);
+  `;
+  const result = await runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000,
+    logger: { log: (line) => messages.push(line) }, redactionValues: ["private-login-password"], spawnImpl: spawnCode(code) });
+  assert.equal(result.posts[0].title, title);
+  assert.ok(!messages.join().includes("private-login-password"));
+  assert.ok(messages.join().includes("[redacted]"));
+});
+
 test("deadline kills and awaits an unresponsive browser process", async () => {
   let child;
   await assert.rejects(runBrowser({ subreddit: "news", limit: 25, timeoutMs: 300, logger,
@@ -144,6 +165,52 @@ test("untrusted HTTP diagnostic values never reach browser errors", async () => 
     }), (error) => error.sessionReason === "navigation_http_rejected" && !Object.hasOwn(error, "httpStatus") &&
       !Object.hasOwn(error, "retryAfterSeconds") && !JSON.stringify(error).includes("private-cookie-value"));
   }
+});
+
+test("successful extraction retains an observed optional-navigation rate limit without private fields", async () => {
+  const messages = [];
+  const event = { eventType: "BROWSER_NAVIGATION_HTTP", status: 429, retryAfterSeconds: 60,
+    contentLength: 0, challenge: false, url: "https://private.example/account", headers: { cookie: "private-cookie-value" }, account: "private-account" };
+  const result = await runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger: { log: (line) => messages.push(line) },
+    spawnImpl: spawnCode(`console.error(${JSON.stringify(JSON.stringify(event))});console.log(JSON.stringify({status:"accessible",posts:[]}))`),
+  });
+  assert.deepEqual(result.navigationRateLimit, { httpStatus: 429, retryAfterSeconds: 60 });
+  assert.deepEqual(result.posts, []);
+  assert.ok(!JSON.stringify(result.navigationRateLimit).includes("private"));
+  assert.ok(!messages.join().includes("private"));
+});
+
+test("the navigation observer requires an exact event type and numeric 429", async () => {
+  for (const event of [{ eventType: "BROWSER_NAVIGATION_HTTP", status: 403 }, { eventType: "BROWSER_NAVIGATION_HTTP", status: 500 },
+    { eventType: "BROWSER_NAVIGATION_HTTP", status: "429" }, { eventType: "BROWSER_NAVIGATION_HTTP", status: 429.5 },
+    { eventType: "BROWSER_NAVIGATION_HTTP_OTHER", status: 429 }]) {
+    const result = await runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger,
+      spawnImpl: spawnCode(`console.error(${JSON.stringify(JSON.stringify(event))});console.log(JSON.stringify({status:"accessible",posts:[],navigationRateLimit:{httpStatus:429,private:"untrusted-output"}}))`),
+    });
+    assert.ok(!Object.hasOwn(result, "navigationRateLimit"));
+  }
+});
+
+test("rate-limit observations discard invalid retry delays and retain the longest valid delay", async () => {
+  for (const retryAfterSeconds of ["private-cookie-value", -1, 86401, 1.5, null]) {
+    const event = { eventType: "BROWSER_NAVIGATION_HTTP", status: 429, retryAfterSeconds };
+    const messages = [];
+    const result = await runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger: { log: (line) => messages.push(line) },
+      spawnImpl: spawnCode(`console.error(${JSON.stringify(JSON.stringify(event))});console.log(JSON.stringify({status:"accessible",posts:[]}))`),
+    });
+    assert.deepEqual(result.navigationRateLimit, { httpStatus: 429 });
+    assert.ok(!messages.join().includes("private-cookie-value"));
+  }
+  const result = await runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger,
+    spawnImpl: spawnCode('for(const retryAfterSeconds of [300,60,0]) console.error(JSON.stringify({eventType:"BROWSER_NAVIGATION_HTTP",status:429,retryAfterSeconds}));console.log(JSON.stringify({status:"accessible",posts:[]}))'),
+  });
+  assert.deepEqual(result.navigationRateLimit, { httpStatus: 429, retryAfterSeconds: 300 });
+});
+
+test("failed extraction rejects normally even when stderr also observes a 429", async () => {
+  await assert.rejects(runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger,
+    spawnImpl: spawnCode('console.error(JSON.stringify({eventType:"BROWSER_NAVIGATION_HTTP",status:429,retryAfterSeconds:60}));console.log(JSON.stringify({status:"session_invalid",sessionReason:"navigation_rate_limited",httpStatus:429,retryAfterSeconds:60}));process.exitCode=2'),
+  }), (error) => error.sessionReason === "navigation_rate_limited" && error.httpStatus === 429 && !Object.hasOwn(error, "navigationRateLimit"));
 });
 
 const batchRaw = (subreddit, id = "abc") => ({ ...raw({ id: `t3_${id}`, "subreddit-name": subreddit, permalink: `/r/${subreddit}/comments/${id}/story/` }) });

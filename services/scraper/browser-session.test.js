@@ -678,3 +678,74 @@ test("session inspection reports bounded shared read backoff without reading pri
     assert.equal(JSON.stringify(report).includes("private"), false);
   }
 });
+
+
+test("aged complete feed batches reuse once and leave renewal to separate maintenance", async () => {
+  const generation = randomUUID();
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW - 13 * 3600000) });
+  store.objects.set(generation, SECRET);
+  let calls = 0;
+  const complete = { status: "accessible", feeds: [{ subreddit: "politics", posts: [] }] };
+  const result = await createSessionRunner({ store, now: () => NOW })({ ...options(), allFeeds: true }, async (request) => {
+    calls += 1;
+    assert.equal(request.authenticate, false);
+    return complete;
+  });
+  assert.equal(calls, 1);
+  assert.equal(store.attempts.length, 0);
+  assert.equal(result.sessionMode, "reused");
+  assert.equal(result.sessionRenewalDeferred, undefined);
+  assert.deepEqual(result.feeds, complete.feeds);
+});
+
+test("explicit batch renewal still authenticates once under the shared lease", async () => {
+  const generation = randomUUID();
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW - 13 * 3600000) });
+  store.objects.set(generation, SECRET);
+  let calls = 0;
+  const result = await createSessionRunner({ store, now: () => NOW })({ ...options(), allFeeds: true, renewSession: true }, async (request) => {
+    calls += 1;
+    assert.equal(request.authenticate, true);
+    await writeFile(request.sessionOutput, SECRET);
+    return { status: "accessible", feeds: [] };
+  });
+  assert.equal(calls, 1);
+  assert.equal(store.attempts.length, 1);
+  assert.equal(result.sessionMode, "renewed");
+  assert.notEqual(result.sessionGeneration, generation);
+});
+
+test("an optional single-feed rate limit retains posts and prevents aged proactive login", async () => {
+  const generation = randomUUID();
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW - 13 * 3600000) });
+  store.objects.set(generation, SECRET);
+  let calls = 0;
+  const original = { status: "accessible", posts: [{ data: { title: "Story" } }], navigationRateLimit: { httpStatus: 429, retryAfterSeconds: 45 } };
+  const result = await createSessionRunner({ store, now: () => NOW })(options(), async () => { calls += 1; return original; });
+  assert.equal(calls, 1);
+  assert.deepEqual(result.posts, original.posts);
+  assert.deepEqual(store.readPauses, [45]);
+  assert.equal(store.attempts.length, 0);
+  assert.equal(result.sessionMode, "reused");
+  assert.equal(result.sessionRenewalDeferred, undefined);
+});
+
+test("batch and optional HTTP rate-limit signals share one backoff write", async () => {
+  const generation = randomUUID();
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
+  store.objects.set(generation, SECRET);
+  await createSessionRunner({ store, now: () => NOW })(options(), async () => ({ ...partialBatch(), navigationRateLimit: { httpStatus: 429, retryAfterSeconds: 60 } }));
+  assert.deepEqual(store.readPauses, [30]);
+});
+
+test("optional rate-limit coordination failure retains valid posts with a clear marker", async () => {
+  const generation = randomUUID();
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW - 13 * 3600000) });
+  store.objects.set(generation, SECRET);
+  store.pauseReads = async () => { throw new Error("private-provider"); };
+  const posts = [{ data: { title: "Story" } }];
+  const result = await createSessionRunner({ store, now: () => NOW })(options(), async () => ({ posts, navigationRateLimit: { httpStatus: 429 } }));
+  assert.equal(result.readBackoffFailed, true);
+  assert.deepEqual(result.posts, posts);
+  assert.equal(store.attempts.length, 0);
+});

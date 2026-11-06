@@ -135,8 +135,10 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
         if (error.sessionReason === "navigation_rate_limited" || error.httpStatus === 429) await pauseLimitedReads(error);
         throw error;
       }
-      if (result?.batchFailure?.httpStatus === 429 || result?.batchFailure?.sessionReason === "navigation_rate_limited") {
-        try { await pauseLimitedReads(result.batchFailure); }
+      const rateLimit = result?.batchFailure?.httpStatus === 429 || result?.batchFailure?.sessionReason === "navigation_rate_limited"
+        ? result.batchFailure : result?.navigationRateLimit?.httpStatus === 429 ? result.navigationRateLimit : undefined;
+      if (rateLimit) {
+        try { await pauseLimitedReads(rateLimit); }
         catch { return { ...result, readBackoffFailed: true }; }
       }
       return result;
@@ -178,7 +180,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
                 const result = await browserAttempt({ ...options, authenticate: false, sessionInput: input, sessionOutput: undefined, timeoutMs: budget(options.allFeeds ? 150000 : 100000) });
                 const aged = now() - new Date(current.sessionCreatedAt).getTime() >= 12 * 60 * 60 * 1000;
                 if (result?.batchFailure) return reused(result, generation, aged ? "batch_incomplete" : undefined);
-                if (!aged) return reused(result, generation);
+                if (options.allFeeds || result?.navigationRateLimit?.httpStatus === 429 || !aged) return reused(result, generation);
                 validReuse = result;
                 break;
               } catch (error) {

@@ -51,6 +51,14 @@ functions:
             allFeeds: true
             session: true
             scheduled: true
+      - schedule:
+          rate: rate(12 hours)
+          enabled: false
+          input:
+            subreddit: politics
+            session: true
+            renewSession: true
+            scheduled: true
 
 resources:
   extensions:

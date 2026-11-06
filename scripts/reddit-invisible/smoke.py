@@ -786,7 +786,7 @@ def run_all_feeds(config, browser_factory=None):
     if session or authenticate:
         launch_options["seed"] = seed
     priorities = allocate_image_priorities(feeds, getattr(config, "image_priority_map", None))
-    optional_budget = {"remaining": 4, "seconds": 25}
+    optional_budget = {"remaining": 4, "seconds": 25, "disabled": bool(authenticate)}
     completed = []
     failure = None
     interrupted = False
@@ -816,8 +816,11 @@ def run_all_feeds(config, browser_factory=None):
                 if index == 0 and session_output:
                     export_session(page, seed, session_output)
                 selected = collect_batch_posts(page, reader, subreddit, config.limit, deadline)
+                remaining_feeds = len(feeds) - index - 1
+                now = time.monotonic()
+                optional_deadline = min(deadline, now + max(0, deadline - now - remaining_feeds * 10 - 5))
                 selected = enrich_link_previews(page, reader, selected, subreddit, priority_ids=priorities[subreddit],
-                                                budget=optional_budget, batch_deadline=deadline)
+                                                budget=optional_budget, batch_deadline=optional_deadline)
                 completed.append({"subreddit": subreddit, "posts": selected})
                 log(json.dumps({"eventType": "BROWSER_BATCH_FEED", "subreddit": subreddit, "stage": "collected", "count": len(selected)}))
                 if optional_budget.get("failure"):

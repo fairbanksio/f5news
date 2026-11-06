@@ -1089,6 +1089,46 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(result["batchFailure"]["stage"], "optional_preview")
             self.assertEqual(len(stats["requests"]), 2)
 
+    def test_authenticated_batch_disables_optional_reads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config, stats, fixture, browser = self.setup_batch(directory, session_input=None, authenticate=True)
+            module = types.SimpleNamespace(InvisiblePlaywright=browser)
+            budgets = []
+            def authenticate(page, url, **_kwargs):
+                smoke.navigate(page, url)
+                return "authenticated"
+            def optional(_page, _reader, posts, _subreddit, **kwargs):
+                budgets.append(kwargs["budget"]["disabled"])
+                return posts
+            with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke, "state", return_value="feed"), patch.object(smoke, "authenticate_once", side_effect=authenticate) as login, patch.object(smoke, "enrich_link_previews", side_effect=optional):
+                result = smoke.run(config)
+            self.assertEqual(len(result["feeds"]), 11)
+            self.assertEqual(login.call_count, 1)
+            self.assertEqual(budgets, [True] * 11)
+            self.assertEqual(len(stats["requests"]), 11)
+
+    def test_optional_work_reserves_time_for_every_remaining_core_feed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config, stats, fixture, browser = self.setup_batch(directory, batch_budget_seconds=126)
+            clock = {"seconds": 0}
+            stats["clock"] = clock
+            spent = []
+            def optional(_page, _reader, posts, _subreddit, **kwargs):
+                budget = kwargs["budget"]
+                available = max(0, kwargs["batch_deadline"] - clock["seconds"] - 1)
+                duration = min(budget["seconds"], available)
+                spent.append(duration)
+                clock["seconds"] += duration
+                budget["seconds"] -= duration
+                return posts
+            with patch.object(smoke.time, "monotonic", side_effect=lambda: clock["seconds"]), patch.object(smoke, "enrich_link_previews", side_effect=optional):
+                result = self.execute(config, stats, fixture, browser)
+            self.assertEqual(len(result["feeds"]), 11)
+            self.assertNotIn("batchFailure", result)
+            self.assertLess(spent[0], 25)
+            self.assertLessEqual(sum(spent), 25)
+            self.assertLessEqual(clock["seconds"], 121)
+
     def test_priority_allocation_rotates_fairly_and_skips_absent_map(self):
         feeds = ["politics", "worldnews", "europe", "news", "technology"]
         mapping = {feed: ["t3_" + feed, "t3_" + feed + "2"] for feed in feeds}
