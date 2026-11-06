@@ -63,3 +63,12 @@ test('development services publish ports only on loopback and require credential
   assert.ok(minio.includes('AWS_ACCESS_KEY_ID:?'));
   assert.ok(minio.includes('AWS_SECRET_ACCESS_KEY:?'));
 });
+
+test('manual browser probe runs only main and does not deploy services', () => {
+  const workflow = readYaml('.github/workflows/verify-browser-scraper.yml');
+  assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
+  assert.equal(workflow.jobs.verify.if, "github.ref == 'refs/heads/main'");
+  assert.equal(workflow.jobs.verify.permissions['id-token'], 'write');
+  const commands = workflow.jobs.verify.steps.filter(step => step.run).map(step => step.run);
+  assert.deepEqual(commands, ['node scripts/check-browser-deployment.cjs']);
+});
