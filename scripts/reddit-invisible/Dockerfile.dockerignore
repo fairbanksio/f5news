@@ -1,0 +1,11 @@
+**
+!scripts/
+!scripts/reddit-invisible/
+!scripts/reddit-invisible/Dockerfile
+!scripts/reddit-invisible/requirements.lock
+!scripts/reddit-invisible/smoke.py
+!scripts/reddit-stagehand/
+!scripts/reddit-stagehand/browser-reader.js
+!services/
+!services/posts/
+!services/posts/subreddits.json

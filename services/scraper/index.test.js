@@ -3,27 +3,14 @@ const test = require("node:test");
 
 const { backfillMissingPostImages, createFetchPosts } = require("./index");
 
-const createFetcher = ({ accessToken = "token", posts = [] } = {}) => {
+const createScraper = ({ posts = [] } = {}) => {
   const calls = [];
-  const fetchImpl = async (url, options) => {
-    calls.push({ url, options });
-
-    if (url === "https://www.reddit.com/api/v1/access_token") {
-      return {
-        json: async () => ({ access_token: accessToken }),
-      };
-    }
-
-    return {
-      json: async () => ({
-        data: {
-          children: posts,
-        },
-      }),
-    };
+  const scrapePostsImpl = async (options) => {
+    calls.push(options);
+    return posts;
   };
 
-  return { calls, fetchImpl };
+  return { calls, scrapePostsImpl };
 };
 
 const createLogger = () => ({
@@ -104,10 +91,10 @@ test("fetchPosts stores subreddit posts with resolved thumbnails", async () => {
       },
     },
   ];
-  const { calls, fetchImpl } = createFetcher({ posts });
+  const { calls, scrapePostsImpl } = createScraper({ posts });
   const writes = [];
   const handler = createFetchPosts({
-    fetchImpl,
+    scrapePostsImpl,
     imageSourceImpl: async () => "https://cdn.example.com/story.jpg",
     logger: createLogger(),
     mongooseClient: {
@@ -122,7 +109,9 @@ test("fetchPosts stores subreddit posts with resolved thumbnails", async () => {
 
   await handler({ subreddit: "worldnews" });
 
-  assert.equal(calls[1].url, "https://oauth.reddit.com/r/worldnews/rising");
+  assert.equal(calls[0].subreddit, "worldnews");
+  assert.equal(calls[0].limit, 25);
+  assert.ok(calls[0].timeoutMs > 0 && calls[0].timeoutMs <= 90000);
   assert.equal(writes.length, 2);
   assert.deepEqual(writes[0][0], {
     title: "Story",
@@ -172,10 +161,10 @@ test("fetchPosts stores full Reddit preview images instead of tiny thumbnails", 
       },
     },
   ];
-  const { fetchImpl } = createFetcher({ posts });
+  const { scrapePostsImpl } = createScraper({ posts });
   const writes = [];
   const handler = createFetchPosts({
-    fetchImpl,
+    scrapePostsImpl,
     logger: createLogger(),
     mongooseClient: {
       connect: async () => {},
@@ -227,10 +216,10 @@ test("fetchPosts writes post records before resolving article thumbnails", async
       },
     },
   ];
-  const { fetchImpl } = createFetcher({ posts });
+  const { scrapePostsImpl } = createScraper({ posts });
   const writes = [];
   const handler = createFetchPosts({
-    fetchImpl,
+    scrapePostsImpl,
     imageSourceImpl: async () => thumbnail.promise,
     logger: createLogger(),
     mongooseClient: {
@@ -283,10 +272,10 @@ test("fetchPosts stores posts without overwriting thumbnails with placeholders",
       },
     },
   ];
-  const { fetchImpl } = createFetcher({ posts });
+  const { scrapePostsImpl } = createScraper({ posts });
   const writes = [];
   const handler = createFetchPosts({
-    fetchImpl,
+    scrapePostsImpl,
     imageSourceImpl: async () => "default",
     logger: createLogger(),
     mongooseClient: {
@@ -333,10 +322,10 @@ test("fetchPosts creates brand-new external posts even when thumbnails are missi
       },
     },
   ];
-  const { fetchImpl } = createFetcher({ posts });
+  const { scrapePostsImpl } = createScraper({ posts });
   const writes = [];
   const handler = createFetchPosts({
-    fetchImpl,
+    scrapePostsImpl,
     imageSourceImpl: async () => "",
     logger: createLogger(),
     mongooseClient: {
@@ -384,10 +373,10 @@ test("fetchPosts logs missing article image metrics for graphing", async () => {
       },
     },
   ];
-  const { fetchImpl } = createFetcher({ posts });
+  const { scrapePostsImpl } = createScraper({ posts });
   const logger = createLogger();
   const handler = createFetchPosts({
-    fetchImpl,
+    scrapePostsImpl,
     imageSourceImpl: async () => "",
     logger,
     mongooseClient: {
@@ -458,10 +447,10 @@ test("fetchPosts includes article image failure details in missing logs", async 
       },
     },
   ];
-  const { fetchImpl } = createFetcher({ posts });
+  const { scrapePostsImpl } = createScraper({ posts });
   const logger = createLogger();
   const handler = createFetchPosts({
-    fetchImpl,
+    scrapePostsImpl,
     imageSourceImpl: async (post, options) => {
       options.onArticleImageFailure({
         url: post.url,
@@ -530,10 +519,10 @@ test("fetchPosts logs image resolution errors separately from missing thumbnails
       },
     },
   ];
-  const { fetchImpl } = createFetcher({ posts });
+  const { scrapePostsImpl } = createScraper({ posts });
   const logger = createLogger();
   const handler = createFetchPosts({
-    fetchImpl,
+    scrapePostsImpl,
     imageSourceImpl: async () => {
       throw new Error("publisher blocked metadata fetch");
     },
@@ -577,7 +566,7 @@ test("fetchPosts logs image resolution errors separately from missing thumbnails
 
 test("fetchPosts backfills recent posts with missing thumbnails", async () => {
   const posts = [];
-  const { fetchImpl } = createFetcher({ posts });
+  const { scrapePostsImpl } = createScraper({ posts });
   const logger = createLogger();
   const writes = [];
   const findCalls = [];
@@ -609,7 +598,7 @@ test("fetchPosts backfills recent posts with missing thumbnails", async () => {
     },
   };
   const handler = createFetchPosts({
-    fetchImpl,
+    scrapePostsImpl,
     imageSourceImpl: async (post) =>
       post.url.includes("reuters.com") ? "https://cdn.example.com/reuters.jpg" : "",
     logger,
@@ -838,9 +827,9 @@ test("backfillMissingPostImages logs missing and error outcomes without writing 
 });
 
 test("fetchPosts defaults to politics when event has no subreddit", async () => {
-  const { calls, fetchImpl } = createFetcher();
+  const { calls, scrapePostsImpl } = createScraper();
   const handler = createFetchPosts({
-    fetchImpl,
+    scrapePostsImpl,
     logger: createLogger(),
     mongooseClient: {
       connect: async () => {},
@@ -852,81 +841,59 @@ test("fetchPosts defaults to politics when event has no subreddit", async () => 
 
   await handler({});
 
-  assert.equal(calls[1].url, "https://oauth.reddit.com/r/politics/rising");
+  assert.equal(calls[0].subreddit, "politics");
 });
 
-test("fetchPosts accepts node-fetch default export module shape", async () => {
-  const { calls, fetchImpl } = createFetcher();
+test("fetchPosts reserves Lambda time after browser extraction", async () => {
+  const { calls, scrapePostsImpl } = createScraper();
+  const logger = createLogger();
   const handler = createFetchPosts({
-    fetchImpl: { default: fetchImpl },
-    imageSourceImpl: async () => "",
-    logger: createLogger(),
-    mongooseClient: {
-      connect: async () => {},
-    },
-    newPostModel: {
-      findOneAndUpdate: async () => {},
-    },
+    scrapePostsImpl,
+    logger,
+    mongooseClient: { connect: async () => {} },
+    newPostModel: { findOneAndUpdate: async () => {} },
   });
 
-  await handler({ subreddit: "science" });
+  await handler({ subreddit: "science" }, {
+    getRemainingTimeInMillis: () => 65000,
+  });
 
-  assert.equal(calls[0].url, "https://www.reddit.com/api/v1/access_token");
-  assert.equal(calls[1].url, "https://oauth.reddit.com/r/science/rising");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].subreddit, "science");
+  assert.equal(calls[0].limit, 25);
+  assert.equal(calls[0].timeoutMs, 45000);
+  assert.equal(calls[0].logger, logger);
 });
 
-test("fetchPosts does not write posts and surfaces token fetch failures", async () => {
+test("fetchPosts does not write posts when browser extraction fails", async () => {
   let writeCount = 0;
   const handler = createFetchPosts({
-    fetchImpl: async () => {
-      throw new Error("reddit auth failed");
+    scrapePostsImpl: async () => {
+      throw new Error("browser extraction failed");
     },
     logger: createLogger(),
-    mongooseClient: {
-      connect: async () => {},
-    },
+    mongooseClient: { connect: async () => {} },
     newPostModel: {
-      findOneAndUpdate: async () => {
-        writeCount += 1;
-      },
+      findOneAndUpdate: async () => { writeCount += 1; },
     },
   });
 
-  await assert.rejects(handler({ subreddit: "news" }), /reddit auth failed/);
-
+  await assert.rejects(handler({ subreddit: "news" }), /browser extraction failed/);
   assert.equal(writeCount, 0);
 });
 
-test("fetchPosts does not write posts when reddit listing is malformed", async () => {
+test("fetchPosts does not write posts when browser extraction returns malformed posts", async () => {
   let writeCount = 0;
-  let requestCount = 0;
   const handler = createFetchPosts({
-    fetchImpl: async () => {
-      requestCount += 1;
-
-      if (requestCount === 1) {
-        return {
-          json: async () => ({ access_token: "token" }),
-        };
-      }
-
-      return {
-        json: async () => ({ data: {} }),
-      };
-    },
+    scrapePostsImpl: async () => ({ data: {} }),
     logger: createLogger(),
-    mongooseClient: {
-      connect: async () => {},
-    },
+    mongooseClient: { connect: async () => {} },
     newPostModel: {
-      findOneAndUpdate: async () => {
-        writeCount += 1;
-      },
+      findOneAndUpdate: async () => { writeCount += 1; },
     },
   });
 
-  await assert.rejects(handler({ subreddit: "news" }), /Reddit listing response missing posts/);
-
+  await assert.rejects(handler({ subreddit: "news" }), /missing posts/);
   assert.equal(writeCount, 0);
 });
 
@@ -935,7 +902,7 @@ test("preserves existing thumbnails and logs batch counts without raw records", 
   const logger = createLogger();
   const writes = [];
   const handler = createFetchPosts({
-    fetchImpl: createFetcher({ posts }).fetchImpl,
+    scrapePostsImpl: createScraper({ posts }).scrapePostsImpl,
     logger,
     mongooseClient: { connect: async () => {} },
     newPostModel: { findOneAndUpdate: async (...args) => { writes.push(args); }, find: async () => [] },
@@ -956,7 +923,7 @@ test("stores ordinary thumbnails without deriving suppression from preview.enabl
   } }];
   const writes = [];
   const handler = createFetchPosts({
-    fetchImpl: createFetcher({ posts }).fetchImpl,
+    scrapePostsImpl: createScraper({ posts }).scrapePostsImpl,
     logger: createLogger(),
     mongooseClient: { connect: async () => {} },
     newPostModel: { findOneAndUpdate: async (...args) => { writes.push(args); }, find: async () => [] },
@@ -974,18 +941,17 @@ const diagnosticPost = (id = "post1") => ({ data: {
 } });
 
 const diagnosticHandler = (overrides = {}) => createFetchPosts({
-  fetchImpl: createFetcher({ posts: [diagnosticPost()] }).fetchImpl,
+  scrapePostsImpl: createScraper({ posts: [diagnosticPost()] }).scrapePostsImpl,
   imageSourceImpl: async () => "",
   mongooseClient: { connect: async () => {} },
   newPostModel: { findOneAndUpdate: async () => {}, find: async () => [] },
   ...overrides,
 });
 
-test("listing, auth and database failures reject with one sanitized job failure", async (t) => {
+test("browser and database failures reject with one sanitized job failure", async (t) => {
   for (const [stage, overrides] of [
     ["database_connect", { mongooseClient: { connect: async () => { throw Object.assign(new Error("connect mongodb+srv://reader:db-secret@mongo.example/db"), { code: "ECONNREFUSED", cause: new Error("private-cause") }); } } }],
-    ["reddit_auth", { fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ error: "private-body" }) }) }],
-    ["reddit_listing", { fetchImpl: async (url) => url.includes("access_token") ? { json: async () => ({ access_token: "token" }) } : { ok: false, status: 503 } }],
+    ["browser_extract", { scrapePostsImpl: async () => { throw new Error("browser failed https://reader:password@publisher.example/story?token=url-secret"); } }],
     ["post_write", { newPostModel: { findOneAndUpdate: async () => { throw new Error("write https://reader:password@publisher.example/story?token=url-secret"); } } }],
   ]) {
     await t.test(stage, async () => {
@@ -1014,12 +980,12 @@ test("job failure waits for concurrent writes and records partial progress", asy
   const logger = createLogger();
   let delayedStarted = false;
   // Post keys use the existing title/author/created identity.
-  const fetcher = createFetcher({ posts: [
+  const fetcher = createScraper({ posts: [
     { data: { ...diagnosticPost().data, title: "broken" } },
     { data: { ...diagnosticPost().data, title: "delayed" } },
   ] });
   const run = createFetchPosts({
-    fetchImpl: fetcher.fetchImpl, logger, imageSourceImpl: async () => "",
+    scrapePostsImpl: fetcher.scrapePostsImpl, logger, imageSourceImpl: async () => "",
     mongooseClient: { connect: async () => {} },
     newPostModel: {
       findOneAndUpdate: async (key) => {
@@ -1170,7 +1136,7 @@ test("backfill thumbnail write failures stay optional and report degraded counts
   const logger = createLogger();
   const post = { ...diagnosticPost().data, _id: "backfill1" };
   const handler = diagnosticHandler({ logger,
-    fetchImpl: createFetcher().fetchImpl,
+    scrapePostsImpl: createScraper().scrapePostsImpl,
     imageSourceImpl: async () => "https://cdn.example/photo.jpg",
     newPostModel: {
       find: async () => [post],

@@ -1,0 +1,1 @@
+invisible-playwright==0.45.0

@@ -647,25 +647,40 @@ const redditImageSource = (data) => {
   return "";
 };
 
+const shouldPreferArticleImage = (data, options) => {
+  if (options.preferArticleImage !== true || data.is_video || data.is_gallery || data.is_self || data.rpan_video ||
+      (data.post_hint && data.post_hint !== "link") || data.preview?.images?.[0]?.source?.url ||
+      !hasUsableThumbnail(data.thumbnail)) return false;
+  try {
+    const thumbnail = new URL(data.thumbnail.replace(/amp;/g, ""));
+    const widths = thumbnail.searchParams.getAll("width");
+    if (widths.length !== 1 || !/^\d+$/.test(widths[0]) || Number(widths[0]) < 1 || Number(widths[0]) > 320) return false;
+    const article = new URL(data.url_overridden_by_dest || data.url);
+    return ["http:", "https:"].includes(article.protocol) && !/(^|\.)(reddit\.com|redd\.it)$/.test(article.hostname);
+  } catch {
+    return false;
+  }
+};
+
 const imageSource = async (data, options = {}) => {
   const redditImage = redditImageSource(data);
-  if (redditImage) {
+  if (redditImage && !shouldPreferArticleImage(data, options)) {
     return redditImage;
   }
 
   const articleUrl = data.url_overridden_by_dest || data.url;
   if (!articleUrl) {
-    return data.thumbnail || "";
+    return redditImage || data.thumbnail || "";
   }
 
   const fetchArticleImageImpl =
     options.fetchArticleImageImpl || fetchArticleImage;
   try {
     const articleImage = await fetchArticleImageImpl(articleUrl, options);
-    return articleImage || data.thumbnail || "";
+    return articleImage || redditImage || data.thumbnail || "";
   } catch (error) {
     reportArticleImageFailure(options, { url: articleUrl, reason: "fetch_error", details: errorFields(error) });
-    return data.thumbnail || "";
+    return redditImage || data.thumbnail || "";
   }
 };
 

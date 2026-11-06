@@ -94,7 +94,7 @@ jobs:
 
       - name: Security policy tests
         if: matrix.service == 'services/scraper'
-        run: node --test .github/security.test.cjs
+        run: node --test .github/security.test.cjs scripts/check-browser-deployment.test.cjs
 
       - name: Lint
         working-directory: ${{ matrix.service }}
@@ -103,6 +103,54 @@ jobs:
       - name: Test
         working-directory: ${{ matrix.service }}
         run: npm test
+
+  scraper-container:
+    name: Scraper Container
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      (github.event.pull_request.head.ref == 'develop' &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Build Scraper Image
+        run: docker build --platform linux/arm64 --provenance=false -f services/scraper/Dockerfile -t f5-scraper:test .
+
+      - name: Test Browser Extraction
+        run: python3 -m unittest discover -s scripts/reddit-invisible -p 'test_*.py'
+
+      - name: Check Packaged Handler And Mappers
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,size=512m \
+            --entrypoint node f5-scraper:test -e '
+          const assert = require("node:assert/strict");
+          assert.equal(typeof require("./index").fetchPosts, "function");
+          Promise.all([import("/app/scripts/reddit-stagehand/f5-record.js"), import("/app/scripts/reddit-stagehand/f5-dom.js")]).then(([record, dom]) => {
+            assert.equal(typeof record.toF5Record, "function");
+            assert.equal(typeof dom.readListing, "function");
+          }).catch(error => { console.error(error); process.exitCode = 1; });
+          '
+
+      - name: Check Read-Only Browser Startup
+        run: |
+          docker run --rm --network none --read-only --pids-limit 256 --memory 2g \
+            --tmpfs /tmp:rw,size=512m --entrypoint /usr/bin/tini f5-scraper:test -s -- python -c '
+          import os, subprocess, sys
+          assert os.getuid() != 0
+          check = """from invisible_playwright import InvisiblePlaywright
+          with InvisiblePlaywright(headless=True, timezone="UTC", locale="en-US") as browser:
+              page = browser.new_page()
+              page.goto("data:text/html,<title>Scraper Startup</title>")
+              assert page.title() == "Scraper Startup"
+          """
+          for _ in range(3):
+              subprocess.run([sys.executable, "-c", check], check=True)
+          '
 
   webui:
     name: Web UI

@@ -1,7 +1,7 @@
 const mongoose = require("./db");
 const { errorFields, sanitizeImageFailure, sanitizeUrl } = require("./telemetry");
 const newPost = require("./models/newPost");
-const { normalizeFetch } = require("./fetchInterop");
+const { scrapePosts } = require("./browser-source");
 const {
   hasUsableThumbnail,
   imageSource,
@@ -13,9 +13,6 @@ const IMAGE_METRIC_NAMESPACE = "F5News/Scraper";
 const IMAGE_BACKFILL_CONCURRENCY = 5;
 const IMAGE_BACKFILL_LIMIT = 25;
 const IMAGE_BACKFILL_LOOKBACK_SECONDS = 8 * 60 * 60;
-
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetchImpl }) => fetchImpl(...args));
 
 const getPostDomain = (data) => data.domain || "unknown";
 
@@ -189,7 +186,7 @@ const resolvePostImage = async (post, subreddit, operation, metrics, imageSource
   const tracked = shouldTrackImageResolution(post);
   if (tracked) metrics.attempts += 1;
   try {
-    thumbnail = await imageSourceImpl(post, diagnostics.options);
+    thumbnail = await imageSourceImpl(post, { ...diagnostics.options, preferArticleImage: operation === "scrape" });
   } catch (error) {
     resolutionError = error;
     if (tracked) metrics.errors += 1;
@@ -298,49 +295,29 @@ const insertNewPosts = (
 
 const createFetchPosts = ({
   env = process.env,
-  fetchImpl = fetch,
+  scrapePostsImpl = scrapePosts,
   imageSourceImpl = imageSource,
   logger = console,
   mongooseClient = mongoose,
   newPostModel = newPost,
   now = () => new Date(),
 } = {}) => {
-  const normalizedFetch = normalizeFetch(fetchImpl);
-
   return async (event = {}, context = {}) => {
     const startedAt = Date.now();
     const subreddit = event.subreddit || "politics";
-    const redditUrl = `https://oauth.reddit.com/r/${subreddit}/rising`;
     const job = { savedCount: 0, fetchedCount: 0 };
     const redactionValues = [env.MONGO_CONNECTION_STRING, env.REDDIT_CLIENT_ID, env.REDDIT_SECRET_KEY, env.REDDIT_USERNAME, env.REDDIT_PASSWORD];
     let stage = "database_connect";
     let terminalError;
     try {
       await mongooseClient.connect();
-      stage = "reddit_auth";
-      const authResponse = await normalizedFetch("https://www.reddit.com/api/v1/access_token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          Authorization: "Basic " + btoa(env.REDDIT_CLIENT_ID + ":" + env.REDDIT_SECRET_KEY),
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        },
-        body: new URLSearchParams({ username: env.REDDIT_USERNAME, password: env.REDDIT_PASSWORD, grant_type: "password" }).toString(),
-      });
-      if (authResponse.ok === false) throw Object.assign(new Error("Reddit authentication request failed"), { status: authResponse.status });
-      const auth = await authResponse.json();
-      if (!auth.access_token) throw new Error("Reddit authentication response missing access token");
-      stage = "reddit_listing";
-      const listingResponse = await normalizedFetch(redditUrl, {
-        method: "GET",
-        headers: { Authorization: "bearer " + auth.access_token, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 f5" },
-      });
-      if (listingResponse.ok === false) throw Object.assign(new Error("Reddit listing request failed"), { status: listingResponse.status });
-      const listing = await listingResponse.json();
-      if (!Array.isArray(listing?.data?.children)) throw new Error("Reddit listing response missing posts");
-      job.fetchedCount = listing.data.children.length;
+      stage = "browser_extract";
+      const remaining = typeof context.getRemainingTimeInMillis === "function" ? context.getRemainingTimeInMillis() : 120_000;
+      const children = await scrapePostsImpl({ subreddit, limit: 25, timeoutMs: Math.min(90_000, remaining - 20_000), logger });
+      if (!Array.isArray(children)) throw new Error("Browser extraction response missing posts");
+      job.fetchedCount = children.length;
       stage = "post_write";
-      await insertNewPosts(listing.data.children, subreddit, { imageSourceImpl, logger, newPostModel, job, redactionValues });
+      await insertNewPosts(children, subreddit, { imageSourceImpl, logger, newPostModel, job, redactionValues });
       stage = "image_backfill";
       job.backfillImages = await backfillMissingPostImages(subreddit, { imageSourceImpl, logger, newPostModel, now, redactionValues });
       stage = "complete";
