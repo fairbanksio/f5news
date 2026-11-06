@@ -619,6 +619,110 @@ class NavigationTests(unittest.TestCase):
             self.assertEqual(result["posts"], [])
 
 
+class NavigationHTTPTests(unittest.TestCase):
+    def response(self, status, headers=None, url="https://www.reddit.com/r/news/rising/", navigation=True, parent=None):
+        request = types.SimpleNamespace(url=url, is_navigation_request=lambda: navigation, frame=types.SimpleNamespace(parent_frame=parent))
+        return types.SimpleNamespace(request=request, status=status, headers=headers or {})
+
+    def page(self, response, error=True, removable=True):
+        events = {"observer": None, "calls": 0, "removed": False}
+        def on(_event, callback):
+            events["observer"] = callback
+        def goto(*_args, **_kwargs):
+            events["calls"] += 1
+            events["observer"](response)
+            if error:
+                raise RuntimeError("Page.goto: NS_ERROR_NET_EMPTY_RESPONSE")
+            return response
+        def remove(_event, _callback):
+            events["removed"] = True
+        page = types.SimpleNamespace(on=on, goto=goto)
+        if removable:
+            page.remove_listener = remove
+        return page, events
+
+    def test_explicit_empty_denial_or_rate_limit_has_one_get_and_safe_metadata(self):
+        for status, reason in ((401, "navigation_http_rejected"), (403, "navigation_http_rejected"), (429, "navigation_rate_limited")):
+            response = self.response(status, {"retry-after": "60", "content-length": "0", "cf-mitigated": "challenge", "set-cookie": "private-cookie-value"})
+            page, events = self.page(response)
+            messages = []
+            with patch.object(smoke, "log", side_effect=messages.append):
+                with self.assertRaises(smoke.SessionError) as caught:
+                    smoke.navigate(page, "https://www.reddit.com")
+            self.assertEqual(caught.exception.code, reason)
+            self.assertEqual(caught.exception.diagnostics(), {"sessionReason": reason, "httpStatus": status, "retryAfterSeconds": 60})
+            self.assertEqual(events["calls"], 1)
+            self.assertTrue(events["removed"])
+            self.assertEqual(json.loads(messages[0]), {"eventType": "BROWSER_NAVIGATION_HTTP", "status": status, "retryAfterSeconds": 60, "contentLength": 0, "challenge": True})
+            self.assertNotIn("private-cookie-value", "".join(messages))
+            self.assertNotIn("https://", "".join(messages))
+
+    def test_successful_goto_returning_403_is_still_a_single_rejection(self):
+        page, events = self.page(self.response(403), error=False)
+        with self.assertRaises(smoke.SessionError) as caught:
+            smoke.navigate(page, "https://www.reddit.com")
+        self.assertEqual(caught.exception.code, "navigation_http_rejected")
+        self.assertEqual(events["calls"], 1)
+
+    def test_only_reddit_main_document_responses_affect_navigation(self):
+        for response in (self.response(403, navigation=False), self.response(403, parent=object()), self.response(403, url="https://evil.example/")):
+            page, events = self.page(response)
+            clock, now, sleep = NavigationTests().clock()
+            messages = []
+            with patch.object(smoke, "log", side_effect=messages.append):
+                with self.assertRaises(smoke.SessionError) as caught:
+                    smoke.navigate(page, "https://www.reddit.com", now=now, sleep=sleep)
+            self.assertEqual(caught.exception.code, "navigation_network_error")
+            self.assertEqual(events["calls"], 3)
+            self.assertFalse(any("BROWSER_NAVIGATION_HTTP" in message for message in messages))
+
+    def test_empty_5xx_still_uses_bounded_transient_retries(self):
+        page, events = self.page(self.response(503, {"content-length": "0"}))
+        clock, now, sleep = NavigationTests().clock()
+        with self.assertRaises(smoke.SessionError) as caught:
+            smoke.navigate(page, "https://www.reddit.com", now=now, sleep=sleep)
+        self.assertEqual(events["calls"], 3)
+        self.assertEqual(caught.exception.http_status, 503)
+        self.assertEqual(caught.exception.code, "navigation_network_error")
+
+    def test_callback_failures_do_not_break_success_and_late_callbacks_are_inactive(self):
+        page, events = self.page(types.SimpleNamespace(), error=False, removable=False)
+        messages = []
+        with patch.object(smoke, "log", side_effect=messages.append):
+            smoke.navigate(page, "https://www.reddit.com")
+            events["observer"](self.response(403, {"set-cookie": "private-cookie-value"}))
+        self.assertEqual(messages, [])
+        self.assertEqual(events["calls"], 1)
+
+    def test_http_failure_cli_preserves_finite_status_and_retry_metadata(self):
+        for session_input, expected in ((None, "network_error"), (Path("/tmp/session.json"), "session_invalid")):
+            output = io.StringIO()
+            config = argparse.Namespace(subreddit="politics", session_input=session_input)
+            error = smoke.SessionError("Browser navigation was rejected", "navigation_rate_limited", 429, 60)
+            with patch.object(smoke, "options", return_value=config), patch.object(smoke, "browser_lifecycle", return_value=nullcontext()), patch.object(smoke, "run", side_effect=error), patch.object(smoke, "log_resources"), patch.object(sys, "stdout", output):
+                self.assertEqual(smoke.main(), 2)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["status"], expected)
+            self.assertEqual(result["httpStatus"], 429)
+            self.assertEqual(result["retryAfterSeconds"], 60)
+            self.assertEqual(result["posts"], [])
+
+    def test_header_errors_keep_status_and_do_not_log_exception_values(self):
+        class Response:
+            status = 403
+            request = self.response(403).request
+            @property
+            def headers(self):
+                raise RuntimeError("private-cookie-value")
+        page, events = self.page(Response())
+        messages = []
+        with patch.object(smoke, "log", side_effect=messages.append), self.assertRaises(smoke.SessionError) as caught:
+            smoke.navigate(page, "https://www.reddit.com")
+        self.assertEqual(caught.exception.http_status, 403)
+        self.assertNotIn("private-cookie-value", "".join(messages))
+        self.assertEqual(events["calls"], 1)
+
+
 class GalleryTests(unittest.TestCase):
     def page(self, details):
         calls = []

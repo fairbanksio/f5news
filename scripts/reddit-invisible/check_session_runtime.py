@@ -1,9 +1,11 @@
 """Check cookie and local storage reuse in real Firefox without network access."""
 
 import sys
+import json
 import tempfile
 from pathlib import Path
 from urllib.parse import quote
+from unittest.mock import patch
 
 import smoke
 from invisible_playwright import InvisiblePlaywright
@@ -42,6 +44,38 @@ def check_access_classification(page):
         assert smoke.state(page) == expected
 
 
+def check_navigation_http(browser):
+    for status, expected in ((403, "navigation_http_rejected"), (429, "navigation_rate_limited")):
+        page = browser.new_page()
+        requests = []
+        def fulfill(route):
+            if route.request.is_navigation_request():
+                requests.append(True)
+            headers = {"content-type": "text/html", "content-length": "0", "set-cookie": "fixture=never-log-this-header; Secure; Path=/"}
+            if status == 429:
+                headers["retry-after"] = "60"
+            else:
+                headers["cf-mitigated"] = "challenge"
+            route.fulfill(status=status, headers=headers, body="")
+        page.route("https://www.reddit.com/**", fulfill)
+        messages = []
+        with patch.object(smoke, "log", side_effect=messages.append):
+            try:
+                smoke.navigate(page, "https://www.reddit.com/offline-status-check", timeout=5000)
+            except smoke.SessionError as error:
+                assert error.code == expected and error.http_status == status
+                assert error.retry_after_seconds == (60 if status == 429 else None)
+            else:
+                raise AssertionError("The offline HTTP fixture was not rejected")
+        assert len(requests) == 1
+        events = [json.loads(message) for message in messages if message.startswith("{")]
+        assert events == [{"eventType": "BROWSER_NAVIGATION_HTTP", "status": status,
+                           "retryAfterSeconds": 60 if status == 429 else None, "contentLength": 0,
+                           "challenge": status == 403}]
+        assert not any("never-log-this-header" in message or "https://" in message or "set-cookie" in message for message in messages)
+        page.close()
+
+
 def main():
     stage = "starting"
     try:
@@ -69,6 +103,8 @@ def main():
                 smoke.export_session(page, seed, path)
                 stage = "checking access classification"
                 check_access_classification(page)
+                stage = "checking offline HTTP response diagnostics"
+                check_navigation_http(browser)
             stage = "reading saved session state"
             saved = smoke.read_session(path)
             assert path.stat().st_mode & 0o777 == 0o600

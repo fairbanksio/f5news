@@ -324,6 +324,53 @@ test("transport and restore failures retry reads twice without acquiring a passw
   }
 });
 
+test("explicit HTTP rejection stops after one saved-session read without a password lease", async () => {
+  for (const [reason, httpStatus, retryAfterSeconds] of [
+    ["navigation_http_rejected", 401, 0], ["navigation_http_rejected", 403, 60], ["navigation_rate_limited", 429, 86400],
+  ]) {
+    const generation = randomUUID();
+    const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
+    store.objects.set(generation, SECRET);
+    const messages = [];
+    let calls = 0;
+    const runner = createSessionRunner({ store, now: () => NOW, pause: async () => assert.fail("Explicit rejection must not retry") });
+    await assert.rejects(runner(options(messages), async (request) => {
+      calls++;
+      assert.equal(request.authenticate, false);
+      throw Object.assign(new Error("Browser extraction failed: session_invalid"), { sessionReason: reason, httpStatus, retryAfterSeconds });
+    }), (error) => error.sessionReason === reason && error.httpStatus === httpStatus && error.retryAfterSeconds === retryAfterSeconds &&
+      error.message.includes(reason) && error.message.includes(`httpStatus=${httpStatus}`));
+    assert.equal(calls, 1);
+    assert.equal(store.attempts.length, 0);
+    assert.equal(store.releases.length, 0);
+    const diagnostic = messages.map(JSON.parse).find((entry) => entry.mode === "reuse_failed");
+    assert.equal(diagnostic.httpStatus, httpStatus);
+    assert.equal(diagnostic.retryAfterSeconds, retryAfterSeconds);
+    assert.equal(diagnostic.attempt, 1);
+  }
+});
+
+test("rejected navigation errors and logs discard untrusted provider diagnostics", async () => {
+  for (const [httpStatus, retryAfterSeconds] of [["private-cookie-value", "private-cookie-value"], [500, 86401], [200, -1], ["403", 0.5]]) {
+    const generation = randomUUID();
+    const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
+    store.objects.set(generation, SECRET);
+    const messages = [];
+    let calls = 0;
+    await assert.rejects(createSessionRunner({ store, now: () => NOW })(options(messages), async () => {
+      calls++;
+      throw Object.assign(new Error("private-cookie-value"), { sessionReason: "navigation_http_rejected", httpStatus, retryAfterSeconds });
+    }), (error) => error.message === "Browser extraction failed: runtime_error/navigation_http_rejected" &&
+      !Object.hasOwn(error, "httpStatus") && !Object.hasOwn(error, "retryAfterSeconds"));
+    assert.equal(calls, 1);
+    assert.equal(store.attempts.length, 0);
+    assert.ok(!messages.join().includes("private-cookie-value"));
+    const diagnostic = messages.map(JSON.parse).find((entry) => entry.mode === "reuse_failed");
+    assert.ok(!Object.hasOwn(diagnostic, "httpStatus"));
+    assert.ok(!Object.hasOwn(diagnostic, "retryAfterSeconds"));
+  }
+});
+
 test("credential-invalid states permit one coordinated renewal without retrying the same cookies", async () => {
   for (const reason of ["root_cookie_expired", "root_cookie_missing", "invalid_data", "feed_cookie_missing"]) {
     const generation = randomUUID();
