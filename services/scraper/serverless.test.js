@@ -44,3 +44,9 @@ test("browser scraper uses an ARM64 image without Reddit API credentials", () =>
   assert.ok(config.functions.fetchPosts.memorySize >= 2048);
   assert.deepEqual(Object.keys(config.provider.environment), ["MONGO_CONNECTION_STRING"]);
 });
+
+test("renaming the scraper retains its previous log group", () => {
+  const config = yaml.load(fs.readFileSync(path.join(__dirname, "serverless.yml"), "utf8"));
+  assert.equal(config.resources.extensions.FetchPostsLogGroup.UpdateReplacePolicy, "Retain");
+  assert.equal(config.resources.extensions.FetchPostsLogGroup.DeletionPolicy, undefined);
+});

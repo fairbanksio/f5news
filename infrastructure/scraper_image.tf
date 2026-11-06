@@ -6,6 +6,7 @@ locals {
   scraper_image_repository_arn  = "arn:${data.aws_partition.scraper_image.partition}:ecr:us-east-1:${data.aws_caller_identity.scraper_image.account_id}:repository/serverless-scraper-dev"
   scraper_browser_function_arn  = "arn:${data.aws_partition.scraper_image.partition}:lambda:us-east-1:${data.aws_caller_identity.scraper_image.account_id}:function:scraper-dev-fetchPosts-browser"
   scraper_browser_log_group_arn = "arn:${data.aws_partition.scraper_image.partition}:logs:us-east-1:${data.aws_caller_identity.scraper_image.account_id}:log-group:/aws/lambda/scraper-dev-fetchPosts-browser"
+  scraper_legacy_function_arn   = trimsuffix(local.scraper_browser_function_arn, "-browser")
 }
 
 # Extend the existing deployment role without taking ownership of its other policies.
@@ -113,6 +114,12 @@ resource "aws_iam_role_policy" "scraper_image_deploy" {
         Condition = {
           StringEquals = { "aws:RequestedRegion" = "us-east-1" }
         }
+      },
+      {
+        Sid      = "ScraperLegacyFunctionRetirement"
+        Effect   = "Allow"
+        Action   = ["lambda:DeleteFunction"]
+        Resource = [local.scraper_legacy_function_arn, "${local.scraper_legacy_function_arn}:*"]
       },
     ]
   })

@@ -57,7 +57,7 @@ run "scoped_scraper_image_permissions" {
       jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[1].Action == ["ecr:GetAuthorizationToken"] &&
       jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[1].Resource == ["*"] &&
       jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[1].Condition.StringEquals["aws:RequestedRegion"] == "us-east-1" &&
-      length(jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement) == 7 &&
+      length(jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement) == 8 &&
       alltrue([for statement in jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement : statement.Effect == "Allow"]) &&
       alltrue([for statement in jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement : statement.Resource != ["*"] || statement.Action == ["ecr:GetAuthorizationToken"] || statement.Action == ["logs:DescribeLogGroups"]])
     )
@@ -119,6 +119,21 @@ run "scoped_scraper_image_permissions" {
       jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[6].Condition.StringEquals["aws:RequestedRegion"] == "us-east-1"
     )
     error_message = "Log-group discovery must only grant regional metadata access required by CloudFormation."
+  }
+
+  assert {
+    condition = (
+      jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[7].Action == ["lambda:DeleteFunction"] &&
+      toset(jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[7].Resource) == toset([
+        "arn:aws:lambda:us-east-1:633025216388:function:scraper-dev-fetchPosts",
+        "arn:aws:lambda:us-east-1:633025216388:function:scraper-dev-fetchPosts:*",
+      ]) &&
+      alltrue([for statement in jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement : !contains(statement.Action, "logs:DeleteLogGroup") || toset(statement.Resource) == toset([
+        "arn:aws:logs:us-east-1:633025216388:log-group:/aws/lambda/scraper-dev-fetchPosts-browser",
+        "arn:aws:logs:us-east-1:633025216388:log-group:/aws/lambda/scraper-dev-fetchPosts-browser:*",
+      ])])
+    )
+    error_message = "Replacement cleanup may retire only the old function and versions, while preserving the old log group."
   }
 
   assert {
