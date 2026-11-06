@@ -1,7 +1,7 @@
 const assert = require("assert");
 const test = require("node:test");
 
-const { backfillMissingPostImages, createFetchPosts } = require("./index");
+const { backfillMissingPostImages, createFetchPosts, findImagePriorityIds } = require("./index");
 
 const createScraper = ({ posts = [] } = {}) => {
   const calls = [];
@@ -619,8 +619,8 @@ test("fetchPosts backfills recent posts with missing thumbnails", async () => {
 
   await handler({ subreddit: "news" });
 
-  assert.equal(findCalls.length, 1);
-  assert.deepEqual({ ...findCalls[0], $or: findCalls[0].$or.slice(0, 4) }, {
+  assert.equal(findCalls.length, 2);
+  assert.deepEqual({ ...findCalls[1], $or: findCalls[1].$or.slice(0, 4) }, {
     sub: "news",
     created_utc: { $gt: 1710043200 },
     is_self: { $ne: true },
@@ -1205,4 +1205,99 @@ test("session diagnostics read metadata without running a scrape or writing post
   assert.deepEqual(calls, ["connect", "inspect"]);
   assert.equal(parseStructuredLogs(logger, "BROWSER_SESSION_DIAGNOSTICS").length, 1);
   assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 0);
+});
+
+test("image detail priorities query recent small link images without the article cooldown", async () => {
+  const calls = {};
+  const small = "https://external-preview.redd.it/story.jpg?width=140";
+  const rows = [
+    { commentLink: "/r/politics/comments/abc/story/", thumbnail: small },
+    { commentLink: "/r/POLITICS/comments/def/another/", thumbnail: small },
+    { commentLink: "/r/politics/comments/abc/duplicate/", thumbnail: small },
+    { commentLink: "/r/news/comments/foreign/story/", thumbnail: small },
+    { commentLink: "https://evil.example/r/politics/comments/abc/story/", thumbnail: small },
+    { commentLink: "/r/politics/comments/bad-id/story/", thumbnail: small },
+    { commentLink: "/r/politics/comments/large/story/", thumbnail: "https://preview.redd.it/photo.jpg?width=1080" },
+  ];
+  const query = {
+    sort(value) { calls.sort = value; return this; },
+    limit(value) { calls.limit = value; return this; },
+    select(value) { calls.select = value; return this; },
+    maxTimeMS(value) { calls.maxTimeMS = value; return this; },
+    then(resolve) { return Promise.resolve(rows).then(resolve); },
+  };
+  const ids = await findImagePriorityIds({ find: (filter) => { calls.filter = filter; return query; } }, "POLITICS", {
+    now: () => new Date("2026-11-06T20:00:00Z"), logger: createLogger(),
+  });
+  assert.deepEqual(ids, ["t3_abc", "t3_def"]);
+  assert.equal(calls.filter.sub, "politics");
+  assert.deepEqual(calls.filter.created_utc, { $gt: Date.parse("2026-11-06T12:00:00Z") / 1000 });
+  for (const field of ["is_self", "is_video", "is_gallery"]) assert.deepEqual(calls.filter[field], { $ne: true });
+  assert.deepEqual(calls.filter.post_hint, { $nin: ["image", "rich:video"] });
+  assert.equal(calls.filter.thumbnailQualityCheckedAt, undefined);
+  assert.ok(new RegExp(calls.filter.url.$regex, "i").test("https://publisher.example/story"));
+  assert.ok(!new RegExp(calls.filter.url.$regex, "i").test("https://www.reddit.com/r/politics/"));
+  assert.deepEqual(calls.sort, { upvoteCount: -1 });
+  assert.equal(calls.limit, 25);
+  assert.equal(calls.select, "commentLink thumbnail");
+  assert.equal(calls.maxTimeMS, 1500);
+});
+
+test("image priorities explicitly skip details when no eligible stored images exist", async () => {
+  assert.deepEqual(await findImagePriorityIds({ find: async () => [] }, "politics"), []);
+  assert.deepEqual(await findImagePriorityIds({ find: () => { throw new Error("Unexpected query"); } }, "unsupported"), []);
+  const rows = Array.from({ length: 40 }, (_, index) => ({ commentLink: `/r/politics/comments/a${index}/story/`, thumbnail: "https://preview.redd.it/photo.jpg?width=140" }));
+  assert.equal((await findImagePriorityIds({ find: () => rows }, "politics")).length, 25);
+});
+
+test("optional image priority failure logs no database details and does not fail the scrape", async () => {
+  const logger = createLogger();
+  let queries = 0;
+  let options;
+  const handler = createFetchPosts({
+    scrapePostsImpl: async (value) => { options = value; return []; },
+    newPostModel: { find: async () => { if (++queries === 1) throw new Error("Private database details"); return []; } },
+    mongooseClient: { connect: async () => {} }, logger,
+  });
+  await handler({ subreddit: "politics" });
+  assert.equal(options.imagePriorityIds, undefined);
+  assert.equal(logger.warnings.length, 1);
+  assert.ok(!logger.warnings[0][0].includes("Private database details"));
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED")[0].outcome, "success");
+});
+
+test("image priority queries have a hard optional deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const logger = createLogger();
+  const result = findImagePriorityIds({ find: () => new Promise(() => {}) }, "politics", { logger });
+  t.mock.timers.tick(1500);
+  assert.equal(await result, undefined);
+  assert.equal(logger.warnings.length, 1);
+});
+
+test("normal scrapes pass validated stored image priorities to the browser", async () => {
+  let options;
+  const handler = createFetchPosts({
+    scrapePostsImpl: async (value) => { options = value; return []; },
+    newPostModel: { find: async (filter) => filter.thumbnail ? [{ commentLink: "/r/politics/comments/abc/story/", thumbnail: "https://preview.redd.it/photo.jpg?width=140" }] : [] },
+    mongooseClient: { connect: async () => {} }, logger: createLogger(),
+  });
+  await handler({ subreddit: "politics" });
+  assert.deepEqual(options.imagePriorityIds, ["t3_abc"]);
+});
+
+test("deferred proactive renewal keeps successful collection visible as degraded", async () => {
+  const logger = createLogger();
+  const posts = [];
+  posts.sessionMode = "reused";
+  posts.sessionGeneration = "fixture-generation";
+  posts.sessionRenewalDeferred = true;
+  const handler = createFetchPosts({ logger, mongooseClient: { connect: async () => {} },
+    scrapePostsImpl: async () => posts, newPostModel: { find: async () => [] },
+  });
+  await handler({ subreddit: "politics", session: true }, { getRemainingTimeInMillis: () => 240000 });
+  const terminal = parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED")[0];
+  assert.equal(terminal.outcome, "degraded");
+  assert.equal(terminal.sessionMode, "reused");
+  assert.equal(terminal.sessionRenewalDeferred, true);
 });
