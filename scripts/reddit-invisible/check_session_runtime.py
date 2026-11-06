@@ -1,0 +1,67 @@
+"""Check cookie and local storage reuse in real Firefox without network access."""
+
+import sys
+import tempfile
+from pathlib import Path
+
+import smoke
+from invisible_playwright import InvisiblePlaywright
+
+FEED = "https://www.reddit.com/r/politics/rising/"
+STORAGE_KEY = "f5_offline_session_check"
+STORAGE_VALUE = "offline-fixture-storage"
+COOKIE_VALUE = "offline-fixture-cookie-not-an-account"
+HTML = """<!doctype html><title>Offline Session Check</title>
+<script>
+  document.documentElement.dataset.restoredBeforePageScript =
+    localStorage.getItem('f5_offline_session_check') === 'offline-fixture-storage' ? 'yes' : 'no';
+</script>
+<shreddit-post>Offline fixture</shreddit-post>"""
+
+
+def offline_page(browser):
+    page = browser.new_page()
+    page.route("https://www.reddit.com/**", lambda route: route.fulfill(status=200, content_type="text/html", body=HTML))
+    return page
+
+
+def main():
+    stage = "starting"
+    try:
+        with tempfile.TemporaryDirectory() as directory, smoke.browser_lifecycle():
+            path = Path(directory) / "session.json"
+            seed = 12345
+            stage = "exporting"
+            with InvisiblePlaywright(seed=seed, headless=True, timezone="UTC", locale="en-US") as browser:
+                page = offline_page(browser)
+                page.context.add_cookies([{
+                    "name": "reddit_session", "value": COOKIE_VALUE, "domain": ".reddit.com",
+                    "path": "/", "expires": -1, "secure": True, "httpOnly": True, "sameSite": "Lax",
+                }])
+                page.goto(FEED, wait_until="domcontentloaded", timeout=15000)
+                page.evaluate("([name, value]) => localStorage.setItem(name, value)", [STORAGE_KEY, STORAGE_VALUE])
+                assert smoke.state(page) == "feed" and smoke.has_account_session(page)
+                smoke.export_session(page, seed, path)
+            saved = smoke.read_session(path)
+            assert path.stat().st_mode & 0o777 == 0o600
+            assert saved["seed"] == seed
+            stage = "restoring"
+            with InvisiblePlaywright(seed=saved["seed"], headless=True, timezone="UTC", locale="en-US") as browser:
+                page = offline_page(browser)
+                assert smoke.reuse_session(page, saved, FEED) == "reused"
+                assert any(cookie["name"] == "reddit_session" and cookie["value"] == COOKIE_VALUE for cookie in page.context.cookies())
+                assert page.evaluate_read("name => localStorage.getItem(name)", STORAGE_KEY) == STORAGE_VALUE
+                assert page.evaluate_read("() => document.documentElement.dataset.restoredBeforePageScript") == "yes"
+                stage = "checking init script removal"
+                page.evaluate("name => localStorage.setItem(name, 'fresh-after-restore')", STORAGE_KEY)
+                page.goto(FEED + "?offline-check=second", wait_until="domcontentloaded", timeout=15000)
+                assert page.evaluate_read("name => localStorage.getItem(name)", STORAGE_KEY) == "fresh-after-restore"
+        print("Offline Firefox session roundtrip passed.")
+        return 0
+    except Exception:
+        print("Offline Firefox session roundtrip failed while " + stage + ".", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

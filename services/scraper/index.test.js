@@ -1168,3 +1168,22 @@ test("approved account authentication requires an explicit boolean event flag", 
   assert.equal(calls[1].authenticate, true);
   assert.equal(calls[1].timeoutMs, 150000);
 });
+
+test("scheduled sessions inherit the runtime default and report reuse metadata", async () => {
+  const calls = [];
+  const logger = createLogger();
+  const handler = createFetchPosts({ env: { F5_REDDIT_SESSION_ENABLED: "true" },
+    scrapePostsImpl: async (options) => { calls.push(options); const posts = []; posts.sessionMode = "reused"; posts.sessionGeneration = "fixture-generation"; return posts; },
+    logger, mongooseClient: { connect: async () => {} }, newPostModel: { find: async () => [] },
+  });
+  await handler({ subreddit: "politics", renewSession: true }, { getRemainingTimeInMillis: () => 240000 });
+  await handler({ subreddit: "politics", session: false }, { getRemainingTimeInMillis: () => 240000 });
+  assert.equal(calls[0].session, true);
+  assert.equal(calls[0].renewSession, true);
+  assert.equal(calls[0].timeoutMs, 210000);
+  assert.equal(calls[1].session, false);
+  assert.equal(calls[1].timeoutMs, 90000);
+  const terminal = parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED")[0];
+  assert.equal(terminal.sessionMode, "reused");
+  assert.equal(terminal.sessionGeneration, "fixture-generation");
+});

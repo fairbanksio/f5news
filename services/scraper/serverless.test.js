@@ -44,7 +44,26 @@ test("browser scraper uses an ARM64 image without Reddit API client credentials"
   assert.ok(config.functions.fetchPosts.memorySize >= 2048);
   assert.equal(config.provider.environment.REDDIT_CLIENT_ID, undefined);
   assert.equal(config.provider.environment.REDDIT_SECRET_KEY, undefined);
-  assert.deepEqual(Object.keys(config.provider.environment), ["MONGO_CONNECTION_STRING", "REDDIT_USERNAME", "REDDIT_PASSWORD"]);
+  assert.deepEqual(Object.keys(config.provider.environment), ["MONGO_CONNECTION_STRING", "REDDIT_USERNAME", "REDDIT_PASSWORD", "F5_REDDIT_SESSION_BUCKET", "F5_REDDIT_SESSION_ENABLED"]);
+});
+
+test("scheduled feeds reuse the shared session without independent login attempts", () => {
+  const config = yaml.load(fs.readFileSync(path.join(__dirname, "serverless.yml"), "utf8"));
+  assert.equal(config.provider.environment.F5_REDDIT_SESSION_BUCKET, "${env:F5_REDDIT_SESSION_BUCKET, ssm:/f5_reddit_session_bucket}");
+  assert.equal(config.provider.environment.F5_REDDIT_SESSION_ENABLED, "true");
+  const schedules = config.functions.fetchPosts.events.map((event) => event.schedule);
+  assert.equal(schedules.length, 11);
+  for (const schedule of schedules) {
+    assert.equal(schedule.enabled, false);
+    assert.equal(schedule.input.session, true);
+    assert.equal(schedule.input.authenticate, undefined);
+  }
+  assert.deepEqual(config.provider.iam.role.statements, [{
+    Sid: "SharedRedditSessionObjects",
+    Effect: "Allow",
+    Action: ["s3:GetObject", "s3:PutObject"],
+    Resource: { "Fn::Join": ["", ["arn:", { Ref: "AWS::Partition" }, ":s3:::", "${self:provider.environment.F5_REDDIT_SESSION_BUCKET}", "/reddit/sessions/*.json"]] },
+  }]);
 });
 
 test("renaming the scraper retains its previous log group", () => {

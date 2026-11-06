@@ -313,7 +313,12 @@ const createFetchPosts = ({
       await mongooseClient.connect();
       stage = "browser_extract";
       const remaining = typeof context.getRemainingTimeInMillis === "function" ? context.getRemainingTimeInMillis() : 120_000;
-      const children = await scrapePostsImpl({ subreddit, limit: 25, timeoutMs: Math.min(event.authenticate === true ? 150_000 : 90_000, remaining - 20_000), logger, authenticate: event.authenticate === true });
+      const session = event.session === true || (event.session !== false && env.F5_REDDIT_SESSION_ENABLED === "true");
+      const children = await scrapePostsImpl({ subreddit, limit: 25, timeoutMs: Math.min(session ? 210_000 : event.authenticate === true ? 150_000 : 90_000, remaining - 20_000), logger, authenticate: event.authenticate === true, session, renewSession: event.renewSession === true });
+      if (children?.sessionMode) {
+        job.sessionMode = children.sessionMode;
+        job.sessionGeneration = children.sessionGeneration;
+      }
       if (!Array.isArray(children)) throw new Error("Browser extraction response missing posts");
       job.fetchedCount = children.length;
       stage = "post_write";
@@ -334,6 +339,7 @@ const createFetchPosts = ({
         subreddit, stage, outcome: terminalError ? "failed" : degraded ? "degraded" : "success",
         durationMs: Date.now() - startedAt, requestId: context.awsRequestId || "",
         fetchedCount: job.fetchedCount, savedCount: job.savedCount,
+        ...(job.sessionMode ? { sessionMode: job.sessionMode, sessionGeneration: job.sessionGeneration } : {}),
         imageAttempts: imageCounts.reduce((count, metrics) => count + metrics.attempts, 0),
         imageResolved: imageCounts.reduce((count, metrics) => count + metrics.resolved, 0),
         imageMissing: imageCounts.reduce((count, metrics) => count + metrics.missing, 0),

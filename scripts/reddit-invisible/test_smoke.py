@@ -293,6 +293,150 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["posts"], [])
 
 
+class SessionTests(unittest.TestCase):
+    def session(self):
+        return {"version": 1, "seed": 12345, "cookies": [{"name": "reddit_session", "value": "private-session-cookie", "domain": ".reddit.com", "path": "/", "expires": -1, "secure": True, "httpOnly": True, "sameSite": "Lax"}],
+                "origins": [{"origin": "https://www.reddit.com", "localStorage": [{"name": "account", "value": "private-storage-value"}]}]}
+
+    def test_roundtrip_and_private_output_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            smoke.write_session(path, self.session())
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(smoke.read_session(path), self.session())
+            path.chmod(0o644)
+            with self.assertRaisesRegex(smoke.SessionError, "Session input is invalid"):
+                smoke.read_session(path)
+
+    def test_session_rejects_malformed_external_and_expired_records(self):
+        import copy
+        mutations = [lambda data: data.update(version=2), lambda data: data.update(seed=True),
+                     lambda data: data["cookies"][0].update(domain="evilreddit.com"),
+                     lambda data: data["cookies"][0].update(expires=1),
+                     lambda data: data["cookies"][0].update(name="token_v2"),
+                     lambda data: data["cookies"][0].update(url="https://evil.example"),
+                     lambda data: data["origins"][0].update(origin="https://evil.example"),
+                     lambda data: data["origins"][0]["localStorage"][0].update(value={"secret": "value"}),
+                     lambda data: data["cookies"].append(data["cookies"][0])]
+        for mutate in mutations:
+            data = copy.deepcopy(self.session())
+            mutate(data)
+            with self.assertRaisesRegex(smoke.SessionError, "Session data is invalid"):
+                smoke.validate_session(data)
+
+    def test_expired_non_account_cookies_are_dropped_without_expiring_session(self):
+        fixture = self.session()
+        fixture["cookies"].append({"name": "analytics", "value": "irrelevant-value", "domain": ".reddit.com", "path": "/", "expires": 1})
+        self.assertEqual(smoke.validate_session(fixture), self.session())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            smoke.write_session(path, fixture)
+            self.assertEqual(smoke.read_session(path), self.session())
+
+    def test_session_size_limit_is_one_mib(self):
+        fixture = self.session()
+        fixture["origins"][0]["localStorage"][0]["value"] = "x" * smoke.MAX_SESSION_BYTES
+        self.assertEqual(smoke.MAX_SESSION_BYTES, 1024 * 1024)
+        with self.assertRaises(smoke.SessionError):
+            smoke.validate_session(fixture)
+
+    def test_session_io_errors_never_include_values(self):
+        with patch.object(smoke, "validate_session", side_effect=RuntimeError("private-session-cookie private-storage-value")):
+            with self.assertRaisesRegex(smoke.SessionError, "Session output could not be saved") as caught:
+                smoke.write_session("/tmp/unused-session-test.json", self.session())
+        self.assertNotIn("private-", str(caught.exception))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bad.json"
+            path.write_text("private-session-cookie")
+            path.chmod(0o600)
+            with self.assertRaises(smoke.SessionError) as caught:
+                smoke.read_session(path)
+            self.assertNotIn("private-", str(caught.exception))
+
+    def test_restore_uses_cookies_and_origin_scoped_init_then_removes_it(self):
+        events = []
+        class Script:
+            def __enter__(self):
+                events.append("script_enter")
+            def __exit__(self, *_args):
+                events.append("script_removed")
+        page = types.SimpleNamespace(
+            context=types.SimpleNamespace(add_cookies=lambda cookies: events.append(("cookies", cookies))),
+            add_init_script=lambda **kwargs: events.append(("script", kwargs["script"])) or Script(),
+            goto=lambda url, **kwargs: events.append(("goto", url)))
+        with patch.object(smoke, "state", return_value="feed"), patch.object(smoke, "has_account_session", return_value=True):
+            self.assertEqual(smoke.reuse_session(page, self.session(), "https://www.reddit.com/r/politics/rising/"), "reused")
+        self.assertEqual(events[0], ("cookies", self.session()["cookies"]))
+        self.assertIn("item.origin === location.origin", events[1][1])
+        self.assertEqual(events[-1], "script_removed")
+
+    def test_reuse_access_failure_does_not_authenticate(self):
+        page = types.SimpleNamespace(context=types.SimpleNamespace(add_cookies=lambda _cookies: None),
+                                     add_init_script=lambda **_kwargs: nullcontext(), goto=lambda *_args, **_kwargs: None)
+        for state in ("blocked", "challenge", "feed"):
+            with patch.object(smoke, "state", return_value=state), patch.object(smoke, "has_account_session", return_value=False), patch.object(smoke, "authenticate_once", side_effect=AssertionError("Must not log in")):
+                expected = "session_invalid" if state == "feed" else "session_" + state
+                self.assertEqual(smoke.reuse_session(page, self.session(), "https://www.reddit.com/r/politics/rising/"), expected)
+
+    def test_restore_exception_is_generic_and_does_not_leak_script_values(self):
+        page = types.SimpleNamespace(context=types.SimpleNamespace(add_cookies=lambda _cookies: None),
+                                     add_init_script=lambda **kwargs: (_ for _ in ()).throw(RuntimeError(kwargs["script"])))
+        with self.assertRaises(smoke.SessionError) as caught:
+            smoke.reuse_session(page, self.session(), "https://www.reddit.com/r/politics/rising/")
+        self.assertEqual(str(caught.exception), "Session could not be restored")
+
+    def test_export_reads_localstorage_separately_and_filters_third_party_cookies(self):
+        cookies = self.session()["cookies"] + [{"name": "foreign", "value": "foreign-value", "domain": ".example.com", "path": "/"}]
+        page = types.SimpleNamespace(context=types.SimpleNamespace(cookies=lambda: cookies),
+                                     evaluate_read=lambda _expression: self.session()["origins"][0])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            smoke.export_session(page, 12345, path)
+            self.assertEqual(smoke.read_session(path), self.session())
+
+    def test_run_reuses_saved_seed_without_credentials_and_refreshes_session(self):
+        fixture = self.session()
+        events = []
+        class Page:
+            context = types.SimpleNamespace(add_cookies=lambda cookies: events.append("cookies"), cookies=lambda: fixture["cookies"])
+            def on(self, *_args):
+                pass
+            def add_init_script(self, **_kwargs):
+                return nullcontext()
+            def goto(self, url, **_kwargs):
+                events.append(url)
+            def evaluate_read(self, expression, *_args):
+                return fixture["origins"][0] if "Object.entries(localStorage)" in expression else [sample_post()]
+        class Browser:
+            def __init__(self, **kwargs):
+                events.append(kwargs)
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                events.append("closed")
+            def on(self, *_args):
+                pass
+            def new_page(self):
+                return Page()
+        module = types.SimpleNamespace(InvisiblePlaywright=Browser)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "session.json"
+            config = argparse.Namespace(subreddit="politics", limit=1, authenticate=False, session_input=Path("/tmp/input-session"), session_output=output)
+            with patch.dict(sys.modules, {"invisible_playwright": module}), patch.dict(os.environ, {"REDDIT_USERNAME": "", "REDDIT_PASSWORD": ""}), patch.object(smoke, "read_session", return_value=fixture), patch.object(smoke, "state", return_value="feed"), patch.object(smoke, "authenticate_once", side_effect=AssertionError("Must not log in")):
+                result = smoke.run(config)
+            self.assertEqual(result["status"], "accessible")
+            self.assertEqual(events[0], {"headless": True, "seed": 12345})
+            self.assertEqual(smoke.read_session(output), fixture)
+        self.assertEqual(events[-1], "closed")
+        self.assertNotIn("https://www.reddit.com/login/", events)
+
+    def test_session_cli_prevents_reuse_with_login_or_anonymous_export(self):
+        self.assertEqual(smoke.options(["--session-input", "/tmp/input", "--session-output", "/tmp/output"]).session_input, Path("/tmp/input"))
+        for args in [["--session-input", "/tmp/input", "--authenticate"], ["--session-output", "/tmp/output"]]:
+            with self.assertRaises(SystemExit):
+                smoke.options(args)
+
+
 class GalleryTests(unittest.TestCase):
     def page(self, details):
         calls = []

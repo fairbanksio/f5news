@@ -4,6 +4,10 @@ import argparse
 import json
 import os
 import re
+import math
+import secrets
+import stat
+import tempfile
 import signal
 import sys
 import time
@@ -109,7 +113,13 @@ def options(args=None):
     parser.add_argument("--subreddit", type=str.lower, default="politics", choices=names)
     parser.add_argument("--limit", type=int, choices=range(1, 26), default=25)
     parser.add_argument("--authenticate", action="store_true", help="Try the configured Reddit website account once")
+    parser.add_argument("--session-input", type=Path)
+    parser.add_argument("--session-output", type=Path)
     result = parser.parse_args(args)
+    if result.session_input and result.authenticate:
+        parser.error("Use session reuse or authentication, not both")
+    if result.session_output and not (result.authenticate or result.session_input):
+        parser.error("Session output requires authentication or session input")
     result.subreddit = names[result.subreddit]
     return result
 
@@ -212,6 +222,130 @@ def authenticate_once(page, feed_url):
     return "auth_feed_timeout"
 
 
+MAX_SESSION_BYTES = 1024 * 1024
+
+
+class SessionError(RuntimeError):
+    pass
+
+
+def reddit_domain(value):
+    return isinstance(value, str) and re.fullmatch(r"\.?(?:[a-z0-9-]+\.)*reddit\.com", value) is not None
+
+
+def validate_session(session):
+    try:
+        if not isinstance(session, dict) or set(session) != {"version", "seed", "cookies", "origins"}:
+            raise ValueError()
+        if type(session["version"]) is not int or session["version"] != 1 or type(session["seed"]) is not int or not 0 <= session["seed"] < 2**53:
+            raise ValueError()
+        if not isinstance(session["cookies"], list) or not isinstance(session["origins"], list):
+            raise ValueError()
+        seen = set()
+        account = False
+        usable_cookies = []
+        for cookie in session["cookies"]:
+            if not isinstance(cookie, dict) or not {"name", "value", "domain", "path"} <= set(cookie) or set(cookie) - {"name", "value", "domain", "path", "expires", "httpOnly", "secure", "sameSite"}:
+                raise ValueError()
+            if not reddit_domain(cookie["domain"]) or not isinstance(cookie["name"], str) or not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", cookie["name"]):
+                raise ValueError()
+            if not isinstance(cookie["value"], str) or len(cookie["value"]) > 65536 or any(char in cookie["value"] for char in "\r\n") or not isinstance(cookie["path"], str) or not cookie["path"].startswith("/"):
+                raise ValueError()
+            expires = cookie.get("expires", -1)
+            if type(expires) not in (int, float) or not math.isfinite(expires):
+                raise ValueError()
+            if expires != -1 and expires <= time.time():
+                if cookie["name"] == "reddit_session":
+                    raise ValueError()
+                continue
+            if any(key in cookie and type(cookie[key]) is not bool for key in ("secure", "httpOnly")) or cookie.get("sameSite", "Lax") not in ("Lax", "None", "Strict"):
+                raise ValueError()
+            identity = (cookie["name"], cookie["domain"], cookie["path"])
+            if identity in seen:
+                raise ValueError()
+            seen.add(identity)
+            usable_cookies.append(cookie)
+            account |= cookie["name"] == "reddit_session" and bool(cookie["value"]) and cookie["domain"].lstrip(".") == "reddit.com" and cookie["path"] == "/"
+        if not account:
+            raise ValueError()
+        origins = set()
+        for origin in session["origins"]:
+            if not isinstance(origin, dict) or set(origin) != {"origin", "localStorage"} or origin["origin"] not in ("https://www.reddit.com", "https://reddit.com") or origin["origin"] in origins or not isinstance(origin["localStorage"], list):
+                raise ValueError()
+            origins.add(origin["origin"])
+            names = set()
+            for item in origin["localStorage"]:
+                if not isinstance(item, dict) or set(item) != {"name", "value"} or not isinstance(item["name"], str) or not isinstance(item["value"], str) or item["name"] in names:
+                    raise ValueError()
+                names.add(item["name"])
+        if len(json.dumps(session)) > MAX_SESSION_BYTES:
+            raise ValueError()
+        return {**session, "cookies": usable_cookies}
+    except Exception:
+        raise SessionError("Session data is invalid") from None
+
+
+def read_session(path):
+    try:
+        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "r") as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > MAX_SESSION_BYTES:
+                raise ValueError()
+            return validate_session(json.load(source))
+    except Exception:
+        raise SessionError("Session input is invalid") from None
+
+
+def write_session(path, session):
+    temporary = None
+    try:
+        session = validate_session(session)
+        with tempfile.NamedTemporaryFile(mode="w", dir=Path(path).parent, delete=False) as output:
+            temporary = output.name
+            os.fchmod(output.fileno(), 0o600)
+            json.dump(session, output)
+        os.replace(temporary, path)
+    except Exception:
+        raise SessionError("Session output could not be saved") from None
+    finally:
+        if temporary:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                raise SessionError("Session temporary file could not be removed") from None
+
+
+def export_session(page, seed, path):
+    try:
+        cookies = [cookie for cookie in page.context.cookies() if reddit_domain(cookie.get("domain"))]
+        origin = page.evaluate_read("""() => ({origin: location.origin, localStorage: Object.entries(localStorage).map(([name, value]) => ({name, value}))})""")
+        write_session(path, {"version": 1, "seed": seed, "cookies": cookies, "origins": [origin]})
+    except Exception:
+        raise SessionError("Session output could not be saved") from None
+
+
+def reuse_session(page, session, feed_url):
+    try:
+        page.context.add_cookies(session["cookies"])
+        origins = json.dumps(session["origins"])
+        script = "(() => { const records = " + origins + "; const record = records.find(item => item.origin === location.origin); if (record) for (const item of record.localStorage) localStorage.setItem(item.name, item.value); })();"
+        with page.add_init_script(script=script):
+            page.goto(feed_url, wait_until="domcontentloaded", timeout=30000)
+            started = time.monotonic()
+            while time.monotonic() - started < 60:
+                access = state(page)
+                if access in ("blocked", "challenge"):
+                    return "session_" + access
+                if access == "feed":
+                    return "reused" if has_account_session(page) else "session_invalid"
+                time.sleep(1)
+        return "session_invalid"
+    except Exception:
+        raise SessionError("Session could not be restored") from None
+
+
 CORE_ATTRIBUTES = ("id", "subreddit-name", "permalink", "content-href", "post-title", "author", "created-timestamp", "score", "comment-count", "post-type")
 
 
@@ -296,13 +430,32 @@ def run(config):
     reader = "(" + source.removeprefix("export ") + ")"
     url = f"https://www.reddit.com/r/{config.subreddit}/rising/"
     started = time.monotonic()
+    session = None
+    session_input = getattr(config, "session_input", None)
+    session_output = getattr(config, "session_output", None)
+    if session_input:
+        try:
+            session = read_session(session_input)
+        except SessionError:
+            return {"status": "session_invalid", "subreddit": config.subreddit, "posts": []}
+    seed = session["seed"] if session else secrets.randbelow(2**31)
+    launch_options = {"headless": True}
+    if session or getattr(config, "authenticate", False):
+        launch_options["seed"] = seed
     log("Launching the isolated Firefox session.")
-    with InvisiblePlaywright(headless=True) as browser:
+    with InvisiblePlaywright(**launch_options) as browser:
         browser.on("disconnected", lambda *_args: log("Browser disconnected."))
         page = browser.new_page()
         page.on("crash", lambda *_args: log("Browser page crashed."))
         page.on("close", lambda *_args: log("Browser page closed."))
-        if getattr(config, "authenticate", False):
+        if session:
+            try:
+                access = reuse_session(page, session, url)
+            except SessionError:
+                access = "session_invalid"
+            if access != "reused":
+                return {"status": access, "subreddit": config.subreddit, "posts": []}
+        elif getattr(config, "authenticate", False):
             authentication = authenticate_once(page, url)
             if authentication != "authenticated":
                 return {"status": authentication, "subreddit": config.subreddit, "posts": []}
@@ -317,6 +470,8 @@ def run(config):
             if time.monotonic() - last_report >= 10:
                 log(f"Still waiting for feed access ({current}).")
                 last_report = time.monotonic()
+            if session and current in ("blocked", "challenge"):
+                return {"status": "session_" + current, "subreddit": config.subreddit, "posts": []}
             if current == "blocked":
                 return {"status": "blocked", "subreddit": config.subreddit, "posts": []}
             if current == "feed":
@@ -329,8 +484,10 @@ def run(config):
                     clicked = True
             time.sleep(1)
         else:
-            return {"status": "challenge_required" if state(page) == "challenge" else "loading_timeout", "subreddit": config.subreddit, "checkboxClicked": clicked, "posts": []}
+            return {"status": "session_invalid" if session else "challenge_required" if state(page) == "challenge" else "loading_timeout", "subreddit": config.subreddit, "checkboxClicked": clicked, "posts": []}
 
+        if session_output:
+            export_session(page, seed, session_output)
         posts = {}
         unchanged = 0
         for _ in range(12):

@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkInvocation, failureSummary } = require("./check-browser-deployment.cjs");
+const { checkInvocation, failureSummary, verifyFeeds, FEEDS } = require("./check-browser-deployment.cjs");
 const response = (fields = {}) => ({ StatusCode: 200, LogResult: Buffer.from('request prefix\t' + JSON.stringify({ eventType: "SCRAPER_JOB_COMPLETED", outcome: "success", fetchedCount: 25, savedCount: 25, ...fields })).toString("base64") });
 test("deployment probe accepts saved posts and optional image degradation", () => {
   assert.equal(checkInvocation(response()).savedCount, 25);
@@ -45,4 +45,130 @@ test("bootstrap diagnostics keep error messages and omit stack frames", () => {
   assert.ok(result.startupErrors.includes(lines[0]));
   const output = JSON.stringify(result);
   for (const secret of ["privateStack", "private-stack", "private.example", "hidden"]) assert.ok(!output.includes(secret));
+});
+
+const sharedResponse = (fields = {}) => response({ sessionMode: "reused", sessionGeneration: "generation-1", ...fields });
+
+test("all-feed verification invokes every feed sequentially and proves session reuse", async () => {
+  const calls = [];
+  const lines = [];
+  let active = 0;
+  const { summary } = await verifyFeeds({ allFeeds: true, emit: (line) => lines.push(JSON.parse(line)), invoke: async (event) => {
+    active += 1;
+    assert.equal(active, 1);
+    calls.push(event);
+    await new Promise((resolve) => setImmediate(resolve));
+    active -= 1;
+    return sharedResponse({ sessionMode: calls.length === 1 ? "renewed" : "reused" });
+  } });
+  assert.deepEqual(calls, [...FEEDS, "politics"].map((subreddit) => ({ subreddit, session: true })));
+  assert.equal(calls.length, 12);
+  assert.equal(new Set(FEEDS).size, 11);
+  assert.deepEqual(summary, { eventType: "BROWSER_LIVE_PROBE_COMPLETED", feedCount: 11, invocationCount: 12,
+    savedCount: 300, renewalRequested: false, sessionGeneration: "generation-1", renewedCount: 1, reusedCount: 11 });
+  assert.equal(lines.at(-2).repeated, true);
+  assert.equal(lines.filter((entry) => entry.eventType === "BROWSER_LIVE_PROBE").length, 12);
+});
+
+test("all-feed verification forbids repeated logins and missing session mode", async () => {
+  let invocations = 0;
+  const invoke = async () => { invocations += 1; return response(); };
+  for (const options of [{ authenticate: true }, { session: false }]) {
+    await assert.rejects(verifyFeeds({ allFeeds: true, ...options, invoke, emit: () => {} }));
+  }
+  assert.equal(invocations, 0);
+  await assert.rejects(verifyFeeds({ allFeeds: true, invoke, emit: () => {} }), /session reuse or renewal/);
+  assert.equal(invocations, 1);
+});
+
+test("all-feed verification rejects changed generations or repeated renewals", async () => {
+  for (const fields of [{ sessionGeneration: "generation-2" }, { sessionMode: "renewed" }]) {
+    let invocations = 0;
+    await assert.rejects(verifyFeeds({ allFeeds: true, emit: () => {}, invoke: async () => {
+      invocations += 1;
+      return sharedResponse(invocations > 1 ? fields : { sessionMode: "renewed" });
+    } }));
+    assert.equal(invocations, 2);
+  }
+});
+
+test("all-feed verification stops on a feed without saved posts", async () => {
+  let invocations = 0;
+  const lines = [];
+  await assert.rejects(verifyFeeds({ allFeeds: true, emit: (line) => lines.push(JSON.parse(line)), invoke: async () => {
+    invocations += 1;
+    return invocations === 3 ? sharedResponse({ fetchedCount: 0, savedCount: 0 }) : sharedResponse();
+  } }), /no usable posts/);
+  assert.equal(invocations, 3);
+  assert.equal(lines.length, 2);
+});
+
+test("single-feed bootstrap authenticates once and does not claim shared session proof", async () => {
+  const events = [];
+  const { summary } = await verifyFeeds({ authenticate: true, emit: () => {}, invoke: async (event) => {
+    events.push(event);
+    return response();
+  } });
+  assert.deepEqual(events, [{ subreddit: "politics", authenticate: true, session: false }]);
+  assert.equal(summary.sessionGeneration, undefined);
+});
+
+test("session proof excludes malformed identifiers and unrelated terminal fields", () => {
+  assert.throws(() => checkInvocation(sharedResponse({ sessionGeneration: "unsafe\nidentifier" }), { session: true }));
+  const result = checkInvocation(sharedResponse({ privateData: "private-marker", sessionCookie: "private-cookie" }), { session: true });
+  assert.equal(JSON.stringify(result).includes("private"), false);
+});
+
+
+test("requested all-feed renewal runs once and every later invocation reuses it", async () => {
+  const calls = [];
+  const { summary } = await verifyFeeds({ allFeeds: true, renewSession: true, emit: () => {}, invoke: async (event) => {
+    calls.push(event);
+    return sharedResponse({ sessionMode: calls.length === 1 ? "renewed" : "reused", sessionGeneration: "new-generation" });
+  } });
+  assert.deepEqual(calls[0], { subreddit: "politics", session: true, renewSession: true });
+  assert.deepEqual(calls.slice(1), [...FEEDS.slice(1), "politics"].map((subreddit) => ({ subreddit, session: true })));
+  assert.equal(summary.renewalRequested, true);
+  assert.equal(summary.renewedCount, 1);
+  assert.equal(summary.reusedCount, 11);
+});
+
+test("single-feed renewal uses the shared coordinator", async () => {
+  const calls = [];
+  const { summary } = await verifyFeeds({ renewSession: true, emit: () => {}, invoke: async (event) => {
+    calls.push(event);
+    return sharedResponse({ sessionMode: "renewed" });
+  } });
+  assert.deepEqual(calls, [{ subreddit: "politics", session: true, renewSession: true }]);
+  assert.equal(summary.renewedCount, 1);
+});
+
+test("renewal forbids bootstrap authentication and disabled sessions", async () => {
+  let invocations = 0;
+  for (const options of [{ authenticate: true }, { session: false }]) {
+    await assert.rejects(verifyFeeds({ ...options, renewSession: true, emit: () => {}, invoke: async () => {
+      invocations += 1;
+      return sharedResponse();
+    } }), /renewal requires/);
+  }
+  assert.equal(invocations, 0);
+});
+
+test("requested renewal fails immediately when the terminal record reports reuse", async () => {
+  let invocations = 0;
+  await assert.rejects(verifyFeeds({ allFeeds: true, renewSession: true, emit: () => {}, invoke: async () => {
+    invocations += 1;
+    return sharedResponse();
+  } }), /did not create a renewed session/);
+  assert.equal(invocations, 1);
+});
+
+
+test("anonymous verification explicitly disables deployed shared-session defaults", async () => {
+  const calls = [];
+  await verifyFeeds({ session: false, emit: () => {}, invoke: async (event) => {
+    calls.push(event);
+    return response();
+  } });
+  assert.deepEqual(calls, [{ subreddit: "politics", session: false }]);
 });
