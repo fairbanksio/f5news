@@ -50,10 +50,11 @@ COPY --from=dependencies /opt/invisible-browser /opt/invisible-browser
 COPY --from=dependencies /opt/lambda-ric /opt/lambda-ric
 COPY --from=dependencies /app/services/scraper/node_modules ./node_modules
 COPY services/scraper/*.js services/scraper/package.json ./
+COPY --chmod=755 services/scraper/entrypoint.sh ./entrypoint.sh
 COPY services/scraper/models ./models
 COPY scripts/reddit-invisible/smoke.py /app/scripts/reddit-invisible/smoke.py
 COPY scripts/reddit-stagehand/browser-reader.js scripts/reddit-stagehand/f5-dom.js scripts/reddit-stagehand/f5-record.js scripts/reddit-stagehand/package.json /app/scripts/reddit-stagehand/
 COPY services/posts/subreddits.json /app/services/posts/subreddits.json
 USER 10001:10001
-ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/node", "/opt/lambda-ric/index.mjs"]
-CMD ["index.fetchPosts"]
+ENTRYPOINT ["/app/services/scraper/entrypoint.sh"]
+CMD ["/usr/local/bin/node", "/opt/lambda-ric/index.mjs", "index.fetchPosts"]
