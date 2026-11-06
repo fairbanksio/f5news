@@ -1152,3 +1152,19 @@ test("backfill thumbnail write failures stay optional and report degraded counts
   assert.equal(error.operation, "backfill");
   assert.equal(error.postId, "post1");
 });
+
+
+test("approved account authentication requires an explicit boolean event flag", async () => {
+  const calls = [];
+  const handler = createFetchPosts({
+    scrapePostsImpl: async (options) => { calls.push(options); return []; },
+    logger: createLogger(), mongooseClient: { connect: async () => {} },
+    newPostModel: { find: async () => [] },
+  });
+  await handler({ subreddit: "politics", authenticate: "true" }, { getRemainingTimeInMillis: () => 240000 });
+  await handler({ subreddit: "politics", authenticate: true }, { getRemainingTimeInMillis: () => 240000 });
+  assert.equal(calls[0].authenticate, false);
+  assert.equal(calls[0].timeoutMs, 90000);
+  assert.equal(calls[1].authenticate, true);
+  assert.equal(calls[1].timeoutMs, 150000);
+});

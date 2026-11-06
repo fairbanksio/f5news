@@ -55,8 +55,8 @@ if (require.main === module) {
   try {
     const payloadFile = "/tmp/f5-browser-live-probe.json";
     const result = JSON.parse(execFileSync("aws", ["lambda", "invoke", "--function-name", "scraper-dev-fetchPosts-browser",
-      "--cli-binary-format", "raw-in-base64-out", "--payload", JSON.stringify({ subreddit: "politics" }),
-      "--log-type", "Tail", "--cli-read-timeout", "260", payloadFile], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+      "--cli-binary-format", "raw-in-base64-out", "--payload", JSON.stringify({ subreddit: "politics", authenticate: process.env.F5_PROBE_AUTHENTICATE === "true" }),
+      "--log-type", "Tail", "--cli-read-timeout", "260", payloadFile], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, AWS_MAX_ATTEMPTS: "1" } }));
     if (result.FunctionError) {
       const error = JSON.parse(readFileSync(payloadFile, "utf8"));
       let logText = Buffer.from(result.LogResult || "", "base64").toString();
@@ -69,7 +69,7 @@ if (require.main === module) {
       const diagnostics = { ...result, LogResult: Buffer.from(logText).toString("base64") };
       console.error(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE_FAILED", ...failureSummary(diagnostics, error) }));
     }
-    console.log(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE", subreddit: "politics", ...checkInvocation(result) }));
+    console.log(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE", subreddit: "politics", authenticate: process.env.F5_PROBE_AUTHENTICATE === "true", ...checkInvocation(result) }));
   } catch (error) {
     console.error(error instanceof assert.AssertionError ? error.message : "Unable to verify the browser scraper invocation");
     process.exitCode = 1;

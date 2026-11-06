@@ -30,7 +30,7 @@ test("fetchPosts is scheduled for the supported news subreddits", () => {
   ]);
 });
 
-test("browser scraper uses an ARM64 image without Reddit API credentials", () => {
+test("browser scraper uses an ARM64 image without Reddit API client credentials", () => {
   const config = yaml.load(fs.readFileSync(path.join(__dirname, "serverless.yml"), "utf8"));
   assert.equal(config.provider.architecture, "arm64");
   assert.deepEqual(config.provider.ecr.images.scraper, {
@@ -42,7 +42,9 @@ test("browser scraper uses an ARM64 image without Reddit API credentials", () =>
   assert.equal(config.provider.runtime, undefined);
   assert.ok(config.functions.fetchPosts.timeout < 300);
   assert.ok(config.functions.fetchPosts.memorySize >= 2048);
-  assert.deepEqual(Object.keys(config.provider.environment), ["MONGO_CONNECTION_STRING"]);
+  assert.equal(config.provider.environment.REDDIT_CLIENT_ID, undefined);
+  assert.equal(config.provider.environment.REDDIT_SECRET_KEY, undefined);
+  assert.deepEqual(Object.keys(config.provider.environment), ["MONGO_CONNECTION_STRING", "REDDIT_USERNAME", "REDDIT_PASSWORD"]);
 });
 
 test("renaming the scraper retains its previous log group", () => {
