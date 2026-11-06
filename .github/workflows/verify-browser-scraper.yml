@@ -3,6 +3,22 @@ name: Verify Browser Scraper
 on:
   workflow_dispatch:
     inputs:
+      subreddit:
+        description: Feed for a single browser probe
+        type: choice
+        default: politics
+        options:
+          - politics
+          - worldnews
+          - europe
+          - news
+          - technology
+          - science
+          - health
+          - energy
+          - sports
+          - business
+          - Economics
       scheduled:
         description: Read fresh scheduled completions for every feed without invoking Lambda
         type: boolean
@@ -54,6 +70,7 @@ jobs:
 
       - name: Verify Live Extraction
         env:
+          F5_PROBE_SUBREDDIT: ${{ inputs.subreddit }}
           F5_PROBE_SCHEDULED: ${{ inputs.scheduled }}
           F5_PROBE_ALL_FEEDS: ${{ inputs.all_feeds }}
           F5_PROBE_SESSION: ${{ inputs.session }}

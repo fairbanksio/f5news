@@ -255,3 +255,23 @@ test("duplicate bootstrap insertion is treated as contention without leaking dat
   } });
   assert.equal(await store.acquire("holder"), null);
 });
+
+
+test("reuse failures report only a finite status when renewal is cooling down", async () => {
+  const generation = randomUUID();
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW), nextAttemptAt: new Date(NOW + 300000) });
+  store.objects.set(generation, SECRET);
+  const messages = [];
+  const runner = createSessionRunner({ store, now: () => NOW });
+  let calls = 0;
+  await assert.rejects(runner(options(messages), async (request) => {
+    calls++;
+    assert.equal(request.authenticate, false);
+    throw new Error("Browser extraction failed: session_blocked");
+  }), /cooling down.*session_blocked/);
+  assert.equal(calls, 1);
+  const record = messages.map(JSON.parse).find((item) => item.mode === "reuse_failed");
+  assert.equal(record.status, "session_blocked");
+  assert.equal(record.generation, generation);
+  assert.ok(!messages.join().includes("private-cookie-value"));
+});

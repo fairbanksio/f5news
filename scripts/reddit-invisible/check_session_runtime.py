@@ -3,6 +3,7 @@
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 import smoke
 from invisible_playwright import InvisiblePlaywright
@@ -23,6 +24,22 @@ def offline_page(browser):
     page = browser.new_page()
     page.route("https://www.reddit.com/**", lambda route: route.fulfill(status=200, content_type="text/html", body=HTML))
     return page
+
+
+def check_access_classification(page):
+    fixtures = [
+        ("<title>Offline Feed</title><shreddit-post>You have been blocked. Verify that you are human.</shreddit-post>", "feed"),
+        ("<title>You have been blocked</title><shreddit-post>Story</shreddit-post>", "feed"),
+        ("<div style='position:fixed'>You have been blocked by network security.</div><shreddit-post>Story</shreddit-post>", "blocked"),
+        ("<div>Verify that you are human.</div><shreddit-post>Story</shreddit-post>", "challenge"),
+        ("<div hidden>You have been blocked.</div><div style='display:none'>Complete the challenge.</div><div style='visibility:hidden'>Blocked by network security.</div><shreddit-post>Story</shreddit-post>", "feed"),
+        ("<script type='application/json'>\"You have been blocked\"</script><style>/* Complete the challenge */</style><shreddit-post>Story</shreddit-post>", "feed"),
+        ("<div style='display:contents'>You have been blocked.</div><shreddit-post>Story</shreddit-post>", "blocked"),
+        ("<title>Blocked by network security</title><div>Access denied.</div>", "blocked"),
+    ]
+    for html, expected in fixtures:
+        page.goto("data:text/html," + quote("<!doctype html>" + html), wait_until="domcontentloaded", timeout=15000)
+        assert smoke.state(page) == expected
 
 
 def main():
@@ -50,6 +67,8 @@ def main():
                 assert smoke.has_account_session(page)
                 stage = "exporting session state"
                 smoke.export_session(page, seed, path)
+                stage = "checking access classification"
+                check_access_classification(page)
             stage = "reading saved session state"
             saved = smoke.read_session(path)
             assert path.stat().st_mode & 0o777 == 0o600

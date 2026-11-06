@@ -242,3 +242,24 @@ test("scheduled verification requires every feed and rejects a newer failure aft
     }), /politics/);
   }
 });
+
+
+test("single-feed verification selects science with the shared session", async () => {
+  const calls = [];
+  await verifyFeeds({ subreddit: "science", emit: () => {}, invoke: async (event) => {
+    calls.push(event);
+    return sharedResponse();
+  } });
+  assert.deepEqual(calls, [{ subreddit: "science", session: true }]);
+});
+
+test("invalid probe subreddits fail before invoking Lambda", async () => {
+  let invocations = 0;
+  for (const subreddit of ["unknown", "Science", "science?token=private", "", null]) {
+    await assert.rejects(verifyFeeds({ subreddit, emit: () => {}, invoke: async () => {
+      invocations += 1;
+      return sharedResponse();
+    } }), /configured subreddit/);
+  }
+  assert.equal(invocations, 0);
+});
