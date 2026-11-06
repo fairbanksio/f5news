@@ -56,7 +56,7 @@ No credentials are required for that extraction check. Running the real handler 
 
 ## Deployment
 
-Use the repository's GitHub Actions deployment workflow. After deploying the scraper, the workflow checks all 11 feeds in one batch and repeats politics in a fresh browser. Every extracted post must be saved. It prints aggregate counts only; raw responses stay on the runner. Serverless builds the container from the repository root and publishes it to its managed ECR repository. The deployment role needs the ECR image-build and push permissions required by Serverless, in addition to its existing Lambda and CloudFormation permissions.
+Use the repository's GitHub Actions deployment workflow. After deploying the scraper, the workflow checks politics and requires every extracted post to be saved. Use the manual `all_feeds` check for a full batch and fresh-browser reuse verification. It prints aggregate counts only; raw responses stay on the runner. Serverless builds the container from the repository root and publishes it to its managed ECR repository. The deployment role needs the ECR image-build and push permissions required by Serverless, in addition to its existing Lambda and CloudFormation permissions.
 
 The function has a new physical name ending in `fetchPosts-browser`, since AWS cannot change an existing ZIP function into an image function. CloudFormation targets the batch schedule at this function. Update any dashboard or alert filters that use the old physical function name. Existing post data needs no migration. OAuth client parameters remain in Terraform for rollback. The browser function loads only the Reddit username and password needed for coordinated session renewal.
 
