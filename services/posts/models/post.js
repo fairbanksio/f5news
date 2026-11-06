@@ -6,6 +6,7 @@ const PostSchema = new mongoose.Schema({
   commentLink: 'string',
   url: 'string',
   thumbnail: 'string',
+  thumbnailQualityCheckedAt: { type: Date, select: false },
   created_utc: 'number',
   upvoteCount: 'number',
   commentCount: 'number',

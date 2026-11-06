@@ -7,6 +7,10 @@ const {
   fetchArticleImage,
   makeSafeLookup,
   imageSource,
+  imageUrlWidth,
+  isSmallRedditThumbnail,
+  fetchImageWidth,
+  imageWidthFromBytes,
   isSafeHttpUrl,
   mapWithConcurrency,
   selectPublicAddress,
@@ -992,10 +996,10 @@ test("article preference keeps full previews and media behavior", async () => {
   assert.equal(calls, 0);
 });
 
-test("article preference leaves large, unknown-size, and Reddit destination thumbnails alone", async () => {
+test("article preference leaves large, invalid-size, and Reddit destination thumbnails alone", async () => {
   let calls = 0;
   const options = { preferArticleImage: true, fetchArticleImageImpl: async () => { calls += 1; return "https://publisher.example/full.jpg"; } };
-  for (const query of ["width=321", "width=640", "", "width=0", "width=-1", "width=140px", "width=140&width=640"]) {
+  for (const query of ["width=321", "width=640", "width=0", "width=-1", "width=140px", "width=140&width=640"]) {
     const thumbnail = `https://external-preview.redd.it/story.jpg?${query}`;
     assert.equal(await imageSource({ thumbnail, url: "https://publisher.example/story" }, options), thumbnail);
   }
@@ -1004,4 +1008,99 @@ test("article preference leaves large, unknown-size, and Reddit destination thum
     assert.equal(await imageSource({ thumbnail, url }, options), thumbnail);
   }
   assert.equal(calls, 0);
+});
+
+test("article preference handles legacy Reddit thumbnails without a width parameter", async () => {
+  for (const thumbnail of ["https://a.thumbs.redditmedia.com/story.jpg", "https://b.thumbs.redditmedia.com/story.jpg"]) {
+    assert.equal(await imageSource({ thumbnail, url: "https://publisher.example/story" }, {
+      preferArticleImage: true,
+      fetchArticleImageImpl: async () => "https://publisher.example/full.jpg",
+    }), "https://publisher.example/full.jpg");
+  }
+  assert.equal(isSmallRedditThumbnail("https://publisher.example/full.jpg"), false);
+  assert.equal(isSmallRedditThumbnail("https://external-preview.redd.it/story.jpg"), false);
+  assert.equal(isSmallRedditThumbnail("https://external-preview.redd.it/story.jpg?width=1080"), false);
+  assert.equal(imageUrlWidth("https://external-preview.redd.it/story.jpg?width=140&width=1080"), null);
+});
+
+test("Reddit previews select a larger published resolution without fetching the article", async () => {
+  const high = "https://external-preview.redd.it/story.jpg?width=1080&s=actual-signature";
+  assert.equal(await imageSource({
+    url: "https://publisher.example/story",
+    preview: { images: [{
+      source: { url: "https://external-preview.redd.it/story.jpg?width=140", width: 140 },
+      resolutions: [{ url: high, width: 1080 }],
+    }] },
+  }, { preferArticleImage: true, fetchArticleImageImpl: async () => { throw new Error("unexpected article fetch"); } }), high);
+});
+
+test("an original Reddit preview of unknown size keeps priority over a known resized variant", async () => {
+  const original = "https://i.redd.it/original.jpg";
+  assert.equal(await imageSource({ preview: { images: [{ source: { url: original }, resolutions: [{ url: "https://preview.redd.it/photo.jpg?width=1080", width: 1080 }] }] } }), original);
+});
+
+const pngHeader = (width) => {
+  const bytes = Buffer.alloc(24);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes);
+  bytes.writeUInt32BE(width, 16);
+  return bytes;
+};
+
+test("image width reads PNG, JPEG and WebP headers without decoding full images", () => {
+  assert.equal(imageWidthFromBytes(pngHeader(1200)), 1200);
+  assert.equal(imageWidthFromBytes(Buffer.from([255, 216, 255, 192, 0, 7, 8, 0, 78, 0, 140])), 140);
+  const webp = Buffer.alloc(30);
+  webp.write("RIFF", 0); webp.write("WEBP", 8); webp.write("VP8X", 12); webp.writeUIntLE(1079, 24, 3);
+  assert.equal(imageWidthFromBytes(webp), 1080);
+  assert.equal(imageWidthFromBytes(Buffer.from("not an image")), null);
+});
+
+test("image width probing uses a bounded range and pinned public DNS agent", async () => {
+  let options;
+  assert.equal(await fetchImageWidth("https://cdn.example/photo.png", {
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    fetchImpl: async (_url, request) => { options = request; return { ok: true, status: 200, body: Readable.from([pngHeader(1200)]) }; },
+  }), 1200);
+  assert.equal(options.headers.Range, "bytes=0-65535");
+  assert.equal(options.redirect, "manual");
+  assert.equal(typeof options.agent, "function");
+});
+
+test("native Web streams stop and cancel when the image header byte limit is reached", async () => {
+  let cancelled = false;
+  let pulls = 0;
+  const body = new ReadableStream({ pull(controller) {
+    pulls += 1;
+    controller.enqueue(pulls === 1 ? pngHeader(1080) : Buffer.alloc(64 * 1024));
+  }, cancel() { cancelled = true; } });
+  assert.equal(await fetchImageWidth("https://cdn.example/photo.png", {
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    fetchImpl: async () => ({ ok: true, status: 200, body }),
+  }), 1080);
+  assert.equal(cancelled, true);
+  assert.ok(pulls <= 3);
+});
+
+test("image probing rejects private destinations and private redirects", async () => {
+  let calls = 0;
+  const options = {
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    fetchImpl: async () => { calls += 1; return { ok: false, status: 302, headers: createHeaders({ location: "http://127.0.0.1/private" }) }; },
+  };
+  assert.equal(await fetchImageWidth("http://127.0.0.1/private", options), null);
+  assert.equal(calls, 0);
+  assert.equal(await fetchImageWidth("https://cdn.example/image", options), null);
+  assert.equal(calls, 1);
+  assert.equal(await fetchImageWidth("https://cdn.example/image", { ...options, resolveHostname: async () => [{ address: "10.0.0.1", family: 4 }] }), null);
+  assert.equal(calls, 1);
+});
+
+test("image probing has one hard deadline and no retries", async () => {
+  let calls = 0;
+  assert.equal(await fetchImageWidth("https://cdn.example/image", {
+    imageTimeoutMs: 5,
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    fetchImpl: async () => { calls += 1; return new Promise(() => {}); },
+  }), null);
+  assert.equal(calls, 1);
 });

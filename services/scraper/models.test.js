@@ -17,3 +17,10 @@ test("explicit fetchedAt values are preserved", () => {
   const observedAt = new Date("2026-09-01T12:00:00Z");
   assert.equal(new Post({ fetchedAt: observedAt }).fetchedAt.getTime(), observedAt.getTime());
 });
+
+test("thumbnail quality checks are stored as private dates", () => {
+  const Post = require("./models/newPost");
+  const checkedAt = new Date("2026-11-06T12:00:00Z");
+  assert.equal(new Post({ thumbnailQualityCheckedAt: checkedAt }).thumbnailQualityCheckedAt.getTime(), checkedAt.getTime());
+  assert.equal(Post.schema.path("thumbnailQualityCheckedAt").options.select, false);
+});

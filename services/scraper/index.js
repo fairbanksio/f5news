@@ -2,8 +2,14 @@ const mongoose = require("./db");
 const { errorFields, sanitizeImageFailure, sanitizeUrl } = require("./telemetry");
 const newPost = require("./models/newPost");
 const { scrapePosts } = require("./browser-source");
+const { inspectSession } = require("./browser-session");
 const {
   hasUsableThumbnail,
+  imageUrlWidth,
+  isSmallRedditThumbnail,
+  isExternalLinkPost,
+  SMALL_THUMBNAIL_PATTERN,
+  fetchImageWidth,
   imageSource,
   mapWithConcurrency,
 } = require("./imageSource");
@@ -13,6 +19,7 @@ const IMAGE_METRIC_NAMESPACE = "F5News/Scraper";
 const IMAGE_BACKFILL_CONCURRENCY = 5;
 const IMAGE_BACKFILL_LIMIT = 25;
 const IMAGE_BACKFILL_LOOKBACK_SECONDS = 8 * 60 * 60;
+const IMAGE_QUALITY_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
 const getPostDomain = (data) => data.domain || "unknown";
 
@@ -150,7 +157,18 @@ const findMissingThumbnailPosts = async (
     is_self: { $ne: true },
     is_video: { $ne: true },
     url: { $exists: true, $ne: "" },
-    ...missingThumbnailFilter(),
+    $or: [
+      ...missingThumbnailFilter().$or,
+      { $and: [
+        { thumbnail: { $regex: SMALL_THUMBNAIL_PATTERN, $options: "i" } },
+        { is_gallery: { $ne: true } },
+        { post_hint: { $nin: ["image", "rich:video"] } },
+        { $or: [
+          { thumbnailQualityCheckedAt: { $exists: false } },
+          { thumbnailQualityCheckedAt: { $lt: new Date(now().getTime() - IMAGE_QUALITY_CHECK_INTERVAL_MS) } },
+        ] },
+      ] },
+    ],
   });
 
   if (typeof query.sort === "function") {
@@ -164,12 +182,24 @@ const findMissingThumbnailPosts = async (
   return query;
 };
 
-const updatePostThumbnail = (newPostModel, data, thumbnail) => {
+const updatePostThumbnail = (newPostModel, data, thumbnail, { qualityCheckedAt } = {}) => {
   const postKey = data._id ? { _id: data._id } : createPostKey(data);
+  const fields = {};
+  if (qualityCheckedAt) {
+    postKey.thumbnail = data.thumbnail;
+    fields.thumbnailQualityCheckedAt = qualityCheckedAt;
+  }
+  if (thumbnail) {
+    fields.thumbnail = thumbnail;
+    if (isSmallRedditThumbnail(thumbnail)) {
+      // A low-resolution fallback must not replace a better image from another run.
+      postKey.$or = [...missingThumbnailFilter().$or, { thumbnail: { $regex: SMALL_THUMBNAIL_PATTERN, $options: "i" } }];
+    }
+  }
 
   return newPostModel.findOneAndUpdate(
     postKey,
-    { $set: { thumbnail } },
+    { $set: fields },
     { upsert: false }
   );
 };
@@ -186,7 +216,7 @@ const resolvePostImage = async (post, subreddit, operation, metrics, imageSource
   const tracked = shouldTrackImageResolution(post);
   if (tracked) metrics.attempts += 1;
   try {
-    thumbnail = await imageSourceImpl(post, { ...diagnostics.options, preferArticleImage: operation === "scrape" });
+    thumbnail = await imageSourceImpl(post, { ...diagnostics.options, preferArticleImage: operation === "scrape" || isSmallRedditThumbnail(post.thumbnail) });
   } catch (error) {
     resolutionError = error;
     if (tracked) metrics.errors += 1;
@@ -207,9 +237,9 @@ const resolvePostImage = async (post, subreddit, operation, metrics, imageSource
   return resolved ? thumbnail : "";
 };
 
-const saveOptionalThumbnail = async (newPostModel, post, thumbnail, subreddit, operation, metrics, logger, secrets = []) => {
+const saveOptionalThumbnail = async (newPostModel, post, thumbnail, subreddit, operation, metrics, logger, secrets = [], options = {}) => {
   try {
-    await updatePostThumbnail(newPostModel, post, thumbnail);
+    await updatePostThumbnail(newPostModel, post, thumbnail, options);
   } catch (error) {
     metrics.updateErrors += 1;
     logStructured(logger, {
@@ -221,7 +251,7 @@ const saveOptionalThumbnail = async (newPostModel, post, thumbnail, subreddit, o
 
 const backfillMissingPostImages = async (
   subreddit,
-  { imageSourceImpl = imageSource, logger = console, newPostModel = newPost, now = () => new Date(), redactionValues = [] } = {}
+  { imageSourceImpl = imageSource, fetchImageWidthImpl = fetchImageWidth, logger = console, newPostModel = newPost, now = () => new Date(), redactionValues = [] } = {}
 ) => {
   const metrics = createImageResolutionMetrics(subreddit, "backfill");
   let posts;
@@ -233,7 +263,19 @@ const backfillMissingPostImages = async (
   }
   await mapWithConcurrency(posts || [], IMAGE_BACKFILL_CONCURRENCY, async (post) => {
     if (!shouldTrackImageResolution(post)) return;
+    const qualityCheck = hasUsableThumbnail(post.thumbnail);
+    if (qualityCheck && (!isSmallRedditThumbnail(post.thumbnail) || !isExternalLinkPost(post))) return;
     const thumbnail = await resolvePostImage(post, subreddit, "backfill", metrics, imageSourceImpl, logger, redactionValues);
+    if (qualityCheck) {
+      let better = false;
+      if (thumbnail && thumbnail !== post.thumbnail) {
+        const priorWidth = imageUrlWidth(post.thumbnail) || 320;
+        const replacementWidth = await fetchImageWidthImpl(thumbnail);
+        better = Number.isFinite(replacementWidth) && replacementWidth > priorWidth;
+      }
+      await saveOptionalThumbnail(newPostModel, post, better ? thumbnail : null, subreddit, "backfill", metrics, logger, redactionValues, { qualityCheckedAt: now() });
+      return;
+    }
     if (thumbnail) await saveOptionalThumbnail(newPostModel, post, thumbnail, subreddit, "backfill", metrics, logger, redactionValues);
   });
   logImageResolutionMetrics(logger, metrics);
@@ -296,6 +338,7 @@ const insertNewPosts = (
 const createFetchPosts = ({
   env = process.env,
   scrapePostsImpl = scrapePosts,
+  inspectSessionImpl = inspectSession,
   imageSourceImpl = imageSource,
   logger = console,
   mongooseClient = mongoose,
@@ -303,6 +346,12 @@ const createFetchPosts = ({
   now = () => new Date(),
 } = {}) => {
   return async (event = {}, context = {}) => {
+    if (event.inspectSession === true) {
+      await mongooseClient.connect();
+      const diagnostics = await inspectSessionImpl();
+      logger.log(JSON.stringify({ eventType: "BROWSER_SESSION_DIAGNOSTICS", ...diagnostics }));
+      return diagnostics;
+    }
     const startedAt = Date.now();
     const subreddit = event.subreddit || "politics";
     const job = { savedCount: 0, fetchedCount: 0 };

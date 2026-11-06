@@ -1,6 +1,7 @@
 const { execFileSync } = require("node:child_process");
 const { readFileSync } = require("node:fs");
 const assert = require("node:assert/strict");
+const { createPublicKey, randomBytes, createCipheriv, publicEncrypt, constants } = require("node:crypto");
 
 function logRecords(metadata) {
   return Buffer.from(metadata.LogResult || "", "base64").toString().split("\n").flatMap((line) => {
@@ -98,6 +99,48 @@ async function verifyFeeds({ allFeeds = false, subreddit = "politics", session =
   return { results, summary };
 }
 
+async function verifySessionDiagnostics({ invoke, publicKey, emit = console.log } = {}) {
+  let key;
+  try {
+    assert.ok(typeof publicKey === "string" && /^[A-Za-z0-9+/]+={0,2}$/.test(publicKey));
+    key = createPublicKey({ key: Buffer.from(publicKey, "base64"), format: "der", type: "spki" });
+    assert.ok(key.asymmetricKeyType === "rsa" && key.asymmetricKeyDetails.modulusLength >= 2048);
+  } catch {
+    assert.fail("Session diagnostics requires a base64 DER SPKI RSA public key of at least 2048 bits");
+  }
+  const metadata = await invoke({ inspectSession: true });
+  assert.ok(!metadata.FunctionError, "Session diagnostics invocation failed; inspect its CloudWatch logs");
+  assert.equal(metadata.StatusCode, 200, "Session diagnostics invocation did not succeed");
+  const record = logRecords(metadata).findLast((entry) => entry.eventType === "BROWSER_SESSION_DIAGNOSTICS");
+  assert.ok(record, "Session diagnostics did not report a result");
+  assert.ok(typeof record.generation === "string" && /^(?:none|invalid|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(record.generation), "Session diagnostics reported an invalid generation identifier");
+  const summary = { eventType: "BROWSER_SESSION_DIAGNOSTICS", generation: record.generation };
+  for (const field of ["statePresent", "stateReadable", "leaseActive", "versionSupported", "seedValid"]) {
+    assert.ok(typeof record[field] === "boolean", `Session diagnostics missing boolean field: ${field}`);
+    summary[field] = record[field];
+  }
+  for (const field of ["sessionAgeSeconds", "cooldownSeconds", "minimumRootAccountExpirySeconds"]) {
+    assert.ok(record[field] === null || (typeof record[field] === "number" && Number.isFinite(record[field])), `Session diagnostics missing numeric field: ${field}`);
+    summary[field] = record[field];
+  }
+  for (const field of ["cookieCount", "rootAccountCookieCount", "unexpiredRootAccountCookieCount", "expiredRootAccountCookieCount",
+    "sessionRootAccountCookieCount", "otherExpiredCookieCount", "unknownCookieAttributeCount", "originCount", "stateBytes"]) {
+    assert.ok(Number.isSafeInteger(record[field]) && record[field] >= 0, `Session diagnostics missing count field: ${field}`);
+    summary[field] = record[field];
+  }
+  const secretKey = randomBytes(32);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", secretKey, iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(summary), "utf8"), cipher.final()]);
+  const envelope = { eventType: "BROWSER_SESSION_DIAGNOSTICS_ENCRYPTED", version: 1,
+    wrappedKey: publicEncrypt({ key, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" }, secretKey).toString("base64"),
+    iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64"), ciphertext: ciphertext.toString("base64"),
+  };
+  secretKey.fill(0);
+  emit(JSON.stringify(envelope));
+  return envelope;
+}
+
 async function verifyScheduled({ readEvents, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   emit = console.log, startTime = now(), timeoutMs = 720000, pollMs = 15000 } = {}) {
   const deadline = now() + timeoutMs;
@@ -177,7 +220,9 @@ function invokeLive(event) {
 }
 
 if (require.main === module) {
-  const verification = process.env.F5_PROBE_SCHEDULED === "true"
+  const verification = process.env.F5_PROBE_DIAGNOSTICS === "true"
+    ? verifySessionDiagnostics({ invoke: invokeLive, publicKey: process.env.F5_PROBE_DIAGNOSTICS_KEY })
+    : process.env.F5_PROBE_SCHEDULED === "true"
     ? verifyScheduled({ readEvents: readScheduledEvents })
     : verifyFeeds({ allFeeds: process.env.F5_PROBE_ALL_FEEDS === "true", subreddit: process.env.F5_PROBE_SUBREDDIT || "politics",
       session: process.env.F5_PROBE_SESSION !== "false", authenticate: process.env.F5_PROBE_AUTHENTICATE === "true",
@@ -189,4 +234,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, FEEDS };
+module.exports = { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, FEEDS };

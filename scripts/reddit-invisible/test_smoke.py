@@ -298,6 +298,89 @@ class SessionTests(unittest.TestCase):
         return {"version": 1, "seed": 12345, "cookies": [{"name": "reddit_session", "value": "private-session-cookie", "domain": ".reddit.com", "path": "/", "expires": -1, "secure": True, "httpOnly": True, "sameSite": "Lax"}],
                 "origins": [{"origin": "https://www.reddit.com", "localStorage": [{"name": "account", "value": "private-storage-value"}]}]}
 
+    def test_validation_reasons_distinguish_root_expiry_missing_and_malformed(self):
+        for reason, change in [("root_cookie_expired", lambda data: data["cookies"][0].update(expires=1)),
+                               ("root_cookie_missing", lambda data: data.update(cookies=[])),
+                               ("invalid_data", lambda data: data.update(version=2))]:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as directory:
+                fixture = self.session()
+                change(fixture)
+                path = Path(directory) / "input.json"
+                path.write_text(json.dumps(fixture))
+                path.chmod(0o600)
+                with self.assertRaises(smoke.SessionError) as caught:
+                    smoke.read_session(path)
+                self.assertEqual(caught.exception.code, reason)
+                self.assertNotIn("private-session-cookie", str(caught.exception))
+
+    def test_expired_same_name_subdomain_or_path_cookies_do_not_invalidate_root_cookie(self):
+        for domain, path in [("oauth.reddit.com", "/"), (".reddit.com", "/unrelated")]:
+            fixture = self.session()
+            fixture["cookies"].append({**fixture["cookies"][0], "domain": domain, "path": path, "expires": 1})
+            self.assertEqual(smoke.validate_session(fixture), self.session())
+
+    def test_expired_root_cookie_is_dropped_when_another_valid_root_cookie_remains(self):
+        fixture = self.session()
+        fixture["cookies"].append({**fixture["cookies"][0], "domain": "reddit.com", "expires": 1})
+        self.assertEqual(smoke.validate_session(fixture), self.session())
+
+    def test_input_file_and_restore_errors_have_only_finite_reasons(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "input.json"
+            path.write_text("private-session-cookie")
+            path.chmod(0o600)
+            with self.assertRaises(smoke.SessionError) as caught:
+                smoke.read_session(path)
+            self.assertEqual(caught.exception.code, "input_file_invalid")
+        self.assertEqual(smoke.SessionError("safe", "private-session-cookie").code, "invalid_data")
+
+    def test_restore_diagnostics_distinguish_cookie_loss_timeout_and_access_challenge(self):
+        page = types.SimpleNamespace(context=types.SimpleNamespace(add_cookies=lambda _cookies: None),
+                                     add_init_script=lambda **_kwargs: nullcontext(), goto=lambda *_args, **_kwargs: None)
+        for state, reason in [("feed", "feed_cookie_missing"), ("blocked", "feed_blocked"), ("challenge", "feed_challenge")]:
+            diagnostics = {}
+            with patch.object(smoke, "state", return_value=state), patch.object(smoke, "has_account_session", return_value=False):
+                smoke.reuse_session(page, self.session(), "https://www.reddit.com/r/politics/rising/", diagnostics=diagnostics)
+            self.assertEqual(diagnostics, {"sessionReason": reason})
+            self.assertNotIn("private-session-cookie", json.dumps(diagnostics))
+        diagnostics = {}
+        with patch.object(smoke.time, "monotonic", side_effect=[0, 61]):
+            self.assertEqual(smoke.reuse_session(page, self.session(), "https://www.reddit.com/r/politics/rising/", diagnostics=diagnostics), "session_invalid")
+        self.assertEqual(diagnostics, {"sessionReason": "feed_timeout"})
+
+    def test_run_returns_finite_input_reason_before_browser_launch(self):
+        module = types.SimpleNamespace(InvisiblePlaywright=lambda **_kwargs: self.fail("Invalid input must not launch a browser"))
+        config = argparse.Namespace(subreddit="politics", limit=1, session_input=Path("/tmp/unused-input"))
+        with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke, "read_session", side_effect=smoke.SessionError("Session data is invalid", "root_cookie_expired")):
+            result = smoke.run(config)
+        self.assertEqual(result, {"status": "session_invalid", "sessionReason": "root_cookie_expired", "subreddit": "politics", "posts": []})
+
+    def test_run_returns_restore_reason_and_closes_browser(self):
+        closed = []
+        page = types.SimpleNamespace(on=lambda *_args: None)
+
+        class Browser:
+            def __init__(self, **_kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                closed.append(True)
+
+            def on(self, *_args):
+                pass
+
+            def new_page(self):
+                return page
+
+        config = argparse.Namespace(subreddit="politics", limit=1, session_input=Path("/tmp/unused-input"))
+        with patch.dict(sys.modules, {"invisible_playwright": types.SimpleNamespace(InvisiblePlaywright=Browser)}), patch.object(smoke, "read_session", return_value=self.session()), patch.object(smoke, "reuse_session", side_effect=smoke.SessionError("Session could not be restored", "restore_exception")):
+            result = smoke.run(config)
+        self.assertEqual(result, {"status": "session_invalid", "sessionReason": "restore_exception", "subreddit": "politics", "posts": []})
+        self.assertEqual(closed, [True])
+
     def test_roundtrip_and_private_output_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "session.json"
@@ -396,6 +479,7 @@ class SessionTests(unittest.TestCase):
         with self.assertRaises(smoke.SessionError) as caught:
             smoke.reuse_session(page, self.session(), "https://www.reddit.com/r/politics/rising/")
         self.assertEqual(str(caught.exception), "Session could not be restored")
+        self.assertEqual(caught.exception.code, "restore_exception")
 
     def test_export_reads_localstorage_separately_and_filters_third_party_cookies(self):
         cookies = [{**self.session()["cookies"][0], "size": 42, "session": True}] + [{"name": "foreign", "value": "foreign-value", "domain": ".example.com", "path": "/"}]
@@ -561,6 +645,84 @@ class GalleryTests(unittest.TestCase):
             post["attributes"][field] = None
             with self.assertRaisesRegex(RuntimeError, "incomplete"):
                 smoke.validate_core(post)
+
+
+class LinkPreviewTests(unittest.TestCase):
+    def posts(self, count=1):
+        result = []
+        for index in range(count):
+            post = sample_post("link")
+            post["attributes"].update(id=f"t3_item{index}", permalink=f"/r/politics/comments/item{index}/story/", score=str(index + 1))
+            post["thumbnail"] = f"https://external-preview.redd.it/image{index}.jpg?width=140&s=small"
+            result.append(post)
+        return result
+
+    def page(self, posts):
+        events = []
+        details = []
+        def goto(url, **kwargs):
+            events.append((url, kwargs))
+            name = url.split("/comments/")[1].split("/")[0]
+            source = next(post for post in posts if post["attributes"]["id"] == "t3_" + name)
+            details[:] = [{**source, "attributes": {**source["attributes"], "score": "9999"},
+                          "preview": {"images": [{"source": {"url": f"https://external-preview.redd.it/{name}.jpg?width=1080&s=published"}}]}}]
+        return types.SimpleNamespace(goto=goto, evaluate_read=lambda *_args: details), events
+
+    def test_optional_detail_preview_preserves_listing_core_and_image_signature(self):
+        posts = self.posts()
+        page, events = self.page(posts)
+        with patch.object(smoke, "state", return_value="feed"):
+            result = smoke.enrich_link_previews(page, "reader", posts, "politics")
+        self.assertEqual(result[0]["attributes"], posts[0]["attributes"])
+        self.assertEqual(result[0]["thumbnail"], "https://external-preview.redd.it/item0.jpg?width=1080&s=published")
+        self.assertEqual(result[0]["thumbnail"], result[0]["preview"]["images"][0]["source"]["url"])
+        self.assertEqual(posts[0]["thumbnail"], "https://external-preview.redd.it/image0.jpg?width=140&s=small")
+        self.assertLessEqual(events[0][1]["timeout"], 5000)
+
+    def test_top_four_small_link_images_are_prioritized_without_reordering_posts(self):
+        posts = self.posts(6)
+        page, events = self.page(posts)
+        with patch.object(smoke, "state", return_value="feed"):
+            result = smoke.enrich_link_previews(page, "reader", posts, "politics")
+        self.assertEqual([event[0].split("/comments/")[1].split("/")[0] for event in events], ["item5", "item4", "item3", "item2"])
+        self.assertEqual([post["attributes"]["id"] for post in result], [post["attributes"]["id"] for post in posts])
+        self.assertNotIn("preview", result[0])
+
+    def test_optional_block_or_challenge_stops_reads_without_failing_batch(self):
+        for access in ("blocked", "challenge"):
+            posts = self.posts(3)
+            page, events = self.page(posts)
+            page.evaluate_read = lambda *_args: (_ for _ in ()).throw(AssertionError("Must stop before reading details"))
+            with patch.object(smoke, "state", return_value=access):
+                self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
+            self.assertEqual(len(events), 1)
+
+    def test_unavailable_wrong_identity_or_unsafe_preview_keeps_listing_image(self):
+        for error in ("navigation", "identity", "unsafe"):
+            posts = self.posts()
+            page, _events = self.page(posts)
+            if error == "navigation":
+                page.goto = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("timeout"))
+            else:
+                detail = {**posts[0], "preview": {"images": [{"source": {"url": "https://evil.example/photo.jpg"}}]}}
+                if error == "identity":
+                    detail["attributes"] = {**detail["attributes"], "id": "t3_other"}
+                page.evaluate_read = lambda *_args: [detail]
+            with patch.object(smoke, "state", return_value="feed"):
+                self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
+
+    def test_budget_and_ineligible_media_skip_optional_navigation(self):
+        posts = self.posts()
+        page, events = self.page(posts)
+        self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics", time_budget=0), posts)
+        self.assertEqual(events, [])
+        for post_type in ("gallery", "image", "video", "text"):
+            posts[0]["attributes"]["post-type"] = post_type
+            self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
+        posts[0]["attributes"]["post-type"] = "link"
+        posts[0]["thumbnail"] = "https://preview.redd.it/full.jpg?width=1080&s=published"
+        self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
+        self.assertEqual(events, [])
 
 
 class NativeRunnerTests(unittest.TestCase):

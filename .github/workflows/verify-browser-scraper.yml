@@ -3,6 +3,14 @@ name: Verify Browser Scraper
 on:
   workflow_dispatch:
     inputs:
+      diagnostics:
+        description: Inspect shared-session metadata without scraping or logging in
+        type: boolean
+        default: false
+      diagnostics_public_key:
+        description: Base64 DER SPKI RSA public key for encrypted diagnostics
+        type: string
+        default: ''
       subreddit:
         description: Feed for a single browser probe
         type: choice
@@ -70,6 +78,8 @@ jobs:
 
       - name: Verify Live Extraction
         env:
+          F5_PROBE_DIAGNOSTICS_KEY: ${{ inputs.diagnostics_public_key }}
+          F5_PROBE_DIAGNOSTICS: ${{ inputs.diagnostics }}
           F5_PROBE_SUBREDDIT: ${{ inputs.subreddit }}
           F5_PROBE_SCHEDULED: ${{ inputs.scheduled }}
           F5_PROBE_ALL_FEEDS: ${{ inputs.all_feeds }}

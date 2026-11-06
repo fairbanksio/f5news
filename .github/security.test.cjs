@@ -71,6 +71,8 @@ test('manual browser probe runs only main and does not deploy services', () => {
   assert.equal(workflow.jobs.verify.permissions['id-token'], 'write');
   assert.equal(workflow.on.workflow_dispatch.inputs.all_feeds.default, false);
   assert.equal(workflow.on.workflow_dispatch.inputs.scheduled.default, false);
+  assert.equal(workflow.on.workflow_dispatch.inputs.diagnostics.default, false);
+  assert.equal(workflow.on.workflow_dispatch.inputs.diagnostics_public_key.default, '');
   assert.equal(workflow.on.workflow_dispatch.inputs.subreddit.default, 'politics');
   assert.equal(workflow.on.workflow_dispatch.inputs.subreddit.type, 'choice');
   assert.deepEqual(workflow.on.workflow_dispatch.inputs.subreddit.options, ['politics', 'worldnews', 'europe', 'news', 'technology', 'science', 'health', 'energy', 'sports', 'business', 'Economics']);

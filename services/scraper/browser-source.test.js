@@ -91,3 +91,11 @@ test("overlong split diagnostics never log a truncated credential", async () => 
   assert.ok(messages.join().includes("size limit"));
   assert.ok(messages.join().includes("ready"));
 });
+
+test("invalid session errors expose only whitelisted reasons", async () => {
+  for (const [reason, expected] of [["root_cookie_expired", "root_cookie_expired"], ["private-cookie-value", undefined]]) {
+    await assert.rejects(runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger,
+      spawnImpl: spawnCode(`console.log(JSON.stringify({status:"session_invalid",sessionReason:${JSON.stringify(reason)}}));process.exitCode=2`),
+    }), (error) => error.message === "Browser extraction failed: session_invalid" && error.sessionReason === expected && !error.message.includes("private"));
+  }
+});
