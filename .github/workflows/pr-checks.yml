@@ -124,8 +124,10 @@ jobs:
       - name: Test Browser Extraction
         run: python3 -m unittest discover -s scripts/reddit-invisible -p 'test_*.py'
 
-      - name: Check Packaged Handler And Mappers
+      - name: Check Packaged Handler and Mappers
         run: |
+          docker image inspect f5-scraper:test --format '{{json .Config.Cmd}}' | \
+            python3 -c 'import json, sys; assert json.load(sys.stdin) == ["index.fetchPosts"]'
           docker run --rm --network none --read-only --tmpfs /tmp:rw,size=512m \
             --entrypoint node f5-scraper:test -e '
           const assert = require("node:assert/strict");
