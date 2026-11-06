@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, summarizeRuntimeEvents, FEEDS } = require("./check-browser-deployment.cjs");
+const { checkInvocation, checkBatchInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, summarizeRuntimeEvents, FEEDS } = require("./check-browser-deployment.cjs");
 const { generateKeyPairSync, privateDecrypt, createDecipheriv, constants } = require("node:crypto");
 const diagnosticKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const diagnosticPublicKey = diagnosticKeys.publicKey.export({ type: "spki", format: "der" }).toString("base64");
@@ -58,7 +58,15 @@ test("bootstrap diagnostics keep error messages and omit stack frames", () => {
 
 const sharedResponse = (fields = {}) => response({ sessionMode: "reused", sessionGeneration: "generation-1", ...fields });
 
-test("all-feed verification invokes every feed sequentially and proves session reuse", async () => {
+const batchResponse = (fields = {}, feedFields = {}) => ({ StatusCode: 200,
+  // The tail may omit early feeds; the handler payload is the batch authority.
+  LogResult: sharedResponse().LogResult,
+  BatchResult: { sessionMode: "renewed", sessionGeneration: "generation-1",
+    feedResults: FEEDS.map((subreddit) => ({ subreddit, outcome: "success", fetchedCount: 25, savedCount: 25,
+      sessionMode: "renewed", sessionGeneration: "generation-1", ...feedFields })), ...fields },
+});
+
+test("all-feed verification reuses one batch then proves persisted reuse in one fresh invocation", async () => {
   const calls = [];
   const lines = [];
   let active = 0;
@@ -68,48 +76,73 @@ test("all-feed verification invokes every feed sequentially and proves session r
     calls.push(event);
     await new Promise((resolve) => setImmediate(resolve));
     active -= 1;
-    return sharedResponse({ sessionMode: calls.length === 1 ? "renewed" : "reused" });
+    return event.allFeeds ? batchResponse({ sessionMode: "reused" }, { sessionMode: "reused" }) : sharedResponse();
   } });
-  assert.deepEqual(calls, [...FEEDS, "politics"].map((subreddit) => ({ subreddit, session: true })));
-  assert.equal(calls.length, 12);
+  assert.deepEqual(calls, [{ allFeeds: true, session: true }, { subreddit: "politics", session: true }]);
   assert.equal(new Set(FEEDS).size, 11);
-  assert.deepEqual(summary, { eventType: "BROWSER_LIVE_PROBE_COMPLETED", feedCount: 11, invocationCount: 12,
-    savedCount: 300, renewalRequested: false, initialGeneration: "generation-1", sessionGeneration: "generation-1", generationCount: 1, renewedCount: 1, reusedCount: 11 });
+  assert.deepEqual(summary, { eventType: "BROWSER_LIVE_PROBE_COMPLETED", feedCount: 11, invocationCount: 2,
+    savedCount: 300, renewalRequested: false, initialGeneration: "generation-1", sessionGeneration: "generation-1", generationCount: 1, renewedCount: 0, reusedCount: 2 });
   assert.equal(lines.at(-2).repeated, true);
   assert.equal(lines.filter((entry) => entry.eventType === "BROWSER_LIVE_PROBE").length, 12);
 });
 
-test("all-feed verification forbids repeated logins and missing session mode", async () => {
+test("default all-feed verification accepts a naturally renewed batch without requesting login", async () => {
+  const calls = [];
+  const { summary } = await verifyFeeds({ allFeeds: true, emit: () => {}, invoke: async (event) => {
+    calls.push(event);
+    return event.allFeeds ? batchResponse() : sharedResponse();
+  } });
+  assert.deepEqual(calls, [{ allFeeds: true, session: true }, { subreddit: "politics", session: true }]);
+  assert.equal(summary.renewalRequested, false);
+  assert.equal(summary.renewedCount, 1);
+  assert.equal(summary.reusedCount, 1);
+});
+
+test("all-feed verification forbids bootstrap and disabled sessions before invoking", async () => {
   let invocations = 0;
-  const invoke = async () => { invocations += 1; return response(); };
   for (const options of [{ authenticate: true }, { session: false }]) {
-    await assert.rejects(verifyFeeds({ allFeeds: true, ...options, invoke, emit: () => {} }));
+    await assert.rejects(verifyFeeds({ allFeeds: true, ...options, invoke: async () => { invocations += 1; }, emit: () => {} }));
   }
   assert.equal(invocations, 0);
-  await assert.rejects(verifyFeeds({ allFeeds: true, invoke, emit: () => {} }), /session reuse or renewal/);
-  assert.equal(invocations, 1);
 });
 
-test("all-feed verification rejects changed generations or repeated renewals", async () => {
-  for (const fields of [{ sessionGeneration: "generation-2" }, { sessionMode: "renewed" }]) {
-    let invocations = 0;
-    await assert.rejects(verifyFeeds({ allFeeds: true, emit: () => {}, invoke: async () => {
-      invocations += 1;
-      return sharedResponse(invocations > 1 ? fields : { sessionMode: "renewed" });
-    } }));
-    assert.equal(invocations, 2);
+test("batch verification rejects partial, extra, duplicate, and unexpected feeds", () => {
+  const valid = batchResponse().BatchResult.feedResults;
+  for (const feedResults of [valid.slice(1), [...valid, valid[0]], [valid[0], ...valid.slice(0, -1)],
+    [...valid.slice(0, -1), { ...valid.at(-1), subreddit: "unexpected" }]]) {
+    assert.throws(() => checkBatchInvocation(batchResponse({ feedResults })));
+  }
+  for (const fields of [{ sessionMode: undefined }, { sessionGeneration: "unsafe\nidentifier" }, { sessionGeneration: undefined }]) {
+    assert.throws(() => checkBatchInvocation(batchResponse(fields)));
+  }
+  assert.equal(checkBatchInvocation(batchResponse({}, { outcome: "degraded" })).feedResults[0].outcome, "degraded");
+  for (const metadata of [{ ...batchResponse(), FunctionError: "Unhandled" }, { ...batchResponse(), StatusCode: 500 }, sharedResponse()]) {
+    assert.throws(() => checkBatchInvocation(metadata));
   }
 });
 
-test("all-feed verification stops on a feed without saved posts", async () => {
-  let invocations = 0;
-  const lines = [];
-  await assert.rejects(verifyFeeds({ allFeeds: true, emit: (line) => lines.push(JSON.parse(line)), invoke: async () => {
-    invocations += 1;
-    return invocations === 3 ? sharedResponse({ fetchedCount: 0, savedCount: 0 }) : sharedResponse();
-  } }), /no usable posts/);
-  assert.equal(invocations, 3);
-  assert.equal(lines.length, 2);
+test("batch verification rejects failed feeds, invalid counts, incomplete saves, and inconsistent sessions", async () => {
+  for (const fields of [{ outcome: "failed" }, { fetchedCount: 0, savedCount: 0 }, { fetchedCount: 26, savedCount: 26 },
+    { savedCount: 24 }, { outcome: "failed", message: JSON.stringify({ eventType: "SCRAPER_JOB_COMPLETED", outcome: "success", fetchedCount: 25, savedCount: 25, sessionMode: "renewed", sessionGeneration: "generation-1" }) }, { sessionGeneration: "generation-2" }, { sessionMode: "reused" }, { sessionGeneration: "unsafe\nidentifier" }]) {
+    let calls = 0;
+    const lines = [];
+    const feedResults = batchResponse().BatchResult.feedResults;
+    feedResults[5] = { ...feedResults[5], ...fields };
+    await assert.rejects(verifyFeeds({ allFeeds: true, emit: (line) => lines.push(line), invoke: async () => { calls += 1; return batchResponse({ feedResults }); } }));
+    assert.equal(calls, 1);
+    assert.deepEqual(lines, []);
+  }
+});
+
+test("all-feed verification rejects changed generations or renewed repeats", async () => {
+  for (const fields of [{ sessionGeneration: "generation-2" }, { sessionMode: "renewed" }]) {
+    let calls = 0;
+    await assert.rejects(verifyFeeds({ allFeeds: true, emit: () => {}, invoke: async (event) => {
+      calls += 1;
+      return event.allFeeds ? batchResponse() : sharedResponse(fields);
+    } }));
+    assert.equal(calls, 2);
+  }
 });
 
 test("single-feed bootstrap authenticates once and does not claim shared session proof", async () => {
@@ -129,17 +162,15 @@ test("session proof excludes malformed identifiers and unrelated terminal fields
 });
 
 
-test("requested all-feed renewal runs once and every later invocation reuses it", async () => {
+test("explicit all-feed renewal still runs exactly one renewed batch", async () => {
   const calls = [];
   const { summary } = await verifyFeeds({ allFeeds: true, renewSession: true, emit: () => {}, invoke: async (event) => {
     calls.push(event);
-    return sharedResponse({ sessionMode: calls.length === 1 ? "renewed" : "reused", sessionGeneration: "new-generation" });
+    return event.allFeeds ? batchResponse() : sharedResponse();
   } });
-  assert.deepEqual(calls[0], { subreddit: "politics", session: true, renewSession: true });
-  assert.deepEqual(calls.slice(1), [...FEEDS.slice(1), "politics"].map((subreddit) => ({ subreddit, session: true })));
-  assert.equal(summary.renewalRequested, true);
+  assert.deepEqual(calls, [{ allFeeds: true, session: true, renewSession: true }, { subreddit: "politics", session: true }]);
   assert.equal(summary.renewedCount, 1);
-  assert.equal(summary.reusedCount, 11);
+  assert.equal(summary.reusedCount, 1);
 });
 
 test("single-feed renewal uses the shared coordinator", async () => {
@@ -167,7 +198,7 @@ test("requested renewal fails immediately when the terminal record reports reuse
   let invocations = 0;
   await assert.rejects(verifyFeeds({ allFeeds: true, renewSession: true, emit: () => {}, invoke: async () => {
     invocations += 1;
-    return sharedResponse();
+    return batchResponse({ sessionMode: "reused" }, { sessionMode: "reused" });
   } }), /did not create a renewed session/);
   assert.equal(invocations, 1);
 });
@@ -304,6 +335,25 @@ test("session diagnostics invokes inspection once and copies only safe metadata 
   }
 });
 
+test("session diagnostics encrypt optional bounded read backoff without exposing it", async () => {
+  for (const readBackoffSeconds of [0, 600, 86400]) {
+    const lines = [];
+    const envelope = await verifySessionDiagnostics({ publicKey: diagnosticPublicKey, emit: (line) => lines.push(line),
+      invoke: async () => diagnosticsResponse({ readBackoffSeconds, privateData: "private-backoff" }),
+    });
+    assert.equal(decryptDiagnostics(envelope).readBackoffSeconds, readBackoffSeconds);
+    assert.equal(lines.length, 1);
+    for (const value of ["readBackoffSeconds", "private-backoff"]) assert.equal(lines[0].includes(value), false);
+  }
+  for (const readBackoffSeconds of [-1, 86401, 1.5, null, "private-backoff"]) {
+    const lines = [];
+    await assert.rejects(verifySessionDiagnostics({ publicKey: diagnosticPublicKey, emit: (line) => lines.push(line),
+      invoke: async () => diagnosticsResponse({ readBackoffSeconds }),
+    }), /invalid read backoff seconds/);
+    assert.deepEqual(lines, []);
+  }
+});
+
 test("session diagnostics accepts missing or invalid state without exposing state data", async () => {
   for (const generation of ["none", "invalid"]) {
     const summary = await verifySessionDiagnostics({ publicKey: diagnosticPublicKey, emit: () => {}, invoke: async () => diagnosticsResponse({
@@ -355,60 +405,13 @@ test("encrypted diagnostic reports reject tampering", async () => {
 });
 
 
-test("all-feed verification allows one coordinated renewal at health and retains the new generation", async () => {
-  const calls = [];
-  let generation = "generation-1";
-  const { results, summary } = await verifyFeeds({ allFeeds: true, emit: () => {}, invoke: async (event) => {
-    calls.push(event);
-    if (event.subreddit === "health") generation = "generation-2";
-    return sharedResponse({ sessionGeneration: generation, sessionMode: event.subreddit === "health" ? "renewed" : "reused" });
-  } });
-  assert.equal(calls.length, 12);
-  assert.equal(summary.initialGeneration, "generation-1");
-  assert.equal(summary.sessionGeneration, "generation-2");
-  assert.equal(summary.generationCount, 2);
-  assert.equal(summary.renewedCount, 1);
-  assert.equal(summary.reusedCount, 11);
-  assert.equal(summary.savedCount, 300);
-  assert.equal(results.at(-1).subreddit, "politics");
-  assert.equal(results.at(-1).sessionMode, "reused");
-  assert.ok(results.slice(6).every((entry) => entry.sessionGeneration === "generation-2"));
-});
-
-test("all-feed verification rejects another renewal, unattributed generation changes, and rollback immediately", async () => {
-  const scenarios = [
-    [{ sessionMode: "renewed", sessionGeneration: "generation-3" }, /more than once/],
-    [{ sessionMode: "reused", sessionGeneration: "generation-3" }, /without a reported renewal/],
-    [{ sessionMode: "reused", sessionGeneration: "generation-1" }, /without a reported renewal/],
-    [{ sessionMode: "renewed", sessionGeneration: "generation-2" }, /more than once/],
-  ];
-  for (const [third, pattern] of scenarios) {
-    let calls = 0;
-    await assert.rejects(verifyFeeds({ allFeeds: true, emit: () => {}, invoke: async () => {
-      calls += 1;
-      const fields = calls === 1 ? {} : calls === 2 ? { sessionMode: "renewed", sessionGeneration: "generation-2" } : third;
-      return sharedResponse(fields);
-    } }), pattern);
-    assert.equal(calls, 3);
-  }
-});
-
-test("a later renewal must identify a new generation", async () => {
-  let calls = 0;
-  await assert.rejects(verifyFeeds({ allFeeds: true, emit: () => {}, invoke: async () => {
-    calls += 1;
-    return sharedResponse({ sessionMode: calls === 1 ? "reused" : "renewed" });
-  } }), /did not report a new generation/);
-  assert.equal(calls, 2);
-});
-
-test("forced renewal still requires every later feed to reuse its first renewed generation", async () => {
-  let calls = 0;
-  await assert.rejects(verifyFeeds({ allFeeds: true, renewSession: true, emit: () => {}, invoke: async () => {
-    calls += 1;
-    return sharedResponse({ sessionMode: calls <= 2 ? "renewed" : "reused", sessionGeneration: `generation-${calls}` });
-  } }), /more than once/);
-  assert.equal(calls, 2);
+test("batch summaries canonicalize feed order and omit unrelated payload fields", async () => {
+  const feedResults = batchResponse().BatchResult.feedResults.reverse().map((feed) => ({ ...feed, posts: ["private-post"], cookies: "private-cookie" }));
+  const lines = [];
+  const { results } = await verifyFeeds({ allFeeds: true, emit: (line) => lines.push(line), invoke: async (event) => event.allFeeds
+    ? batchResponse({ feedResults, privateData: "private-payload" }) : sharedResponse() });
+  assert.deepEqual(results.slice(0, 11).map((feed) => feed.subreddit), FEEDS);
+  assert.equal(lines.join("\n").includes("private"), false);
 });
 
 

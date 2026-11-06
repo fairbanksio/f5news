@@ -94,6 +94,8 @@ jobs:
       working-directory: 'services/scraper'
 
     - name: "Scraper Service - Verify Live Extraction"
+      env:
+        F5_PROBE_ALL_FEEDS: "true"
       run: node scripts/check-browser-deployment.cjs
 
     # Deploy Subreddits Service

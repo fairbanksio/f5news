@@ -39,7 +39,7 @@ functions:
   fetchPosts:
     name: ${self:service}-${sls:stage}-fetchPosts-browser
     timeout: 240
-    memorySize: 2048
+    memorySize: 4096
     ephemeralStorageSize: 1024
     image: scraper
     logRetentionInDays: 7
@@ -48,77 +48,7 @@ functions:
           rate: rate(5 minutes)
           enabled: false
           input:
-            subreddit: politics
-            session: true
-            scheduled: true
-      - schedule:
-          rate: rate(5 minutes)
-          enabled: false
-          input:
-            subreddit: worldnews
-            session: true
-            scheduled: true
-      - schedule:
-          rate: rate(5 minutes)
-          enabled: false
-          input:
-            subreddit: europe
-            session: true
-            scheduled: true
-      - schedule:
-          rate: rate(5 minutes)
-          enabled: false
-          input:
-            subreddit: news
-            session: true
-            scheduled: true
-      - schedule:
-          rate: rate(5 minutes)
-          enabled: false
-          input:
-            subreddit: technology
-            session: true
-            scheduled: true
-      - schedule:
-          rate: rate(5 minutes)
-          enabled: false
-          input:
-            subreddit: science
-            session: true
-            scheduled: true
-      - schedule:
-          rate: rate(5 minutes)
-          enabled: false
-          input:
-            subreddit: health
-            session: true
-            scheduled: true
-      - schedule:
-          rate: rate(5 minutes)
-          enabled: false
-          input:
-            subreddit: energy
-            session: true
-            scheduled: true
-      - schedule:
-          rate: rate(5 minutes)
-          enabled: false
-          input:
-            subreddit: sports
-            session: true
-            scheduled: true
-      - schedule:
-          rate: rate(5 minutes)
-          enabled: false
-          input:
-            subreddit: business
-            session: true
-            scheduled: true
-      - schedule:
-          rate: rate(5 minutes)
-          enabled: false
-          input:
-            subreddit: Economics
+            allFeeds: true
             session: true
             scheduled: true
 

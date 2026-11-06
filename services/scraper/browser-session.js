@@ -6,6 +6,7 @@ const { S3Client, GetObjectCommand, PutObjectCommand } = require("@aws-sdk/clien
 
 const MAX_BYTES = 1024 * 1024;
 const SESSION_ID = "reddit";
+const readPauseSeconds = (value) => Number.isInteger(value) && value > 0 ? Math.min(value, 86400) : 600;
 const operationOptions = { maxTimeMS: 5000, timeoutMS: 10000 };
 const key = (generation) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(generation)) throw new Error("Invalid session generation");
@@ -17,14 +18,26 @@ function createSessionStore({ bucket = process.env.F5_REDDIT_SESSION_BUCKET, cli
   const available = (field) => ({ $lte: [{ $ifNull: [`$${field}`, new Date(0)] }, "$$NOW"] });
   return {
     async current() {
-      try { return await metadata().findOne({ _id: SESSION_ID }, operationOptions); }
-      catch { throw new Error("Session coordination unavailable"); }
+      try {
+        const rows = await metadata().aggregate([{ $match: { _id: SESSION_ID } }, { $limit: 1 }, { $set: {
+          readBackoffSeconds: { $max: [0, { $ceil: { $divide: [{ $subtract: [{ $ifNull: ["$readBackoffUntil", "$$NOW"] }, "$$NOW"] }, 1000] } }] },
+        } }], operationOptions).toArray();
+        return rows[0] || null;
+      } catch { throw new Error("Session coordination unavailable"); }
+    },
+    async pauseReads(seconds) {
+      try {
+        await metadata().updateOne({ _id: SESSION_ID }, [{ $set: { readBackoffUntil: { $max: [
+          { $ifNull: ["$readBackoffUntil", "$$NOW"] },
+          { $dateAdd: { startDate: "$$NOW", unit: "second", amount: readPauseSeconds(seconds) } },
+        ] } } }], { upsert: true, ...operationOptions });
+      } catch { throw new Error("Session read backoff coordination unavailable"); }
     },
     async acquire(owner, observedGeneration) {
       try {
         await metadata().updateOne({ _id: SESSION_ID }, { $setOnInsert: { leaseUntil: new Date(0), nextAttemptAt: new Date(0) } }, { upsert: true, ...operationOptions });
         return await metadata().findOneAndUpdate({ _id: SESSION_ID, activeGeneration: observedGeneration || { $exists: false },
-          $expr: { $and: [available("leaseUntil"), available("nextAttemptAt")] } }, [{ $set: {
+          $expr: { $and: [available("leaseUntil"), available("nextAttemptAt"), available("readBackoffUntil")] } }, [{ $set: {
           owner: { $literal: owner }, lastAttemptAt: "$$NOW",
           leaseUntil: { $dateAdd: { startDate: "$$NOW", unit: "second", amount: 300 } },
           nextAttemptAt: { $dateAdd: { startDate: "$$NOW", unit: "second", amount: 900 } },
@@ -98,6 +111,36 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
     let ownsLease = false;
     let returningValidReuse = false;
     const report = (mode, generation) => options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode, generation }));
+    const checkReadBackoff = (current) => {
+      if (Number.isInteger(current?.readBackoffSeconds) && current.readBackoffSeconds > 0) {
+        const seconds = Math.min(current.readBackoffSeconds, 86400);
+        options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "read_backoff", seconds }));
+        throw Object.assign(new Error(`Session reads are cooling down (${seconds} seconds)`), { readBackoffSeconds: seconds });
+      }
+    };
+    const pauseLimitedReads = async (failure) => {
+      const seconds = readPauseSeconds(failure.retryAfterSeconds);
+      try { await store.pauseReads(seconds); }
+      catch {
+        options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "read_backoff_failed", seconds, severity: "error" }));
+        throw Object.assign(new Error("Session read backoff coordination unavailable"), { readBackoffFailed: true });
+      }
+      options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "read_backoff", seconds }));
+    };
+    const browserAttempt = async (request) => {
+      checkReadBackoff(await store.current());
+      let result;
+      try { result = await runBrowser(request); }
+      catch (error) {
+        if (error.sessionReason === "navigation_rate_limited" || error.httpStatus === 429) await pauseLimitedReads(error);
+        throw error;
+      }
+      if (result?.batchFailure?.httpStatus === 429 || result?.batchFailure?.sessionReason === "navigation_rate_limited") {
+        try { await pauseLimitedReads(result.batchFailure); }
+        catch { return { ...result, readBackoffFailed: true }; }
+      }
+      return result;
+    };
     const reused = (result, generation, deferredReason) => {
       returningValidReuse = true;
       if (deferredReason) options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "renewal_deferred", generation, reason: deferredReason, severity: "warn" }));
@@ -120,6 +163,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
     try {
       while (now() < deadline - 25000) {
         const current = await store.current();
+        checkReadBackoff(current);
         const generation = current?.activeGeneration;
         if (!observedInitial) { initialGeneration = generation; observedInitial = true; }
         const renewalRequested = options.renewSession === true && generation === initialGeneration;
@@ -131,8 +175,10 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
             await writeFile(input, bytes, { mode: 0o600 });
             for (let attempt = 1; attempt <= 2; attempt++) {
               try {
-                const result = await runBrowser({ ...options, authenticate: false, sessionInput: input, sessionOutput: undefined, timeoutMs: budget(100000) });
-                if (now() - new Date(current.sessionCreatedAt).getTime() < 12 * 60 * 60 * 1000) return reused(result, generation);
+                const result = await browserAttempt({ ...options, authenticate: false, sessionInput: input, sessionOutput: undefined, timeoutMs: budget(options.allFeeds ? 150000 : 100000) });
+                const aged = now() - new Date(current.sessionCreatedAt).getTime() >= 12 * 60 * 60 * 1000;
+                if (result?.batchFailure) return reused(result, generation, aged ? "batch_incomplete" : undefined);
+                if (!aged) return reused(result, generation);
                 validReuse = result;
                 break;
               } catch (error) {
@@ -147,7 +193,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
                 if (attempt === 2) {
                   throw sessionReadError(lastReuseFailure, lastReuseReason);
                 }
-                budget(100000);
+                budget(options.allFeeds ? 150000 : 100000);
                 await pause(2000);
               }
             }
@@ -163,7 +209,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
           ownsLease = true;
           report("renewing", generation || "none");
           try {
-            const result = await runBrowser({ ...options, authenticate: true, sessionInput: undefined, sessionOutput: output, timeoutMs: budget(140000) });
+            const result = await browserAttempt({ ...options, authenticate: true, sessionInput: undefined, sessionOutput: output, timeoutMs: budget(options.allFeeds ? 150000 : 140000) });
             const stat = await require("node:fs/promises").stat(output);
             if (!stat.isFile() || stat.size > MAX_BYTES) throw new Error("Invalid renewed session output");
             const bytes = await readFile(output);
@@ -173,7 +219,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
             report("renewed", next);
             return { ...result, sessionMode: "renewed", sessionGeneration: next };
           } catch (error) {
-            if (validReuse && options.renewSession !== true) return reused(validReuse, generation, "renewal_failed");
+            if (validReuse && options.renewSession !== true) return reused(error.readBackoffFailed ? { ...validReuse, readBackoffFailed: true } : validReuse, generation, "renewal_failed");
             throw error;
           }
         }
@@ -209,6 +255,7 @@ async function inspectSession({ store = createSessionStore(), now = Date.now } =
     sessionAgeSeconds: current?.sessionCreatedAt ? seconds(current.sessionCreatedAt, -1) : null,
     leaseActive: Boolean(current?.owner && new Date(current.leaseUntil).getTime() > instant),
     cooldownSeconds: current?.nextAttemptAt ? seconds(current.nextAttemptAt) : null,
+    readBackoffSeconds: Number.isInteger(current?.readBackoffSeconds) && current.readBackoffSeconds >= 0 ? Math.min(current.readBackoffSeconds, 86400) : 0,
     versionSupported: false, seedValid: false, cookieCount: 0, rootAccountCookieCount: 0,
     unexpiredRootAccountCookieCount: 0, expiredRootAccountCookieCount: 0, sessionRootAccountCookieCount: 0,
     otherExpiredCookieCount: 0, minimumRootAccountExpirySeconds: null,

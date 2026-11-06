@@ -44,10 +44,11 @@ test('Snyk fails without a token and scans lockfiles without installing PR depen
   }
 });
 
-test('API allowlist matches the scraper schedule and static subreddit API', async () => {
+test('API allowlist matches the scheduled batch and static subreddit API', async () => {
   const configured = require('../services/posts/subreddits.json');
   const scheduled = readYaml('services/scraper/serverless.yml').functions.fetchPosts.events
-    .filter(event => event.schedule).map(event => event.schedule.input.subreddit);
+    .filter(event => event.schedule).flatMap(event => event.schedule.input.allFeeds === true
+      ? configured : [event.schedule.input.subreddit]);
   const { get_subreddits } = require('../services/subreddits/index');
   const response = await get_subreddits({ headers: { origin: 'https://f5.news' } });
   assert.deepEqual(configured, scheduled);

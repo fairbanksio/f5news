@@ -950,6 +950,168 @@ class LinkPreviewTests(unittest.TestCase):
         self.assertEqual(events, [])
 
 
+class BatchTests(unittest.TestCase):
+    def setup_batch(self, directory, **overrides):
+        feeds = json.loads(smoke.SUBREDDITS.read_text())
+        fixture = SessionTests().session()
+        stats = {"launches": 0, "pages": 0, "requests": [], "restores": 0, "closed": 0, "feeds": feeds}
+        config = argparse.Namespace(subreddit="politics", limit=1, all_feeds=True, authenticate=False,
+                                    session_input=Path(directory) / "input.json", session_output=Path(directory) / "output.json",
+                                    image_priority_map=None, batch_budget_seconds=130)
+        for key, value in overrides.items():
+            setattr(config, key, value)
+        class Page:
+            current = feeds[0]
+            context = types.SimpleNamespace(cookies=lambda: fixture["cookies"])
+            def __init__(self):
+                self.context.add_cookies = lambda _cookies: stats.update(restores=stats["restores"] + 1)
+            def on(self, *_args):
+                pass
+            def add_init_script(self, **_kwargs):
+                return nullcontext()
+            def goto(self, url, **_kwargs):
+                self.current = url.split("/r/")[1].split("/")[0]
+                stats["requests"].append(url)
+                if stats.get("clock") is not None:
+                    stats["clock"]["seconds"] += 1 if len(stats["requests"]) == 1 else 10
+                if stats.get("fail_on") == self.current:
+                    raise stats["error"]
+            def evaluate_read(self, expression, *_args):
+                if "Object.entries(localStorage)" in expression:
+                    return fixture["origins"][0]
+                post = sample_post()
+                name = self.current.lower() + "0"
+                post["attributes"].update(id="t3_" + name, **{"subreddit-name": self.current, "permalink": f"/r/{self.current}/comments/{name}/story/"})
+                if stats.get("malformed") == self.current:
+                    post["attributes"]["score"] = None
+                return [post]
+            def evaluate(self, *_args):
+                pass
+            def locator(self, *_args):
+                raise AssertionError("Batch session reuse must never access login controls")
+        class Browser:
+            def __init__(self, **kwargs):
+                stats["launches"] += 1
+                stats["kwargs"] = kwargs
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                stats["closed"] += 1
+            def on(self, *_args):
+                pass
+            def new_page(self):
+                stats["pages"] += 1
+                return Page()
+        return config, stats, fixture, Browser
+
+    def execute(self, config, stats, fixture, browser):
+        module = types.SimpleNamespace(InvisiblePlaywright=browser)
+        with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke, "read_session", return_value=fixture), patch.object(smoke, "state", return_value="feed"), patch.object(smoke, "authenticate_once", side_effect=AssertionError("Reuse must not log in")):
+            return smoke.run(config)
+
+    def test_all_feeds_reuse_one_browser_page_and_session_restore(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config, stats, fixture, browser = self.setup_batch(directory)
+            result = self.execute(config, stats, fixture, browser)
+            self.assertEqual(result["status"], "accessible")
+            self.assertEqual([item["subreddit"] for item in result["feeds"]], stats["feeds"])
+            self.assertEqual(stats["launches"], 1)
+            self.assertEqual(stats["pages"], 1)
+            self.assertEqual(stats["restores"], 1)
+            self.assertEqual(stats["closed"], 1)
+            self.assertEqual(len(stats["requests"]), 11)
+            self.assertEqual(smoke.read_session(config.session_output), fixture)
+
+    def test_rate_limit_or_denial_preserves_prefix_and_stops_remaining_reads(self):
+        for status, reason in ((429, "navigation_rate_limited"), (403, "navigation_http_rejected")):
+            with tempfile.TemporaryDirectory() as directory:
+                config, stats, fixture, browser = self.setup_batch(directory)
+                stats.update(fail_on="europe", error=smoke.SessionError("Browser navigation was rejected", reason, status, 60 if status == 429 else None))
+                result = self.execute(config, stats, fixture, browser)
+                self.assertEqual([item["subreddit"] for item in result["feeds"]], ["politics", "worldnews"])
+                self.assertEqual(result["batchFailure"]["subreddit"], "europe")
+                self.assertEqual(result["batchFailure"]["httpStatus"], status)
+                self.assertEqual(result["batchFailure"]["sessionReason"], reason)
+                self.assertEqual(len(stats["requests"]), 3)
+                self.assertEqual(smoke.read_session(config.session_output), fixture)
+
+    def test_failure_before_first_feed_has_no_accessible_prefix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config, stats, fixture, browser = self.setup_batch(directory)
+            stats.update(fail_on="politics", error=smoke.SessionError("Browser navigation was rejected", "navigation_rate_limited", 429))
+            result = self.execute(config, stats, fixture, browser)
+            self.assertEqual(result["status"], "session_invalid")
+            self.assertEqual(result["posts"], [])
+            self.assertNotIn("feeds", result)
+            self.assertFalse(config.session_output.exists())
+
+    def test_malformed_metadata_does_not_lose_earlier_valid_feeds_or_leak_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config, stats, fixture, browser = self.setup_batch(directory)
+            stats["malformed"] = "worldnews"
+            result = self.execute(config, stats, fixture, browser)
+            self.assertEqual(len(result["feeds"]), 1)
+            self.assertEqual(result["batchFailure"], {"subreddit": "worldnews", "status": "runtime_error"})
+            self.assertEqual(len(stats["requests"]), 2)
+
+    def test_global_deadline_returns_completed_prefix_before_another_feed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config, stats, fixture, browser = self.setup_batch(directory, batch_budget_seconds=5)
+            clock = {"seconds": 0}
+            stats["clock"] = clock
+            with patch.object(smoke.time, "monotonic", side_effect=lambda: clock["seconds"]):
+                result = self.execute(config, stats, fixture, browser)
+            self.assertEqual(len(result["feeds"]), 1)
+            self.assertEqual(result["batchFailure"], {"subreddit": "worldnews", "status": "loading_timeout"})
+            self.assertEqual(len(stats["requests"]), 2)
+
+    def test_cancellation_returns_completed_prefix_without_more_http(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config, stats, fixture, browser = self.setup_batch(directory)
+            stats.update(fail_on="worldnews", error=smoke.BrowserCancelled("cancelled"))
+            result = self.execute(config, stats, fixture, browser)
+            self.assertEqual(len(result["feeds"]), 1)
+            self.assertEqual(result["batchFailure"]["status"], "loading_timeout")
+            self.assertEqual(stats["closed"], 1)
+            self.assertEqual(len(stats["requests"]), 2)
+
+    def test_optional_429_retains_current_listing_and_stops_batch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config, stats, fixture, browser = self.setup_batch(directory)
+            def optional(_page, _reader, posts, subreddit, **kwargs):
+                if subreddit == "worldnews":
+                    kwargs["budget"]["failure"] = smoke.SessionError("Browser navigation was rejected", "navigation_rate_limited", 429, 60)
+                return posts
+            with patch.object(smoke, "enrich_link_previews", side_effect=optional):
+                result = self.execute(config, stats, fixture, browser)
+            self.assertEqual([item["subreddit"] for item in result["feeds"]], ["politics", "worldnews"])
+            self.assertEqual(result["batchFailure"]["subreddit"], "worldnews")
+            self.assertEqual(result["batchFailure"]["stage"], "optional_preview")
+            self.assertEqual(len(stats["requests"]), 2)
+
+    def test_priority_allocation_rotates_fairly_and_skips_absent_map(self):
+        feeds = ["politics", "worldnews", "europe", "news", "technology"]
+        mapping = {feed: ["t3_" + feed, "t3_" + feed + "2"] for feed in feeds}
+        self.assertEqual(smoke.allocate_image_priorities(feeds, None), {feed: [] for feed in feeds})
+        with patch.object(smoke.time, "time", return_value=300):
+            result = smoke.allocate_image_priorities(feeds, mapping)
+        self.assertEqual(result["politics"], [])
+        self.assertTrue(all(len(result[feed]) == 1 for feed in feeds[1:]))
+        with patch.object(smoke.time, "time", return_value=0):
+            result = smoke.allocate_image_priorities(feeds, {"politics": ["t3_a", "t3_b", "t3_c"], "worldnews": ["t3_d", "t3_e"]})
+        self.assertEqual(result["politics"], ["t3_a", "t3_b"])
+        self.assertEqual(result["worldnews"], ["t3_d", "t3_e"])
+
+    def test_batch_cli_map_and_budget_validation(self):
+        config = smoke.options(["--all-feeds", "--image-priority-map", '{"politics":[],"Economics":["t3_abc"]}', "--batch-budget-seconds", "126"])
+        self.assertTrue(config.all_feeds)
+        self.assertEqual(config.image_priority_map["Economics"], ["t3_abc"])
+        self.assertEqual(config.batch_budget_seconds, 126)
+        for args in (["--all-feeds", "--image-priority-map", '{"economics":[]}'], ["--all-feeds", "--image-priority-map", '{"news":["t3_a","t3_a"]}'], ["--all-feeds", "--image-priority-map", '{"news":null}'], ["--all-feeds", "--batch-budget-seconds", "0"], ["--all-feeds", "--image-priority-ids", "t3_a"]):
+            with self.assertRaises(SystemExit):
+                smoke.options(args)
+
+
 class NativeRunnerTests(unittest.TestCase):
     def check_runner(self, architecture):
         with tempfile.TemporaryDirectory() as directory:

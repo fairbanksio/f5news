@@ -1,7 +1,9 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { spawn } = require("node:child_process");
-const { createBrowserSource, runBrowser } = require("./browser-source");
+const { createBrowserSource, createBrowserBatchSource, runBrowser } = require("./browser-source");
+const feeds = require("../posts/subreddits.json");
+const { randomUUID } = require("node:crypto");
 const logger = { log() {} };
 const raw = (overrides = {}) => ({ attributes: {
   id: "t3_abc", "subreddit-name": "news", permalink: "/r/news/comments/abc/story/",
@@ -142,4 +144,198 @@ test("untrusted HTTP diagnostic values never reach browser errors", async () => 
     }), (error) => error.sessionReason === "navigation_http_rejected" && !Object.hasOwn(error, "httpStatus") &&
       !Object.hasOwn(error, "retryAfterSeconds") && !JSON.stringify(error).includes("private-cookie-value"));
   }
+});
+
+const batchRaw = (subreddit, id = "abc") => ({ ...raw({ id: `t3_${id}`, "subreddit-name": subreddit, permalink: `/r/${subreddit}/comments/${id}/story/` }) });
+const completeBatch = () => ({ status: "accessible", feeds: feeds.map((subreddit) => ({ subreddit, posts: [batchRaw(subreddit)] })) });
+
+test("one session runner and one browser produce every configured feed with normal F5 fields", async () => {
+  let sessions = 0;
+  let browsers = 0;
+  const generation = randomUUID();
+  const scrape = createBrowserBatchSource({
+    runBrowserImpl: async (request) => {
+      browsers++;
+      assert.equal(request.allFeeds, true);
+      assert.equal(request.timeoutMs, 151000);
+      return completeBatch();
+    },
+    sessionRunner: async (request, run) => {
+      sessions++;
+      return { ...await run(request), sessionMode: "reused", sessionGeneration: generation, sessionRenewalDeferred: true };
+    },
+  });
+  const result = await scrape({ logger });
+  assert.equal(sessions, 1);
+  assert.equal(browsers, 1);
+  assert.deepEqual(result.feeds.map((entry) => entry.subreddit), feeds);
+  assert.ok(result.feeds.every((entry) => entry.children[0].data.ups === 42 && entry.children[0].data.num_comments === 7));
+  assert.deepEqual(result.failures, []);
+  assert.equal(result.sessionMode, "reused");
+  assert.equal(result.sessionGeneration, generation);
+  assert.equal(result.sessionRenewalDeferred, true);
+});
+
+test("batch flags and explicit empty priorities reach Python as one JSON map", async () => {
+  const map = { politics: ["t3_abc"], Economics: [] };
+  await runBrowser({ subreddit: "politics", allFeeds: true, imagePriorityIdsBySubreddit: map, limit: 25, timeoutMs: 5000, logger,
+    spawnImpl: (_executable, args) => {
+      assert.ok(args.includes("--all-feeds"));
+      assert.equal(args[args.indexOf("--batch-budget-seconds") + 1], "1");
+      assert.ok(!args.includes("--subreddit"));
+      assert.ok(!args.includes("--image-priority-ids"));
+      assert.deepEqual(JSON.parse(args[args.indexOf("--image-priority-map") + 1]), map);
+      return spawnCode(`console.log(${JSON.stringify(JSON.stringify(completeBatch()))})`)();
+    },
+  });
+});
+
+test("the batch browser budget follows the remaining child deadline and reserves teardown time", async () => {
+  for (const [timeoutMs, seconds] of [[151000, 141], [34000, 24], [400000, 180]]) {
+    await runBrowser({ allFeeds: true, limit: 25, timeoutMs, logger,
+      spawnImpl: (_executable, args) => {
+        assert.equal(args[args.indexOf("--batch-budget-seconds") + 1], String(seconds));
+        return spawnCode(`console.log(${JSON.stringify(JSON.stringify(completeBatch()))})`)();
+      },
+    });
+  }
+});
+
+test("batch validates target order, limits, and priority maps before any browser or session launch", async () => {
+  const unexpected = async () => assert.fail("Invalid options must not launch");
+  const scrape = createBrowserBatchSource({ runBrowserImpl: unexpected, sessionRunner: unexpected });
+  for (const request of [{ subreddits: ["politics"] }, { subreddits: [...feeds].reverse() }, { limit: 26 }, { timeoutMs: 9000 },
+    ...[null, [], { economics: [] }, { news: ["../../bad"] }, { news: ["t3_abc", "t3_abc"] }, { news: undefined }].map((imagePriorityIdsBySubreddit) => ({ imagePriorityIdsBySubreddit }))]) {
+    await assert.rejects(scrape(request));
+  }
+});
+
+test("batch accepts only an exact ordered prefix with a failure on the next feed", async () => {
+  const first = completeBatch().feeds[0];
+  const valid = { status: "accessible", feeds: [first], batchFailure: { subreddit: feeds[1], status: "session_invalid", sessionReason: "navigation_rate_limited", httpStatus: 429, retryAfterSeconds: 60 } };
+  const result = await createBrowserBatchSource({ runBrowserImpl: async () => valid })({ session: false, logger });
+  assert.deepEqual(result.feeds.map((entry) => entry.subreddit), [feeds[0]]);
+  assert.deepEqual(result.batchFailure, valid.batchFailure);
+  for (const response of [
+    { status: "accessible", feeds: [first] },
+    { ...valid, feeds: [] },
+    { ...valid, feeds: [first, first] },
+    { ...valid, feeds: [completeBatch().feeds[1]] },
+    { ...valid, batchFailure: { subreddit: feeds[2], status: "network_error" } },
+    { ...valid, batchFailure: { subreddit: feeds[1], status: "private-provider-details" } },
+    { ...completeBatch(), batchFailure: { status: "runtime_error" } },
+    { ...valid, feeds: [{ ...first, posts: [] }] },
+    { ...valid, feeds: [{ ...first, posts: Array.from({ length: 26 }, () => first.posts[0]) }] },
+  ]) await assert.rejects(createBrowserBatchSource({ runBrowserImpl: async () => response })({ session: false, logger }), /invalid|incomplete/);
+});
+
+test("one feed's invalid metadata does not discard valid neighbors or invoke another browser", async () => {
+  const response = completeBatch();
+  response.feeds[1].posts = [batchRaw(feeds[1], "same"), batchRaw(feeds[1], "same")];
+  response.feeds[2].posts[0] = batchRaw(feeds[2]);
+  response.feeds[2].posts[0].attributes.score = "private-invalid-value";
+  response.feeds[3].posts[0] = { ...batchRaw(feeds[3]), attributes: { ...batchRaw(feeds[3]).attributes, "post-type": "video" }, mediaComplete: true, video: { dash_url: null } };
+  const messages = [];
+  let calls = 0;
+  const result = await createBrowserBatchSource({ runBrowserImpl: async () => { calls++; return response; } })({ session: false, logger: { log: (line) => messages.push(line) } });
+  assert.equal(calls, 1);
+  assert.deepEqual(result.failures, feeds.slice(1, 4).map((subreddit) => ({ subreddit, status: "metadata_invalid" })));
+  assert.deepEqual(result.feeds.map((entry) => entry.subreddit), feeds.filter((_name, index) => ![1, 2, 3].includes(index)));
+  assert.ok(!messages.join().includes("private-invalid-value"));
+});
+
+test("partial batch diagnostics retain only validated fields and the backoff persistence marker", async () => {
+  const response = { status: "accessible", feeds: completeBatch().feeds.slice(0, 1), readBackoffFailed: true,
+    batchFailure: { subreddit: feeds[1], status: "network_error", sessionReason: "private-cookie-value", httpStatus: "403", retryAfterSeconds: 86401, message: "private-cookie-value" } };
+  const result = await createBrowserBatchSource({ runBrowserImpl: async () => response })({ session: false, logger });
+  assert.deepEqual(result.batchFailure, { subreddit: feeds[1], status: "network_error" });
+  assert.equal(result.readBackoffFailed, true);
+  assert.ok(!JSON.stringify(result).includes("private-cookie-value"));
+});
+
+test("optional-preview rate limiting preserves the current feed and its finite stop marker", async () => {
+  const response = { status: "accessible", feeds: completeBatch().feeds.slice(0, 2),
+    batchFailure: { subreddit: feeds[1], stage: "optional_preview", status: "network_error", sessionReason: "navigation_rate_limited", httpStatus: 429, retryAfterSeconds: 60 } };
+  const scrape = (result) => createBrowserBatchSource({ runBrowserImpl: async () => result })({ session: false, logger });
+  const result = await scrape(response);
+  assert.deepEqual(result.feeds.map((entry) => entry.subreddit), feeds.slice(0, 2));
+  assert.deepEqual(result.batchFailure, response.batchFailure);
+  const finalFeed = await scrape({ ...completeBatch(), batchFailure: { ...response.batchFailure, subreddit: feeds.at(-1), status: "session_invalid" } });
+  assert.equal(finalFeed.feeds.length, feeds.length);
+  for (const change of [{ subreddit: feeds[0] }, { subreddit: feeds[2] }, { stage: "private-stage" }, { httpStatus: 403 }, { sessionReason: "navigation_http_rejected" }, { status: "runtime_error" }, { stage: "feed" }]) {
+    await assert.rejects(scrape({ ...response, batchFailure: { ...response.batchFailure, ...change } }), /invalid batch failure/);
+  }
+});
+
+test("a failure before the first completed batch feed retains ordinary failure behavior", async () => {
+  await assert.rejects(runBrowser({ allFeeds: true, limit: 25, timeoutMs: 5000, logger,
+    spawnImpl: spawnCode('console.log(JSON.stringify({status:"session_invalid",sessionReason:"navigation_rate_limited",httpStatus:429,retryAfterSeconds:60}));process.exitCode=2'),
+  }), (error) => error.sessionReason === "navigation_rate_limited" && error.httpStatus === 429 && error.retryAfterSeconds === 60);
+});
+
+const batchVideo = (subreddit, id = "abc") => ({ ...batchRaw(subreddit, id),
+  attributes: { ...batchRaw(subreddit, id).attributes, "post-type": "video" }, mediaComplete: true,
+  video: { hls_url: `https://v.redd.it/${id}/HLSPlaylist.m3u8` } });
+
+test("batch media resolution aborts with the overall deadline while retaining CPU-only feeds", async () => {
+  const response = completeBatch();
+  response.feeds[0].posts = [batchVideo(feeds[0])];
+  let instant = 0;
+  let observed;
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    const result = await createBrowserBatchSource({ now: () => instant,
+      runBrowserImpl: async () => { instant = 980; return response; },
+      fetchImpl: async (_url, options) => {
+        observed = options.signal;
+        return new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true }));
+      },
+    })({ session: false, timeoutMs: 10000, logger });
+    assert.equal(observed.aborted, true);
+    assert.deepEqual(result.failures, [{ subreddit: feeds[0], status: "metadata_invalid" }]);
+    assert.deepEqual(result.feeds.map((entry) => entry.subreddit), feeds.slice(1));
+  } finally { clearTimeout(keepAlive); }
+});
+
+test("mapping starts no further manifest requests after its shared time budget is exhausted", async () => {
+  const response = completeBatch();
+  response.feeds.forEach((entry, index) => { entry.posts = [batchVideo(entry.subreddit, `clip${index}`)]; });
+  let instant = 0;
+  let calls = 0;
+  const result = await createBrowserBatchSource({ now: () => instant, runBrowserImpl: async () => response,
+    fetchImpl: async () => {
+      calls++;
+      instant = 10000;
+      return { ok: true, text: async () => "<MPD />" };
+    },
+  })({ session: false, timeoutMs: 10000, logger });
+  assert.equal(calls, 1);
+  assert.deepEqual(result.feeds.map((entry) => entry.subreddit), [feeds[0]]);
+  assert.deepEqual(result.failures.map((entry) => entry.subreddit), feeds.slice(1));
+});
+
+test("two mapping workers retain configured feed order when manifests finish out of order", async () => {
+  const response = completeBatch();
+  response.feeds[0].posts = [batchVideo(feeds[0], "first")];
+  response.feeds[1].posts = [batchVideo(feeds[1], "second")];
+  let releaseFirst;
+  const first = new Promise((resolve) => { releaseFirst = resolve; });
+  const finished = [];
+  let active = 0;
+  let peak = 0;
+  const result = await createBrowserBatchSource({ runBrowserImpl: async () => response,
+    fetchImpl: async (url) => {
+      active++;
+      peak = Math.max(peak, active);
+      if (url.pathname.includes("first")) await first;
+      else releaseFirst();
+      finished.push(url.pathname);
+      active--;
+      return { ok: true, text: async () => "<MPD />" };
+    },
+  })({ session: false, logger });
+  assert.equal(peak, 2);
+  assert.ok(finished[0].includes("second"));
+  assert.deepEqual(result.feeds.map((entry) => entry.subreddit), feeds);
+  assert.deepEqual(result.failures, []);
 });

@@ -32,7 +32,7 @@ on:
         type: boolean
         default: false
       all_feeds:
-        description: Verify all feeds, then repeat politics to confirm session reuse
+        description: Verify all feeds in one browser, then repeat politics to confirm reuse
         type: boolean
         default: false
       session:

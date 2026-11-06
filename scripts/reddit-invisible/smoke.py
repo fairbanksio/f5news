@@ -117,17 +117,39 @@ def image_priority_ids(value):
     return ids
 
 
+def image_priority_map(value):
+    try:
+        result = json.loads(value)
+        supported = json.loads(SUBREDDITS.read_text())
+        if not isinstance(result, dict) or any(key not in supported for key in result):
+            raise ValueError()
+        for ids in result.values():
+            if (not isinstance(ids, list) or len(ids) > 25 or any(not isinstance(item, str) or not re.fullmatch(r"t3_[a-z0-9]+", item) for item in ids)
+                    or len(set(ids)) != len(ids)):
+                raise ValueError()
+        return result
+    except Exception:
+        raise argparse.ArgumentTypeError("Image priority map must use configured feed names and unique Reddit post ID arrays") from None
+
+
 def options(args=None):
     supported = json.loads(SUBREDDITS.read_text())
     names = {name.lower(): name for name in supported}
     parser = argparse.ArgumentParser()
     parser.add_argument("--subreddit", type=str.lower, default="politics", choices=names)
     parser.add_argument("--limit", type=int, choices=range(1, 26), default=25)
+    parser.add_argument("--all-feeds", action="store_true")
+    parser.add_argument("--batch-budget-seconds", type=int, choices=range(1, 181), default=130)
+    parser.add_argument("--image-priority-map", type=image_priority_map)
     parser.add_argument("--authenticate", action="store_true", help="Try the configured Reddit website account once")
     parser.add_argument("--image-priority-ids", type=image_priority_ids)
     parser.add_argument("--session-input", type=Path)
     parser.add_argument("--session-output", type=Path)
     result = parser.parse_args(args)
+    if result.all_feeds and result.image_priority_ids is not None:
+        parser.error("Use the image priority map for all-feed batches")
+    if result.image_priority_map is not None and not result.all_feeds:
+        parser.error("Image priority map requires all-feed mode")
     if result.session_input and result.authenticate:
         parser.error("Use session reuse or authentication, not both")
     if result.session_output and not (result.authenticate or result.session_input):
@@ -188,22 +210,23 @@ def has_account_session(page):
                for cookie in page.context.cookies())
 
 
-def authenticate_once(page, feed_url):
+def authenticate_once(page, feed_url, deadline=None):
     username = os.environ.get("REDDIT_USERNAME", "")
     password = os.environ.get("REDDIT_PASSWORD", "")
     if not username or not password:
         return "auth_credentials_missing"
     log("Opening Reddit website login for one account attempt.")
-    navigate(page, "https://www.reddit.com/login/", wait_until="domcontentloaded", timeout=30000)
+    navigate(page, "https://www.reddit.com/login/", wait_until="domcontentloaded", timeout=remaining_timeout(deadline))
     started = time.monotonic()
-    while time.monotonic() - started < 30:
+    while time.monotonic() - started < 30 and before_deadline(deadline):
         access = login_state(page)
         if access in ("blocked", "challenge", "failed"):
             return "auth_" + access
         if access == "login":
             break
-        time.sleep(1)
+        pause_with_deadline(deadline)
     else:
+        ensure_remaining(deadline)
         return "auth_login_unavailable"
     target = urlsplit(page.url)
     if target.scheme != "https" or target.hostname not in ("www.reddit.com", "reddit.com") or target.username or target.password:
@@ -214,10 +237,10 @@ def authenticate_once(page, feed_url):
     submit = page.locator('faceplate-form#login').get_by_role("button", name="Log In", exact=True)
     if any(field.count() != 1 or not field.is_visible() for field in (username_field, password_field, submit)):
         return "auth_login_unavailable"
-    username_field.fill(username, timeout=5000)
-    password_field.fill(password, timeout=5000)
+    username_field.fill(username, timeout=remaining_timeout(deadline, 5000))
+    password_field.fill(password, timeout=remaining_timeout(deadline, 5000))
     try:
-        submit.click(timeout=5000)
+        submit.click(timeout=remaining_timeout(deadline, 5000))
     except Exception as error:
         message = str(error)
         if "action went out but did not reach the element:" not in message or "mouseup landed on " not in message:
@@ -225,25 +248,27 @@ def authenticate_once(page, feed_url):
         # Invisible reports this after dispatch. A second click could submit twice.
         log("Login click was dispatched. Checking its result without another submission.")
     started = time.monotonic()
-    while time.monotonic() - started < 30:
+    while time.monotonic() - started < 30 and before_deadline(deadline):
         access = login_state(page)
         if access in ("blocked", "challenge", "failed"):
             return "auth_" + access
         if has_account_session(page):
             break
-        time.sleep(1)
+        pause_with_deadline(deadline)
     else:
+        ensure_remaining(deadline)
         return "auth_unverified"
     log("Checking authenticated access to the configured feed.")
-    navigate(page, feed_url, wait_until="domcontentloaded", timeout=30000)
+    navigate(page, feed_url, wait_until="domcontentloaded", timeout=remaining_timeout(deadline))
     started = time.monotonic()
-    while time.monotonic() - started < 60:
+    while time.monotonic() - started < 60 and before_deadline(deadline):
         access = state(page)
         if access in ("blocked", "challenge"):
             return "auth_" + access
         if access == "feed":
             return "authenticated" if has_account_session(page) else "auth_unverified"
-        time.sleep(1)
+        pause_with_deadline(deadline)
+    ensure_remaining(deadline)
     return "auth_feed_timeout"
 
 
@@ -454,7 +479,7 @@ def export_session(page, seed, path):
         raise SessionError("Session output could not be saved") from None
 
 
-def reuse_session(page, session, feed_url, diagnostics=None):
+def reuse_session(page, session, feed_url, diagnostics=None, deadline=None):
     def invalid(reason, status="session_invalid"):
         if diagnostics is not None:
             diagnostics["sessionReason"] = reason
@@ -468,17 +493,18 @@ def reuse_session(page, session, feed_url, diagnostics=None):
         origins = json.dumps(session["origins"])
         script = "(() => { const records = " + origins + "; const record = records.find(item => item.origin === location.origin); if (record) for (const item of record.localStorage) localStorage.setItem(item.name, item.value); })();"
         with page.add_init_script(script=script):
-            navigate(page, feed_url, wait_until="domcontentloaded", timeout=30000)
+            navigate(page, feed_url, wait_until="domcontentloaded", timeout=remaining_timeout(deadline))
             started = time.monotonic()
-            while time.monotonic() - started < 60:
+            while time.monotonic() - started < 60 and before_deadline(deadline):
                 access = state(page)
                 if access in ("blocked", "challenge"):
                     return invalid("feed_" + access, "session_" + access)
                 if access == "feed":
                     return "reused" if has_account_session(page) else invalid("feed_cookie_missing")
-                time.sleep(1)
+                pause_with_deadline(deadline)
+        ensure_remaining(deadline)
         return invalid("feed_timeout")
-    except SessionError:
+    except (SessionError, FeedFailure):
         raise
     except Exception:
         raise SessionError("Session could not be restored", "restore_exception") from None
@@ -518,13 +544,13 @@ def gallery_url(post, subreddit):
     return "https://www.reddit.com" + target.path
 
 
-def enrich_gallery(page, reader, post, subreddit):
+def enrich_gallery(page, reader, post, subreddit, deadline=None):
     url = gallery_url(post, subreddit)
     log("Loading gallery detail metadata.")
-    navigate(page, url, wait_until="domcontentloaded", timeout=30000)
+    navigate(page, url, wait_until="domcontentloaded", timeout=remaining_timeout(deadline))
     started = time.monotonic()
     last_report = started
-    while time.monotonic() - started < 60:
+    while time.monotonic() - started < 60 and before_deadline(deadline):
         current = state(page)
         if current in ("blocked", "challenge"):
             raise RuntimeError("Gallery detail requires browser access: " + current)
@@ -533,8 +559,9 @@ def enrich_gallery(page, reader, post, subreddit):
         if time.monotonic() - last_report >= 10:
             log("Still waiting for gallery detail access.")
             last_report = time.monotonic()
-        time.sleep(1)
+        pause_with_deadline(deadline)
     else:
+        ensure_remaining(deadline)
         raise RuntimeError("Gallery detail did not finish loading")
     details = read_posts(page, reader, detail=True)
     matches = [detail for detail in details if detail["attributes"].get("id") == post["attributes"]["id"]
@@ -559,7 +586,7 @@ def enrich_gallery(page, reader, post, subreddit):
             "thumbnail": post.get("thumbnail") or detail.get("thumbnail") or images[0]["url"]}
 
 
-def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_budget=25, priority_ids=None):
+def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_budget=25, priority_ids=None, budget=None, batch_deadline=None):
     candidates = []
     for index, post in enumerate(posts):
         if post["attributes"].get("post-type") not in ("link", "crosspost"):
@@ -579,7 +606,13 @@ def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_bud
     else:
         by_id = {posts[item[1]]["attributes"]["id"]: item for item in candidates}
         candidates = [by_id[name] for name in priority_ids if name in by_id]
-    deadline = time.monotonic() + time_budget
+    if budget is not None:
+        if budget.get("disabled"):
+            return selected
+        max_details = min(max_details, budget["remaining"])
+        time_budget = min(time_budget, budget["seconds"])
+    optional_started = time.monotonic()
+    deadline = min(optional_started + time_budget, batch_deadline - 1 if batch_deadline is not None else float("inf"))
     for _score, index in candidates[:max_details]:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -587,6 +620,8 @@ def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_bud
         post = posts[index]
         try:
             target = gallery_url(post, subreddit)
+            if budget is not None:
+                budget["remaining"] -= 1
             navigate(page, target, wait_until="domcontentloaded", timeout=max(1, min(5000, int(remaining * 1000))))
             ready_deadline = min(deadline, time.monotonic() + 2)
             access = state(page)
@@ -595,6 +630,8 @@ def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_bud
                 access = state(page)
             if access in ("blocked", "challenge"):
                 log("Optional image details require browser access. Keeping listing images.")
+                if budget is not None:
+                    budget["disabled"] = True
                 break
             if access != "feed" or time.monotonic() >= deadline:
                 continue
@@ -609,12 +646,206 @@ def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_bud
             # Only media changes. Exact identity, counts, and dates stay from the listing.
             selected[index] = {**post, "thumbnail": url, "preview": preview}
             log("Improved an optional link preview from the published image source.")
+        except SessionError as error:
+            log("Optional image details were unavailable. Keeping the listing image.")
+            if error.http_status in (401, 403, 429):
+                if budget is not None:
+                    budget["disabled"] = True
+                    if error.http_status == 429:
+                        budget["failure"] = error
+                break
         except Exception:
             log("Optional image details were unavailable. Keeping the listing image.")
+    if budget is not None:
+        budget["seconds"] = max(0, budget["seconds"] - (time.monotonic() - optional_started))
     return selected
 
 
+class FeedFailure(RuntimeError):
+    def __init__(self, status, diagnostics=None):
+        super().__init__(status)
+        self.result = {"status": status, **(diagnostics or {})}
+
+
+def before_deadline(deadline):
+    return deadline is None or time.monotonic() < deadline - 1
+
+
+def ensure_remaining(deadline):
+    if not before_deadline(deadline):
+        raise FeedFailure("loading_timeout")
+
+
+def remaining_timeout(deadline, maximum=30000):
+    ensure_remaining(deadline)
+    return maximum if deadline is None else max(1, min(maximum, int((deadline - time.monotonic() - 1) * 1000)))
+
+
+def pause_with_deadline(deadline, seconds=1):
+    time.sleep(seconds if deadline is None else min(seconds, max(0, deadline - time.monotonic() - 1)))
+
+
+def allocate_image_priorities(feeds, priorities, maximum=4):
+    allocated = {feed: [] for feed in feeds}
+    if not priorities:
+        return allocated
+    start = int(time.time() // 300) % len(feeds)
+    order = feeds[start:] + feeds[:start]
+    remaining = maximum
+    while remaining:
+        added = False
+        for feed in order:
+            ids = priorities.get(feed, [])
+            offset = len(allocated[feed])
+            if offset < len(ids):
+                allocated[feed].append(ids[offset])
+                remaining -= 1
+                added = True
+                if not remaining:
+                    break
+        if not added:
+            break
+    return allocated
+
+
+def wait_batch_feed(page, authenticated, deadline):
+    ready_deadline = min(deadline - 1, time.monotonic() + 10)
+    while time.monotonic() < ready_deadline:
+        access = state(page)
+        if access == "feed":
+            if authenticated and not has_account_session(page):
+                raise FeedFailure("session_invalid", {"sessionReason": "feed_cookie_missing"})
+            return
+        if access in ("blocked", "challenge"):
+            if authenticated:
+                raise FeedFailure("session_" + access, {"sessionReason": "feed_" + access})
+            raise FeedFailure("blocked" if access == "blocked" else "challenge_required")
+        pause_with_deadline(ready_deadline + 1, 0.2)
+    raise FeedFailure("loading_timeout")
+
+
+def collect_batch_posts(page, reader, subreddit, limit, deadline):
+    posts = {}
+    unchanged = 0
+    for _ in range(12):
+        ensure_remaining(deadline)
+        previous = len(posts)
+        for raw in read_posts(page, reader):
+            attrs = raw["attributes"]
+            if (attrs.get("subreddit-name") or "").lower() == subreddit.lower() and attrs.get("id"):
+                validate_core(raw)
+                posts[attrs["id"]] = raw
+        if len(posts) >= limit:
+            break
+        unchanged = unchanged + 1 if len(posts) == previous else 0
+        if unchanged >= 3:
+            break
+        page.evaluate("() => window.scrollBy(0, window.innerHeight * 2)")
+        pause_with_deadline(deadline)
+    selected = list(posts.values())[:limit]
+    if not selected:
+        raise FeedFailure("empty")
+    for index, post in enumerate(selected):
+        ensure_remaining(deadline)
+        if post["attributes"]["post-type"] == "gallery":
+            selected[index] = enrich_gallery(page, reader, post, subreddit, deadline=deadline)
+    return selected
+
+
+def batch_failure(error, subreddit, reused=False):
+    result = {"subreddit": subreddit}
+    if isinstance(error, FeedFailure):
+        result.update(error.result)
+    elif isinstance(error, SessionError):
+        result.update(status="session_invalid" if reused else "network_error", **error.diagnostics())
+    else:
+        result["status"] = "runtime_error"
+    return result
+
+
+def run_all_feeds(config, browser_factory=None):
+    from invisible_playwright import InvisiblePlaywright
+
+    feeds = json.loads(SUBREDDITS.read_text())
+    source = READER.read_text().strip()
+    if not source.startswith("export function readRenderedPosts("):
+        raise RuntimeError("Unexpected shared browser reader format")
+    reader = "(" + source.removeprefix("export ") + ")"
+    deadline = time.monotonic() + getattr(config, "batch_budget_seconds", 130)
+    session_input = getattr(config, "session_input", None)
+    session_output = getattr(config, "session_output", None)
+    authenticate = getattr(config, "authenticate", False)
+    session = None
+    if session_input:
+        try:
+            session = read_session(session_input)
+        except SessionError as error:
+            return {"status": "session_invalid", **error.diagnostics(), "subreddit": feeds[0], "posts": []}
+    seed = session["seed"] if session else secrets.randbelow(2**31)
+    launch_options = {"headless": True, "extra_prefs": BROWSER_EXTRA_PREFS}
+    if session or authenticate:
+        launch_options["seed"] = seed
+    priorities = allocate_image_priorities(feeds, getattr(config, "image_priority_map", None))
+    optional_budget = {"remaining": 4, "seconds": 25}
+    completed = []
+    failure = None
+    interrupted = False
+    log("Launching one browser for the configured feed batch.")
+    with (browser_factory or InvisiblePlaywright)(**launch_options) as browser:
+        browser.on("disconnected", lambda *_args: log("Browser disconnected."))
+        page = browser.new_page()
+        page.on("crash", lambda *_args: log("Browser page crashed."))
+        page.on("close", lambda *_args: log("Browser page closed."))
+        for index, subreddit in enumerate(feeds):
+            try:
+                ensure_remaining(deadline)
+                log(json.dumps({"eventType": "BROWSER_BATCH_FEED", "subreddit": subreddit, "stage": "loading"}))
+                url = f"https://www.reddit.com/r/{subreddit}/rising/"
+                if index == 0 and session:
+                    diagnostics = {}
+                    access = reuse_session(page, session, url, diagnostics=diagnostics, deadline=deadline)
+                    if access != "reused":
+                        raise FeedFailure(access, diagnostics)
+                elif index == 0 and authenticate:
+                    access = authenticate_once(page, url, deadline=deadline)
+                    if access != "authenticated":
+                        raise FeedFailure(access)
+                else:
+                    navigate(page, url, timeout=remaining_timeout(deadline))
+                wait_batch_feed(page, bool(session or authenticate), deadline)
+                if index == 0 and session_output:
+                    export_session(page, seed, session_output)
+                selected = collect_batch_posts(page, reader, subreddit, config.limit, deadline)
+                selected = enrich_link_previews(page, reader, selected, subreddit, priority_ids=priorities[subreddit],
+                                                budget=optional_budget, batch_deadline=deadline)
+                completed.append({"subreddit": subreddit, "posts": selected})
+                log(json.dumps({"eventType": "BROWSER_BATCH_FEED", "subreddit": subreddit, "stage": "collected", "count": len(selected)}))
+                if optional_budget.get("failure"):
+                    failure = {**batch_failure(optional_budget["failure"], subreddit, bool(session)), "stage": "optional_preview"}
+                    break
+            except BrowserCancelled:
+                interrupted = True
+                failure = {"subreddit": subreddit, "status": "loading_timeout"}
+                break
+            except Exception as error:
+                failure = batch_failure(error, subreddit, bool(session))
+                break
+        if completed and session_output and not interrupted:
+            try:
+                export_session(page, seed, session_output)
+            except SessionError:
+                log("Final session snapshot was unavailable. Keeping the verified initial snapshot.")
+    if completed:
+        result = {"status": "accessible", "feeds": completed}
+        if failure:
+            result["batchFailure"] = failure
+        return result
+    return {**(failure or {"status": "empty", "subreddit": feeds[0]}), "posts": []}
+
+
 def run(config):
+    if getattr(config, "all_feeds", False):
+        return run_all_feeds(config)
     from invisible_playwright import InvisiblePlaywright
 
     source = READER.read_text().strip()
