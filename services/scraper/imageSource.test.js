@@ -949,3 +949,59 @@ test("preview.enabled does not prevent ordinary publisher image fallback", async
   assert.equal(image, "https://publisher.example/photo.jpg");
   assert.equal(requests, 1);
 });
+
+test("article preference upgrades only small external link thumbnails", async () => {
+  const thumbnail = "https://external-preview.redd.it/story.jpg?width=140&amp;auto=webp";
+  const data = { thumbnail, url: "https://publisher.example/story" };
+  let calls = 0;
+  const fetchArticleImageImpl = async () => { calls += 1; return "https://publisher.example/full.jpg"; };
+  assert.equal(await imageSource(data, { fetchArticleImageImpl }), thumbnail.replace(/amp;/g, ""));
+  assert.equal(calls, 0);
+  assert.equal(await imageSource(data, { preferArticleImage: true, fetchArticleImageImpl }), "https://publisher.example/full.jpg");
+  assert.equal(calls, 1);
+  assert.equal(await imageSource({ ...data, thumbnail: "https://preview.redd.it/story.jpg?width=320" }, { preferArticleImage: true, fetchArticleImageImpl }), "https://publisher.example/full.jpg");
+  assert.equal(calls, 2);
+});
+
+test("article preference preserves the small thumbnail after empty results or errors", async () => {
+  const data = { thumbnail: "https://external-preview.redd.it/story.jpg?width=140&amp;auto=webp", url: "https://publisher.example/story" };
+  const expected = data.thumbnail.replace(/amp;/g, "");
+  assert.equal(await imageSource(data, { preferArticleImage: true, fetchArticleImageImpl: async () => "" }), expected);
+  const failures = [];
+  assert.equal(await imageSource(data, {
+    preferArticleImage: true,
+    fetchArticleImageImpl: async () => { throw new Error("publisher blocked metadata"); },
+    onArticleImageFailure: (failure) => failures.push(failure),
+  }), expected);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].reason, "fetch_error");
+});
+
+test("article preference keeps full previews and media behavior", async () => {
+  const data = { thumbnail: "https://external-preview.redd.it/story.jpg?width=140", url: "https://publisher.example/story" };
+  const options = { preferArticleImage: true, fetchArticleImageImpl: async () => { throw new Error("Unexpected article fetch"); } };
+  let calls = 0;
+  options.fetchArticleImageImpl = async () => { calls += 1; return "https://publisher.example/full.jpg"; };
+  const preview = "https://preview.redd.it/full.jpg?width=1200";
+  assert.equal(await imageSource({ ...data, preview: { images: [{ source: { url: preview } }] } }, options), preview);
+  const gallery = { ...data, is_gallery: true, gallery_data: { items: [{ media_id: "photo" }] }, media_metadata: { photo: { s: { u: preview } } } };
+  assert.equal(await imageSource(gallery, options), preview);
+  for (const flags of [{ is_video: true }, { is_self: true }, { post_hint: "image" }, { post_hint: "rich:video" }, { rpan_video: {} }, { is_gallery: true }]) {
+    assert.equal(await imageSource({ ...data, ...flags }, options), data.thumbnail);
+  }
+  assert.equal(calls, 0);
+});
+
+test("article preference leaves large, unknown-size, and Reddit destination thumbnails alone", async () => {
+  let calls = 0;
+  const options = { preferArticleImage: true, fetchArticleImageImpl: async () => { calls += 1; return "https://publisher.example/full.jpg"; } };
+  for (const query of ["width=321", "width=640", "", "width=0", "width=-1", "width=140px", "width=140&width=640"]) {
+    const thumbnail = `https://external-preview.redd.it/story.jpg?${query}`;
+    assert.equal(await imageSource({ thumbnail, url: "https://publisher.example/story" }, options), thumbnail);
+  }
+  for (const url of ["https://www.reddit.com/r/news/comments/abc/story/", "https://i.redd.it/photo.jpg"]) {
+    const thumbnail = "https://preview.redd.it/story.jpg?width=140";
+    assert.equal(await imageSource({ thumbnail, url }, options), thumbnail);
+  }
+  assert.equal(calls, 0);
+});

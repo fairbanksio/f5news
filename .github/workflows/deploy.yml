@@ -44,7 +44,7 @@ jobs:
     name: 'Serverless'
     needs: infrastructure
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     # Required for Github-AWS OIDC to work
     permissions:
@@ -92,6 +92,9 @@ jobs:
         SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
       name: "Scraper Service - Deploy"
       working-directory: 'services/scraper'
+
+    - name: "Scraper Service - Verify Live Extraction"
+      run: node scripts/check-browser-deployment.cjs
 
     # Deploy Subreddits Service
     - run: npm ci
