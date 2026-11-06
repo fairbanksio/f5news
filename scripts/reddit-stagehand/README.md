@@ -1,6 +1,6 @@
 # Reddit Rising Prototype
 
-Read exact metadata from Reddit's rendered pages with Stagehand 4.4.0 and save JSON locally. This tool makes no AI requests and needs no model API key or Browserbase credentials. MongoDB import and deployment are not implemented; the scheduled Lambda scraper is unchanged.
+Read exact metadata from Reddit's rendered pages with Stagehand 4.4.0 and save JSON locally. This tool makes no AI requests and needs no model API key or Browserbase credentials. This Chrome CLI saves local files. The [scheduled scraper](../../services/scraper/README.md) uses the shared reader through its Firefox runtime and writes to MongoDB.
 
 ## Setup
 

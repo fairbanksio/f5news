@@ -93,6 +93,9 @@ jobs:
       name: "Scraper Service - Deploy"
       working-directory: 'services/scraper'
 
+    - name: "Scraper Service - Verify Live Extraction"
+      run: node scripts/check-browser-deployment.cjs
+
     # Deploy Subreddits Service
     - run: npm ci
       name: "Subreddits Service - Install dependencies"

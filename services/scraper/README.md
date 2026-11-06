@@ -44,7 +44,7 @@ No credentials are required for that extraction check. Running the real handler 
 
 ## Deployment
 
-Use the repository's GitHub Actions deployment workflow. Serverless builds the container from the repository root and publishes it to its managed ECR repository. The deployment role needs the ECR image-build and push permissions required by Serverless, in addition to its existing Lambda and CloudFormation permissions.
+Use the repository's GitHub Actions deployment workflow. After deploying the scraper, the workflow invokes politics and requires a completed job with every extracted post saved. It prints aggregate counts only; raw responses stay on the runner. Serverless builds the container from the repository root and publishes it to its managed ECR repository. The deployment role needs the ECR image-build and push permissions required by Serverless, in addition to its existing Lambda and CloudFormation permissions.
 
 The function has a new physical name ending in `fetchPosts-browser`, since AWS cannot change an existing ZIP function into an image function. CloudFormation retains the scheduled inputs and retargets them to the new function. Update any dashboard or alert filters that use the old physical function name. Existing post data needs no migration. Reddit credential parameters remain in Terraform for rollback, but the browser function does not load them.
 

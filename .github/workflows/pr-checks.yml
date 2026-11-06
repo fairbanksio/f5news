@@ -94,7 +94,7 @@ jobs:
 
       - name: Security policy tests
         if: matrix.service == 'services/scraper'
-        run: node --test .github/security.test.cjs
+        run: node --test .github/security.test.cjs scripts/check-browser-deployment.test.cjs
 
       - name: Lint
         working-directory: ${{ matrix.service }}
