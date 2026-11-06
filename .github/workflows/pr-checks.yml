@@ -154,6 +154,12 @@ jobs:
               subprocess.run([sys.executable, "-c", check], check=True)
           '
 
+      - name: Check Offline Browser Session Roundtrip
+        run: |
+          docker run --rm --network none --read-only --pids-limit 256 --memory 2g \
+            --tmpfs /tmp:rw,size=512m f5-scraper:test \
+            python /app/scripts/reddit-invisible/check_session_runtime.py
+
       - name: Check Lambda Entrypoint Compatibility
         run: |
           cat > /tmp/f5-lambda-seccomp.json <<'EOF'

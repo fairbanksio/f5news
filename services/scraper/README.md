@@ -12,11 +12,17 @@ The image command is `index.fetchPosts`. The entrypoint sets the handler and app
 
 The image builds the Lambda runtime client separately and includes only its bundled JavaScript, compiled native addon, package metadata, and licenses. Its build tools and the application's development dependencies stay out of the runtime image.
 
-Scheduled events use anonymous website access. An explicit `authenticate: true` event enables one login attempt using the existing SSM-backed `REDDIT_USERNAME` and `REDDIT_PASSWORD`. The manual verification workflow exposes this as an opt-in flag. Challenges, rejected credentials, and unverified account sessions fail without repeated login attempts. Scheduled events do not enable it.
+Events use a shared authenticated session when `F5_REDDIT_SESSION_ENABLED=true` or `session: true`. Each fresh browser restores the session's cookies, Reddit local storage, and saved seed. Session data lives in private encrypted S3 objects; MongoDB stores only the active generation and renewal coordination. Temporary files use a private directory and 0600 permissions, then are removed after each attempt.
+
+A missing, invalid, or 12-hour-old session triggers one coordinated login using the existing SSM-backed account credentials. A MongoDB lease uses server time and lasts five minutes. Each login attempt records a 15-minute cooldown before it starts; successful publication reduces that to five minutes. Other invocations wait for the active session. Immutable objects and an owner-checked pointer update prevent an expired lease holder from replacing a newer session. Objects expire after seven days. Challenges and rejected credentials fail without repeated login attempts.
+
+The manual verification workflow supports `scheduled` to read fresh scheduled completions for all 11 feeds without invoking Lambda. It also supports `all_feeds` to check all 11 feeds and repeat politics, requiring one session generation. `renew_session` renews the first invocation under the same lease and cooldown, then verifies reuse. Explicit `session: false, authenticate: true` retains the single-login diagnostic; `session: false` disables shared state for an anonymous diagnostic.
+
+Schedules remain paused during the initial verification rollout. Enable them after both all-feed reuse and renewal checks pass.
 
 Each invocation starts a fresh browser and reads exact timestamps, counts, destination links, and media metadata. Gallery posts receive a detail-page read. Native video manifests are verified before storage. Missing required data, blocked access, unresolved human checks, browser failures, and empty feeds fail the job before any post writes. Optional article thumbnail failures retain the existing degraded-job behavior.
 
-Anonymous extraction has a 90-second budget; the opt-in account test has 150 seconds, shortened when Lambda has less time remaining. It reserves time for process cleanup and storage. Progress logs include `BROWSER_PROGRESS`, `BROWSER_EXTRACTED`, and the existing terminal scraper events. A deadline stops the browser process group and its owned Xvfb display, then rejects the invocation.
+Shared-session acquisition and extraction have a 210-second budget. Anonymous extraction has 90 seconds, and the single-login diagnostic has 150 seconds, shortened when Lambda has less time remaining. It reserves time for process cleanup and storage. Progress logs include `BROWSER_SESSION` with an opaque generation and renewal/reuse mode, `BROWSER_PROGRESS`, `BROWSER_EXTRACTED`, and the existing terminal scraper events. A deadline stops the browser process group and its owned Xvfb display, then rejects the invocation.
 
 ## Local Checks
 

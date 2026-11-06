@@ -15,6 +15,7 @@ services/scraper/*.test.js
 !scripts/reddit-invisible/
 !scripts/reddit-invisible/requirements.lock
 !scripts/reddit-invisible/smoke.py
+!scripts/reddit-invisible/check_session_runtime.py
 !scripts/reddit-stagehand/
 !scripts/reddit-stagehand/package.json
 !scripts/reddit-stagehand/browser-reader.js
