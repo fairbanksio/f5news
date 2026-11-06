@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkInvocation } = require("./check-browser-deployment.cjs");
+const { checkInvocation, failureSummary } = require("./check-browser-deployment.cjs");
 const response = (fields = {}) => ({ StatusCode: 200, LogResult: Buffer.from('request prefix\t' + JSON.stringify({ eventType: "SCRAPER_JOB_COMPLETED", outcome: "success", fetchedCount: 25, savedCount: 25, ...fields })).toString("base64") });
 test("deployment probe accepts saved posts and optional image degradation", () => {
   assert.equal(checkInvocation(response()).savedCount, 25);
@@ -11,4 +11,24 @@ test("deployment probe rejects Lambda errors despite HTTP success", () => {
 });
 test("deployment probe rejects missing terminal logs and incomplete writes", () => {
   for (const result of [{ StatusCode: 200 }, response({ fetchedCount: 0, savedCount: 0 }), response({ savedCount: 24 }), response({ outcome: "failed" })]) assert.throws(() => checkInvocation(result));
+});
+
+
+test("failed probe summaries omit secrets, URLs, and stacks", () => {
+  const result = failureSummary({}, { errorType: "Runtime.ImportModuleError", errorMessage: "missing handler bearer private-token https://private.example/path?token=hidden password=hidden env-secret-value", stack: "private-stack" }, { API_KEY: "env-secret-value" });
+  const output = JSON.stringify(result);
+  for (const secret of ["private-token", "private.example", "hidden", "env-secret-value", "private-stack"]) assert.ok(!output.includes(secret));
+  assert.equal(result.errorType, "Runtime.ImportModuleError");
+  assert.equal(failureSummary({}, { errorType: "MongoServerSelectionError", errorMessage: "private database host" }).errorMessage, "Database operation failed");
+});
+
+test("failed probe summaries include only browser failure messages", () => {
+  const logs = [
+    { eventType: "POST_BATCH", privateData: "private-post" },
+    { eventType: "BROWSER_PROGRESS", message: "Launching browser." },
+    { eventType: "BROWSER_PROGRESS", message: "Browser test failed (PermissionError): Read-only filesystem" },
+  ];
+  const summary = failureSummary({ LogResult: Buffer.from(logs.map(JSON.stringify).join("\n")).toString("base64") }, {});
+  assert.deepEqual(summary.browserErrors, [logs[2].message]);
+  assert.ok(!JSON.stringify(summary).includes("private-post"));
 });
