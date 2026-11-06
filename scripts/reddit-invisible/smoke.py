@@ -15,6 +15,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlsplit
 
+# Preserve HTTP error responses so status diagnostics can distinguish denials.
+BROWSER_EXTRA_PREFS = {"browser.http.blank_page_with_error_response.enabled": True}
 ROOT = Path(__file__).resolve().parent
 SUBREDDITS = Path(os.environ.get("F5_SUBREDDITS_FILE", str(ROOT / "../../services/posts/subreddits.json")))
 READER = Path(os.environ.get("F5_BROWSER_READER", str(ROOT / "../reddit-stagehand/browser-reader.js")))
@@ -322,8 +324,11 @@ def navigate(page, url, wait_until="domcontentloaded", timeout=30000, now=time.m
                 raise SessionError("Browser navigation failed", "navigation_network_error")
             try:
                 result = page.goto(url, wait_until=wait_until, timeout=max(1, int(remaining * 1000)))
+                if not observed:
+                    response_observer(result)
                 reject_explicit_http()
-                return result
+                if not 500 <= observed.get("status", 0) <= 599:
+                    return result
             except SessionError:
                 raise
             except Exception as error:
@@ -331,12 +336,13 @@ def navigate(page, url, wait_until="domcontentloaded", timeout=30000, now=time.m
                 first_line = str(error).splitlines()[0] if str(error) else ""
                 if not re.search(r"(?:^|:\s*)(?:NS_ERROR_NET_EMPTY_RESPONSE|NS_ERROR_NET_RESET|(?:net::)?ERR_CONNECTION_RESET)(?:\s|:|$)", first_line):
                     raise
-                remaining = deadline - now()
-                delay = attempt + 1
-                if attempt == 2 or remaining <= delay:
-                    raise SessionError("Browser navigation failed", "navigation_network_error", observed.get("status"), observed.get("retryAfterSeconds")) from None
-                log("Retrying a transient browser navigation.")
-                sleep(delay)
+            remaining = deadline - now()
+            delay = attempt + 1
+            if attempt == 2 or remaining <= delay:
+                raise SessionError("Browser navigation failed", "navigation_network_error", observed.get("status"), observed.get("retryAfterSeconds")) from None
+            log("Retrying a transient browser navigation.")
+            sleep(delay)
+
     finally:
         active = False
         try:
@@ -626,7 +632,7 @@ def run(config):
         except SessionError as error:
             return {"status": "session_invalid", "sessionReason": error.code, "subreddit": config.subreddit, "posts": []}
     seed = session["seed"] if session else secrets.randbelow(2**31)
-    launch_options = {"headless": True}
+    launch_options = {"headless": True, "extra_prefs": BROWSER_EXTRA_PREFS}
     if session or getattr(config, "authenticate", False):
         launch_options["seed"] = seed
     log("Launching the isolated Firefox session.")

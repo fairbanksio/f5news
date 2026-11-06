@@ -521,7 +521,7 @@ class SessionTests(unittest.TestCase):
             with patch.dict(sys.modules, {"invisible_playwright": module}), patch.dict(os.environ, {"REDDIT_USERNAME": "", "REDDIT_PASSWORD": ""}), patch.object(smoke, "read_session", return_value=fixture), patch.object(smoke, "state", return_value="feed"), patch.object(smoke, "authenticate_once", side_effect=AssertionError("Must not log in")):
                 result = smoke.run(config)
             self.assertEqual(result["status"], "accessible")
-            self.assertEqual(events[0], {"headless": True, "seed": 12345})
+            self.assertEqual(events[0], {"headless": True, "seed": 12345, "extra_prefs": smoke.BROWSER_EXTRA_PREFS})
             self.assertEqual(smoke.read_session(output), fixture)
         self.assertEqual(events[-1], "closed")
         self.assertNotIn("https://www.reddit.com/login/", events)
@@ -682,6 +682,16 @@ class NavigationHTTPTests(unittest.TestCase):
         with self.assertRaises(smoke.SessionError) as caught:
             smoke.navigate(page, "https://www.reddit.com", now=now, sleep=sleep)
         self.assertEqual(events["calls"], 3)
+        self.assertEqual(caught.exception.http_status, 503)
+        self.assertEqual(caught.exception.code, "navigation_network_error")
+
+    def test_normal_503_response_has_three_bounded_gets_instead_of_feed_wait(self):
+        page, events = self.page(self.response(503, {"content-length": "0"}), error=False)
+        clock, now, sleep = NavigationTests().clock()
+        with self.assertRaises(smoke.SessionError) as caught:
+            smoke.navigate(page, "https://www.reddit.com", timeout=5000, now=now, sleep=sleep)
+        self.assertEqual(events["calls"], 3)
+        self.assertEqual(clock["delays"], [1, 2])
         self.assertEqual(caught.exception.http_status, 503)
         self.assertEqual(caught.exception.code, "navigation_network_error")
 
