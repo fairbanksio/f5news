@@ -2,7 +2,7 @@
 
 The scheduled handler reads up to 25 organic Rising posts for each configured subreddit through `invisible-playwright`. It replaces the OAuth and Reddit listing API calls. The MongoDB upsert, article thumbnails, image backfill, and job metrics use the existing pipeline.
 
-The Python browser and the Stagehand prototype share a DOM reader and F5 field mapper. The deployed runtime uses Firefox directly because Stagehand requires Chromium. It makes no AI model calls and needs no Browserbase account or Reddit API credentials.
+The Python browser and the Stagehand prototype share a DOM reader and F5 field mapper. The deployed runtime uses Firefox directly because Stagehand requires Chromium. It makes no AI model calls and needs no Browserbase account or Reddit API client credentials.
 
 ## Runtime
 
@@ -12,9 +12,11 @@ The image command is `index.fetchPosts`. The entrypoint sets the handler and app
 
 The image builds the Lambda runtime client separately and includes only its bundled JavaScript, compiled native addon, package metadata, and licenses. Its build tools and the application's development dependencies stay out of the runtime image.
 
+Scheduled events use anonymous website access. An explicit `authenticate: true` event enables one login attempt using the existing SSM-backed `REDDIT_USERNAME` and `REDDIT_PASSWORD`. The manual verification workflow exposes this as an opt-in flag. Challenges, rejected credentials, and unverified account sessions fail without repeated login attempts. Scheduled events do not enable it.
+
 Each invocation starts a fresh browser and reads exact timestamps, counts, destination links, and media metadata. Gallery posts receive a detail-page read. Native video manifests are verified before storage. Missing required data, blocked access, unresolved human checks, browser failures, and empty feeds fail the job before any post writes. Optional article thumbnail failures retain the existing degraded-job behavior.
 
-Browser extraction has a 90-second budget, shortened when Lambda has less time remaining. It reserves time for process cleanup and storage. Progress logs include `BROWSER_PROGRESS`, `BROWSER_EXTRACTED`, and the existing terminal scraper events. A deadline stops the browser process group and its owned Xvfb display, then rejects the invocation.
+Anonymous extraction has a 90-second budget; the opt-in account test has 150 seconds, shortened when Lambda has less time remaining. It reserves time for process cleanup and storage. Progress logs include `BROWSER_PROGRESS`, `BROWSER_EXTRACTED`, and the existing terminal scraper events. A deadline stops the browser process group and its owned Xvfb display, then rejects the invocation.
 
 ## Local Checks
 

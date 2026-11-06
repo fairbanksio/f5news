@@ -313,7 +313,7 @@ const createFetchPosts = ({
       await mongooseClient.connect();
       stage = "browser_extract";
       const remaining = typeof context.getRemainingTimeInMillis === "function" ? context.getRemainingTimeInMillis() : 120_000;
-      const children = await scrapePostsImpl({ subreddit, limit: 25, timeoutMs: Math.min(90_000, remaining - 20_000), logger });
+      const children = await scrapePostsImpl({ subreddit, limit: 25, timeoutMs: Math.min(event.authenticate === true ? 150_000 : 90_000, remaining - 20_000), logger, authenticate: event.authenticate === true });
       if (!Array.isArray(children)) throw new Error("Browser extraction response missing posts");
       job.fetchedCount = children.length;
       stage = "post_write";

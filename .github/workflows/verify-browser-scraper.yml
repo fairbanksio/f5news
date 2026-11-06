@@ -2,6 +2,11 @@ name: Verify Browser Scraper
 
 on:
   workflow_dispatch:
+    inputs:
+      authenticate:
+        description: Try one login with the approved Reddit account
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,4 +37,6 @@ jobs:
           role-duration-seconds: 900
 
       - name: Verify Live Extraction
+        env:
+          F5_PROBE_AUTHENTICATE: ${{ inputs.authenticate }}
         run: node scripts/check-browser-deployment.cjs

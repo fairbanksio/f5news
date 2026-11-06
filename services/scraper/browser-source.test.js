@@ -64,3 +64,17 @@ test("deadline kills and awaits an unresponsive browser process", async () => {
   assert.equal(child.signalCode, "SIGKILL");
   assert.throws(() => process.kill(child.pid, 0), { code: "ESRCH" });
 });
+
+test("account login is opt-in and credential values are redacted", async () => {
+  const messages = [];
+  const request = { subreddit: "news", limit: 25, timeoutMs: 5000, authenticate: true,
+    logger: { log: (message) => messages.push(message) }, redactionValues: ["private-login-password"],
+    spawnImpl: (executable, args) => {
+      assert.ok(args.includes("--authenticate"));
+      return spawnCode('console.error("private-login-password"); console.log(JSON.stringify({status:"accessible",posts:[]}))')();
+    },
+  };
+  await runBrowser(request);
+  assert.ok(!messages.join().includes("private-login-password"));
+  assert.ok(messages.join().includes("[redacted]"));
+});

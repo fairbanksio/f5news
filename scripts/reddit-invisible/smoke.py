@@ -16,8 +16,16 @@ SUBREDDITS = Path(os.environ.get("F5_SUBREDDITS_FILE", str(ROOT / "../../service
 READER = Path(os.environ.get("F5_BROWSER_READER", str(ROOT / "../reddit-stagehand/browser-reader.js")))
 
 
+def redact(message):
+    result = str(message)
+    names = ("MONGO_CONNECTION_STRING", "REDDIT_USERNAME", "REDDIT_PASSWORD", "REDDIT_CLIENT_ID", "REDDIT_SECRET_KEY")
+    for value in sorted({os.environ.get(name, "") for name in names} - {""}, key=len, reverse=True):
+        result = result.replace(value, "[redacted]")
+    return re.sub(r"(https?://[^\s?]+)\?[^\s]+", r"\1?[redacted]", result)
+
+
 def log(message):
-    print(message, file=sys.stderr, flush=True)
+    print(redact(message), file=sys.stderr, flush=True)
 
 
 class BrowserCancelled(BaseException):
@@ -100,6 +108,7 @@ def options(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--subreddit", type=str.lower, default="politics", choices=names)
     parser.add_argument("--limit", type=int, choices=range(1, 26), default=25)
+    parser.add_argument("--authenticate", action="store_true", help="Try the configured Reddit website account once")
     result = parser.parse_args(args)
     result.subreddit = names[result.subreddit]
     return result
@@ -118,6 +127,84 @@ def state(page):
         if "Execution context was destroyed" in str(error) or "Cannot find context" in str(error):
             return "loading"
         raise
+
+
+def login_state(page):
+    try:
+        return page.evaluate_read("""() => {
+      const text = `${document.title}\n${document.body?.innerText || ''}`;
+      if (/prove your humanity|verify (that )?you('re| are) human|complete the challenge/i.test(text)) return 'challenge';
+      if (/blocked by network security|you.have been blocked/i.test(text)) return 'blocked';
+      const errors = [...document.querySelectorAll('[role="alert"], faceplate-form#login [slot="error"]')];
+      if (errors.some(element => element.getClientRects().length && element.textContent.trim()) ||
+          /invalid (username|password)|incorrect (username|password)|wrong (username|password)|too many (requests|attempts)/i.test(text)) return 'failed';
+      return document.querySelector('faceplate-form#login') ? 'login' : 'loading';
+    }""")
+
+    except Exception as error:
+        if "Execution context was destroyed" in str(error) or "Cannot find context" in str(error):
+            return "loading"
+        raise
+
+
+def has_account_session(page):
+    return any(cookie.get("name") == "reddit_session" and cookie.get("value")
+               and (cookie.get("domain") or "").lstrip(".") == "reddit.com"
+               for cookie in page.context.cookies())
+
+
+def authenticate_once(page, feed_url):
+    username = os.environ.get("REDDIT_USERNAME", "")
+    password = os.environ.get("REDDIT_PASSWORD", "")
+    if not username or not password:
+        return "auth_credentials_missing"
+    log("Opening Reddit website login for one account attempt.")
+    page.goto("https://www.reddit.com/login/", wait_until="domcontentloaded", timeout=30000)
+    started = time.monotonic()
+    while time.monotonic() - started < 30:
+        access = login_state(page)
+        if access in ("blocked", "challenge", "failed"):
+            return "auth_" + access
+        if access == "login":
+            break
+        time.sleep(1)
+    else:
+        return "auth_login_unavailable"
+    target = urlsplit(page.url)
+    if target.scheme != "https" or target.hostname not in ("www.reddit.com", "reddit.com") or target.username or target.password:
+        return "auth_login_unavailable"
+    # Selectors were checked against the public login form and its open shadow roots.
+    username_field = page.locator('faceplate-text-input#login-username input[name="username"]')
+    password_field = page.locator('faceplate-text-input#login-password input[name="password"]')
+    submit = page.locator('faceplate-form#login').get_by_role("button", name="Log In", exact=True)
+    if any(field.count() != 1 or not field.is_visible() for field in (username_field, password_field, submit)):
+        return "auth_login_unavailable"
+    username_field.fill(username, timeout=5000)
+    password_field.fill(password, timeout=5000)
+    if not submit.is_enabled():
+        return "auth_failed"
+    submit.click(timeout=5000)
+    started = time.monotonic()
+    while time.monotonic() - started < 30:
+        access = login_state(page)
+        if access in ("blocked", "challenge", "failed"):
+            return "auth_" + access
+        if has_account_session(page):
+            break
+        time.sleep(1)
+    else:
+        return "auth_unverified"
+    log("Checking authenticated access to the configured feed.")
+    page.goto(feed_url, wait_until="domcontentloaded", timeout=30000)
+    started = time.monotonic()
+    while time.monotonic() - started < 60:
+        access = state(page)
+        if access in ("blocked", "challenge"):
+            return "auth_" + access
+        if access == "feed":
+            return "authenticated" if has_account_session(page) else "auth_unverified"
+        time.sleep(1)
+    return "auth_feed_timeout"
 
 
 CORE_ATTRIBUTES = ("id", "subreddit-name", "permalink", "content-href", "post-title", "author", "created-timestamp", "score", "comment-count", "post-type")
@@ -210,8 +297,13 @@ def run(config):
         page = browser.new_page()
         page.on("crash", lambda *_args: log("Browser page crashed."))
         page.on("close", lambda *_args: log("Browser page closed."))
-        log("Loading the configured Reddit feed in a fresh browser session.")
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        if getattr(config, "authenticate", False):
+            authentication = authenticate_once(page, url)
+            if authentication != "authenticated":
+                return {"status": authentication, "subreddit": config.subreddit, "posts": []}
+        else:
+            log("Loading the configured Reddit feed in a fresh browser session.")
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
         clicked = False
         access_started = time.monotonic()
         last_report = access_started

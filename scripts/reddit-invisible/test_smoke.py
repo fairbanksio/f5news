@@ -1,5 +1,6 @@
 import argparse
 import json
+import io
 import os
 import signal
 import subprocess
@@ -7,6 +8,7 @@ import sys
 import tempfile
 import types
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -137,6 +139,117 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(result["status"], "accessible")
         self.assertEqual(result["posts"], [raw])
         self.assertEqual(events, ["click", "closed"])
+
+
+class AuthenticationTests(unittest.TestCase):
+    def test_authentication_is_explicitly_opted_in(self):
+        self.assertFalse(smoke.options([]).authenticate)
+        self.assertTrue(smoke.options(["--authenticate"]).authenticate)
+
+    def test_logs_redact_mongo_and_reddit_credentials(self):
+        secrets = {"MONGO_CONNECTION_STRING": "mongodb://private-host/database", "REDDIT_USERNAME": "private-account",
+                   "REDDIT_PASSWORD": "private-password", "REDDIT_CLIENT_ID": "private-client-id", "REDDIT_SECRET_KEY": "private-client-secret"}
+        output = io.StringIO()
+        with patch.dict(os.environ, secrets), patch.object(sys, "stderr", output):
+            smoke.log("Failure: " + " ".join(secrets.values()) + " https://example.com/path?token=private-token")
+        for secret in [*secrets.values(), "private-token"]:
+            self.assertNotIn(secret, output.getvalue())
+        self.assertIn("[redacted]", output.getvalue())
+
+    def login_page(self):
+        events = []
+
+        class Field:
+            def __init__(self, name):
+                self.name = name
+
+            def count(self):
+                return 1
+
+            def is_visible(self):
+                return True
+
+            def is_enabled(self):
+                return True
+
+            def fill(self, value, **_kwargs):
+                events.append(("fill", self.name, value))
+
+            def click(self, **_kwargs):
+                events.append(("click", self.name))
+
+            def get_by_role(self, *_args, **_kwargs):
+                return Field("submit")
+
+        page = types.SimpleNamespace(
+            url="https://www.reddit.com/login/",
+            goto=lambda url, **_kwargs: events.append(("goto", url)),
+            locator=lambda selector: Field(selector),
+            context=types.SimpleNamespace(cookies=lambda: []),
+        )
+        return page, events
+
+    def test_missing_credentials_never_navigates_or_fills(self):
+        page, events = self.login_page()
+        with patch.dict(os.environ, {"REDDIT_USERNAME": "", "REDDIT_PASSWORD": ""}):
+            self.assertEqual(smoke.authenticate_once(page, "https://www.reddit.com/r/politics/rising/"), "auth_credentials_missing")
+        self.assertEqual(events, [])
+
+    def test_login_submits_once_then_requires_session_and_feed(self):
+        page, events = self.login_page()
+        access = iter(["login", "loading"])
+        credentials = {"REDDIT_USERNAME": "test-account", "REDDIT_PASSWORD": "test-password"}
+        with patch.dict(os.environ, credentials), patch.object(smoke, "login_state", side_effect=lambda _page: next(access)), patch.object(smoke, "has_account_session", return_value=True), patch.object(smoke, "state", return_value="feed"):
+            result = smoke.authenticate_once(page, "https://www.reddit.com/r/politics/rising/")
+        self.assertEqual(result, "authenticated")
+        self.assertEqual(sum(event[0] == "click" for event in events), 1)
+        self.assertEqual(sum(event[0] == "fill" for event in events), 2)
+        self.assertEqual(events[-1], ("goto", "https://www.reddit.com/r/politics/rising/"))
+
+    def test_login_challenge_or_block_prevents_fill(self):
+        for access in ("challenge", "blocked"):
+            page, events = self.login_page()
+            with patch.dict(os.environ, {"REDDIT_USERNAME": "test-account", "REDDIT_PASSWORD": "test-password"}), patch.object(smoke, "login_state", return_value=access):
+                self.assertEqual(smoke.authenticate_once(page, "https://www.reddit.com/r/politics/rising/"), "auth_" + access)
+            self.assertEqual([event[0] for event in events], ["goto"])
+
+    def test_failed_credentials_or_challenge_after_submission_never_retries(self):
+        for access in ("failed", "challenge", "blocked"):
+            page, events = self.login_page()
+            states = iter(["login", access])
+            with patch.dict(os.environ, {"REDDIT_USERNAME": "test-account", "REDDIT_PASSWORD": "test-password"}), patch.object(smoke, "login_state", side_effect=lambda _page: next(states)):
+                result = smoke.authenticate_once(page, "https://www.reddit.com/r/politics/rising/")
+            self.assertEqual(result, "auth_" + access)
+            self.assertEqual(sum(event[0] == "click" for event in events), 1)
+
+    def test_successful_feed_without_account_session_is_unverified(self):
+        page, events = self.login_page()
+        with patch.dict(os.environ, {"REDDIT_USERNAME": "test-account", "REDDIT_PASSWORD": "test-password"}), patch.object(smoke, "login_state", side_effect=["login", "loading"]), patch.object(smoke, "has_account_session", side_effect=[True, False]), patch.object(smoke, "state", return_value="feed"):
+            self.assertEqual(smoke.authenticate_once(page, "https://www.reddit.com/r/politics/rising/"), "auth_unverified")
+        self.assertEqual(sum(event[0] == "click" for event in events), 1)
+
+    def test_login_redirect_to_another_site_never_receives_credentials(self):
+        page, events = self.login_page()
+        page.url = "https://evil.example/login/"
+        with patch.dict(os.environ, {"REDDIT_USERNAME": "test-account", "REDDIT_PASSWORD": "test-password"}), patch.object(smoke, "login_state", return_value="login"):
+            self.assertEqual(smoke.authenticate_once(page, "https://www.reddit.com/r/politics/rising/"), "auth_login_unavailable")
+        self.assertEqual([event[0] for event in events], ["goto"])
+
+    def test_auth_session_cookie_is_required_and_never_logged(self):
+        page, _events = self.login_page()
+        for cookie, expected in [({"name": "csrf_token", "value": "anonymous", "domain": ".reddit.com"}, False),
+                                 ({"name": "token_v2", "value": "anonymous", "domain": ".reddit.com"}, False),
+                                 ({"name": "reddit_session", "value": "session-secret", "domain": ".reddit.com"}, True),
+                                 ({"name": "token_v2", "value": "session-secret", "domain": "evil.example"}, False)]:
+            page.context.cookies = lambda: [cookie]
+            self.assertEqual(smoke.has_account_session(page), expected)
+
+    def test_auth_failure_cli_returns_nonzero_with_no_posts(self):
+        output = io.StringIO()
+        config = argparse.Namespace(subreddit="politics", limit=1, authenticate=True)
+        with patch.object(smoke, "options", return_value=config), patch.object(smoke, "browser_lifecycle", return_value=nullcontext()), patch.object(smoke, "run", return_value={"status": "auth_failed", "posts": []}), patch.object(smoke, "log_resources"), patch.object(sys, "stdout", output):
+            self.assertEqual(smoke.main(), 2)
+        self.assertEqual(json.loads(output.getvalue())["posts"], [])
 
 
 class GalleryTests(unittest.TestCase):
