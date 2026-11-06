@@ -4,6 +4,7 @@
 !services/scraper/Dockerfile
 !services/scraper/package.json
 !services/scraper/package-lock.json
+!services/scraper/entrypoint.sh
 !services/scraper/*.js
 services/scraper/*.test.js
 !services/scraper/models/

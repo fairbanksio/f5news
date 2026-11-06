@@ -6,7 +6,7 @@ The Python browser and the Stagehand prototype share a DOM reader and F5 field m
 
 ## Runtime
 
-The function runs from an ARM64 container with 2 GiB RAM, a 240-second timeout, and 1 GiB of temporary storage. Firefox is baked into the image. Runtime state goes under `/tmp`, allowing a read-only root filesystem. Tini reaps orphaned browser processes so repeated warm invocations do not accumulate zombies.
+The function runs from an ARM64 container with 2 GiB RAM, a 240-second timeout, and 1 GiB of temporary storage. Firefox is baked into the image. Runtime state goes under `/tmp`, allowing a read-only root filesystem. On Lambda, the entrypoint starts Node directly to avoid unsupported subreaper calls. Local Docker runs use Tini to reap orphaned browser processes across repeated invocations.
 
 The image builds the Lambda runtime client separately and includes only its bundled JavaScript, compiled native addon, package metadata, and licenses. Its build tools and the application's development dependencies stay out of the runtime image.
 
