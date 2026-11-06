@@ -60,11 +60,12 @@ function checkInvocation(metadata, { session = false } = {}) {
 
 const FEEDS = ["politics", "worldnews", "europe", "news", "technology", "science", "health", "energy", "sports", "business", "Economics"];
 
-async function verifyFeeds({ allFeeds = false, session = true, authenticate = false, renewSession = false, invoke, emit = console.log } = {}) {
+async function verifyFeeds({ allFeeds = false, subreddit = "politics", session = true, authenticate = false, renewSession = false, invoke, emit = console.log } = {}) {
+  assert.ok(FEEDS.includes(subreddit), "Select a configured subreddit for browser verification");
   assert.ok(!(allFeeds && authenticate), "All-feed verification uses one shared session; authenticate is only available for a single bootstrap");
   assert.ok(!allFeeds || session, "All-feed verification requires session reuse");
   assert.ok(!renewSession || (session && !authenticate), "Session renewal requires shared-session verification without bootstrap authentication");
-  const events = (allFeeds ? [...FEEDS, "politics"] : ["politics"]).map((subreddit, index) => ({
+  const events = (allFeeds ? [...FEEDS, "politics"] : [subreddit]).map((subreddit, index) => ({
     subreddit,
     ...(authenticate ? { authenticate: true, session: false } : { session }),
     ...(renewSession && index === 0 ? { renewSession: true } : {}),
@@ -178,7 +179,7 @@ function invokeLive(event) {
 if (require.main === module) {
   const verification = process.env.F5_PROBE_SCHEDULED === "true"
     ? verifyScheduled({ readEvents: readScheduledEvents })
-    : verifyFeeds({ allFeeds: process.env.F5_PROBE_ALL_FEEDS === "true",
+    : verifyFeeds({ allFeeds: process.env.F5_PROBE_ALL_FEEDS === "true", subreddit: process.env.F5_PROBE_SUBREDDIT || "politics",
       session: process.env.F5_PROBE_SESSION !== "false", authenticate: process.env.F5_PROBE_AUTHENTICATE === "true",
       renewSession: process.env.F5_PROBE_RENEW_SESSION === "true", invoke: invokeLive,
     });
