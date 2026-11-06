@@ -231,7 +231,7 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(sum(event[0] == "click" for event in events), 1)
 
     def test_other_click_errors_propagate_without_another_attempt(self):
-        for message in ("Timeout waiting for element", "mouseup landed on span.flex", "action went out but did not reach the element: mouseup was never sent"):
+        for message in ("Timeout waiting for element", "NS_ERROR_NET_RESET", "mouseup landed on span.flex", "action went out but did not reach the element: mouseup was never sent"):
             page, events = self.login_page(click_error=RuntimeError(message))
             with patch.dict(os.environ, {"REDDIT_USERNAME": "test-account", "REDDIT_PASSWORD": "test-password"}), patch.object(smoke, "login_state", return_value="login"):
                 with self.assertRaisesRegex(RuntimeError, message):
@@ -533,6 +533,92 @@ class SessionTests(unittest.TestCase):
                 smoke.options(args)
 
 
+class NavigationTests(unittest.TestCase):
+    def clock(self):
+        clock = {"seconds": 0, "delays": []}
+        def sleep(seconds):
+            clock["delays"].append(seconds)
+            clock["seconds"] += seconds
+        return clock, lambda: clock["seconds"], sleep
+
+    def test_transient_get_failure_retries_then_returns_the_successful_response(self):
+        clock, now, sleep = self.clock()
+        calls = []
+        response = object()
+        def goto(url, **kwargs):
+            calls.append((url, kwargs))
+            clock["seconds"] += 0.1
+            if len(calls) == 1:
+                raise RuntimeError("Page.goto: NS_ERROR_NET_EMPTY_RESPONSE")
+            return response
+        page = types.SimpleNamespace(goto=goto)
+        self.assertIs(smoke.navigate(page, "https://www.reddit.com/r/news/rising/", now=now, sleep=sleep), response)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(clock["delays"], [1])
+        self.assertLess(calls[1][1]["timeout"], calls[0][1]["timeout"])
+
+    def test_network_errors_stop_after_three_attempts_with_one_total_budget(self):
+        for code in ("NS_ERROR_NET_EMPTY_RESPONSE", "NS_ERROR_NET_RESET", "net::ERR_CONNECTION_RESET"):
+            clock, now, sleep = self.clock()
+            calls = []
+            def goto(_url, **kwargs):
+                calls.append(kwargs["timeout"])
+                clock["seconds"] += 2
+                raise RuntimeError("Page.goto: " + code)
+            with self.assertRaises(smoke.SessionError) as caught:
+                smoke.navigate(types.SimpleNamespace(goto=goto), "https://www.reddit.com", now=now, sleep=sleep)
+            self.assertEqual(caught.exception.code, "navigation_network_error")
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(clock["delays"], [1, 2])
+            self.assertEqual(calls, [30000, 27000, 23000])
+            self.assertLessEqual(clock["seconds"], 30)
+
+    def test_small_optional_timeout_cannot_become_three_full_timeouts(self):
+        clock, now, sleep = self.clock()
+        calls = []
+        def goto(_url, **kwargs):
+            calls.append(kwargs["timeout"])
+            clock["seconds"] += 2
+            raise RuntimeError("NS_ERROR_NET_RESET")
+        with self.assertRaises(smoke.SessionError):
+            smoke.navigate(types.SimpleNamespace(goto=goto), "https://www.reddit.com", timeout=5000, now=now, sleep=sleep)
+        self.assertEqual(calls, [5000, 2000])
+        self.assertEqual(clock["seconds"], 5)
+        self.assertEqual(clock["delays"], [1])
+
+    def test_unrelated_errors_and_tokens_in_call_logs_are_not_retried(self):
+        for message in ("Page.goto: Timeout exceeded", "Page.goto: NS_ERROR_UNKNOWN_HOST", "Page.goto: other error\nCall log: NS_ERROR_NET_RESET", "Page.goto: timeout at https://example.com/NS_ERROR_NET_RESET"):
+            clock, now, sleep = self.clock()
+            calls = []
+            error = RuntimeError(message)
+            def goto(_url, **_kwargs):
+                calls.append(True)
+                raise error
+            with self.assertRaises(RuntimeError) as caught:
+                smoke.navigate(types.SimpleNamespace(goto=goto), "https://www.reddit.com", now=now, sleep=sleep)
+            self.assertIs(caught.exception, error)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(clock["delays"], [])
+
+    def test_reuse_preserves_network_reason_without_declaring_cookie_expiry(self):
+        page = types.SimpleNamespace(context=types.SimpleNamespace(add_cookies=lambda _cookies: None), add_init_script=lambda **_kwargs: nullcontext())
+        with patch.object(smoke, "navigate", side_effect=smoke.SessionError("Browser navigation failed", "navigation_network_error")):
+            with self.assertRaises(smoke.SessionError) as caught:
+                smoke.reuse_session(page, SessionTests().session(), "https://www.reddit.com/r/news/rising/")
+        self.assertEqual(caught.exception.code, "navigation_network_error")
+
+    def test_network_failure_cli_emits_finite_reason_and_no_posts(self):
+        for session_input, expected in ((None, "network_error"), (Path("/tmp/session.json"), "session_invalid")):
+            output = io.StringIO()
+            config = argparse.Namespace(subreddit="politics", session_input=session_input, authenticate=not session_input)
+            with patch.object(smoke, "options", return_value=config), patch.object(smoke, "browser_lifecycle", return_value=nullcontext()), patch.object(smoke, "run", side_effect=smoke.SessionError("Browser navigation failed", "navigation_network_error")), patch.object(smoke, "log_resources"), patch.object(sys, "stdout", output):
+                self.assertEqual(smoke.main(), 2)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["status"], expected)
+            self.assertEqual(result["sessionReason"], "navigation_network_error")
+            self.assertEqual(result["posts"], [])
+
+
 class GalleryTests(unittest.TestCase):
     def page(self, details):
         calls = []
@@ -687,6 +773,31 @@ class LinkPreviewTests(unittest.TestCase):
         self.assertEqual([event[0].split("/comments/")[1].split("/")[0] for event in events], ["item5", "item4", "item3", "item2"])
         self.assertEqual([post["attributes"]["id"] for post in result], [post["attributes"]["id"] for post in posts])
         self.assertNotIn("preview", result[0])
+
+    def test_explicit_priorities_target_known_small_images_in_supplied_order(self):
+        posts = self.posts(7)
+        page, events = self.page(posts)
+        priorities = ["t3_item0", "t3_absent", "t3_item2", "t3_item1", "t3_item4", "t3_item5"]
+        with patch.object(smoke, "state", return_value="feed"):
+            result = smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=priorities)
+        self.assertEqual([event[0].split("/comments/")[1].split("/")[0] for event in events], ["item0", "item2", "item1", "item4"])
+        self.assertIn("preview", result[0])
+        self.assertNotIn("preview", result[6])
+        self.assertEqual([post["attributes"] for post in result], [post["attributes"] for post in posts])
+
+    def test_explicit_empty_priorities_skip_optional_details(self):
+        posts = self.posts(6)
+        page, events = self.page(posts)
+        self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=[]), posts)
+        self.assertEqual(events, [])
+
+    def test_image_priority_cli_distinguishes_absent_empty_and_valid_ids(self):
+        self.assertIsNone(smoke.options([]).image_priority_ids)
+        self.assertEqual(smoke.options(["--image-priority-ids", ""]).image_priority_ids, [])
+        self.assertEqual(smoke.options(["--image-priority-ids", "t3_abc,t3_def"]).image_priority_ids, ["t3_abc", "t3_def"])
+        for value in ("abc", "t3_ABC", "t3_abc,t3_abc", "t3_abc,", ",", ",".join(f"t3_item{index}" for index in range(26))):
+            with self.assertRaises(SystemExit):
+                smoke.options(["--image-priority-ids", value])
 
     def test_optional_block_or_challenge_stops_reads_without_failing_batch(self):
         for access in ("blocked", "challenge"):
