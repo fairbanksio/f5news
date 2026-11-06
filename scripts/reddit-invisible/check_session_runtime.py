@@ -193,6 +193,7 @@ def main():
                 smoke.export_session(page, seed, path)
                 stage = "checking access classification"
                 check_access_classification(page)
+                page.close()
                 stage = "checking offline HTTP response diagnostics"
                 check_navigation_http(browser)
             stage = "reading saved session state"
