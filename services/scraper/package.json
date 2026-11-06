@@ -7,6 +7,7 @@
     "node": "24.x"
   },
   "dependencies": {
+    "aws-lambda-ric": "4.0.2",
     "mongoose": "^9.11.4",
     "node-fetch": "^3.3.2"
   },
@@ -30,5 +31,11 @@
   "bugs": {
     "url": "https://github.com/fairbanksio/f5oclock/issues"
   },
-  "homepage": "https://github.com/fairbanksio/f5oclock#readme"
+  "homepage": "https://github.com/fairbanksio/f5oclock#readme",
+  "overrides": {
+    "node-gyp": {
+      "glob": "14.0.2",
+      "minimatch": "11.0.1"
+    }
+  }
 }

@@ -3,20 +3,25 @@ frameworkVersion: "4"
 
 provider:
   name: aws
-  runtime: nodejs24.x
   region: us-east-1
+  architecture: arm64
+  ecr:
+    images:
+      scraper:
+        path: ../..
+        file: services/scraper/Dockerfile
+        platform: linux/arm64
+        provenance: false
   environment:
     MONGO_CONNECTION_STRING: ${env:MONGO_CONNECTION_STRING, ssm:/primary_db_connection_string}
-    REDDIT_CLIENT_ID: ${env:REDDIT_CLIENT_ID, ssm:/reddit_client_id}
-    REDDIT_SECRET_KEY: ${env:REDDIT_SECRET_KEY, ssm:/reddit_secret_key}
-    REDDIT_USERNAME: ${env:REDDIT_USERNAME, ssm:/reddit_username}
-    REDDIT_PASSWORD: ${env:REDDIT_PASSWORD, ssm:/reddit_password}
 
 functions:
   fetchPosts:
-    timeout: 30
-    memorySize: 256
-    handler: index.fetchPosts
+    name: ${self:service}-${sls:stage}-fetchPosts-browser
+    timeout: 240
+    memorySize: 2048
+    ephemeralStorageSize: 1024
+    image: scraper
     logRetentionInDays: 7
     events:
       - schedule:

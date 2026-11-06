@@ -44,7 +44,7 @@ jobs:
     name: 'Serverless'
     needs: infrastructure
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     # Required for Github-AWS OIDC to work
     permissions:

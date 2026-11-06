@@ -1,0 +1,15 @@
+certifi==2026.10.23
+charset-normalizer==3.5.2
+greenlet==3.5.6
+idna==3.20
+invisible_core==55.50.0
+invisible_playwright==0.45.0
+maxminddb==3.2.0
+platformdirs==4.14.5
+psutil==7.2.2
+pyee==13.0.1
+PySocks==1.7.1
+requests==2.34.2
+typing_extensions==4.16.0
+tzdata==2026.6
+urllib3==2.8.0

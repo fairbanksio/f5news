@@ -23,3 +23,9 @@ For another frontend port, set `LOCAL_FRONTEND_ORIGIN` to its exact HTTP loopbac
 ### Support
 
 Help keep F5.news independent and ad-free: [Buy me a coffee](https://www.buymeacoffee.com/f5news).
+
+### Local Reddit Extraction
+
+The [Stagehand prototype](scripts/reddit-stagehand/README.md) extracts Rising posts into JSON using a separate local Chrome profile or an existing session. It runs separately from the scheduled scraper and does not write to MongoDB.
+
+The scheduled scraper now uses the [Firefox browser source](services/scraper/README.md) in an ARM64 Lambda container. It reads up to 25 Rising posts per configured feed, then uses the existing MongoDB and image pipeline. The [local runtime test](scripts/reddit-invisible/README.md) shares the same browser reader.
