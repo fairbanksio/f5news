@@ -813,6 +813,7 @@ module.exports = {
   SMALL_THUMBNAIL_PATTERN,
   fetchImageWidth,
   imageWidthFromBytes,
+  redditImageSource,
   imageSource,
   isSafeHttpUrl,
   mapWithConcurrency,
