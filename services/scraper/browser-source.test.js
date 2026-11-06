@@ -122,3 +122,24 @@ test("exhausted GET transport errors retain their finite classification", async 
     spawnImpl: spawnCode('console.log(JSON.stringify({status:"network_error",sessionReason:"navigation_network_error"}));process.exitCode=2'),
   }), (error) => error.message === "Browser extraction failed: network_error" && error.sessionReason === "navigation_network_error");
 });
+
+test("explicit HTTP navigation failures preserve only bounded diagnostic fields", async () => {
+  for (const [reason, httpStatus, retryAfterSeconds] of [
+    ["navigation_http_rejected", 401, 0], ["navigation_http_rejected", 403, 60], ["navigation_rate_limited", 429, 86400],
+  ]) {
+    const result = { status: "session_invalid", sessionReason: reason, httpStatus, retryAfterSeconds };
+    await assert.rejects(runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger,
+      spawnImpl: spawnCode(`console.log(${JSON.stringify(JSON.stringify(result))});process.exitCode=2`),
+    }), (error) => error.sessionReason === reason && error.httpStatus === httpStatus && error.retryAfterSeconds === retryAfterSeconds);
+  }
+});
+
+test("untrusted HTTP diagnostic values never reach browser errors", async () => {
+  for (const [httpStatus, retryAfterSeconds] of [["private-cookie-value", "private-cookie-value"], [500, 86401], [200, -1], ["403", 0.5]]) {
+    const result = { status: "session_invalid", sessionReason: "navigation_http_rejected", httpStatus, retryAfterSeconds };
+    await assert.rejects(runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger,
+      spawnImpl: spawnCode(`console.log(${JSON.stringify(JSON.stringify(result))});process.exitCode=2`),
+    }), (error) => error.sessionReason === "navigation_http_rejected" && !Object.hasOwn(error, "httpStatus") &&
+      !Object.hasOwn(error, "retryAfterSeconds") && !JSON.stringify(error).includes("private-cookie-value"));
+  }
+});

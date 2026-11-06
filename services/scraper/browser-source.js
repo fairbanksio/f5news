@@ -80,7 +80,11 @@ const runBrowser = ({ subreddit, limit, timeoutMs, logger, authenticate = false,
     try { result = JSON.parse(output); } catch { return reject(new Error(code === 0 ? "Browser returned invalid extraction output" : `Browser process failed (${signal || code})`)); }
     if (code !== 0 || result.status !== "accessible") {
       const error = new Error(`Browser extraction failed: ${["blocked", "empty", "loading_timeout", "challenge_required", "auth_credentials_missing", "auth_blocked", "auth_challenge", "auth_failed", "auth_login_unavailable", "auth_unverified", "auth_feed_timeout", "session_invalid", "session_blocked", "session_challenge", "network_error"].includes(result.status) ? result.status : "runtime_error"}`);
-      if (["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge", "navigation_network_error"].includes(result.sessionReason)) error.sessionReason = result.sessionReason;
+      if (["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge", "navigation_network_error", "navigation_http_rejected", "navigation_rate_limited"].includes(result.sessionReason)) error.sessionReason = result.sessionReason;
+      if (["navigation_http_rejected", "navigation_rate_limited"].includes(error.sessionReason)) {
+        if ([401, 403, 429].includes(result.httpStatus)) error.httpStatus = result.httpStatus;
+        if (Number.isInteger(result.retryAfterSeconds) && result.retryAfterSeconds >= 0 && result.retryAfterSeconds <= 86400) error.retryAfterSeconds = result.retryAfterSeconds;
+      }
       return reject(error);
     }
     resolve(result);

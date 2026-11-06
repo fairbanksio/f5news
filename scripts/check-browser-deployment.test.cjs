@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, FEEDS } = require("./check-browser-deployment.cjs");
+const { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, summarizeRuntimeEvents, FEEDS } = require("./check-browser-deployment.cjs");
 const { generateKeyPairSync, privateDecrypt, createDecipheriv, constants } = require("node:crypto");
 const diagnosticKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const diagnosticPublicKey = diagnosticKeys.publicKey.export({ type: "spki", format: "der" }).toString("base64");
@@ -409,4 +409,123 @@ test("forced renewal still requires every later feed to reuse its first renewed 
     return sharedResponse({ sessionMode: calls <= 2 ? "renewed" : "reused", sessionGeneration: `generation-${calls}` });
   } }), /more than once/);
   assert.equal(calls, 2);
+});
+
+
+const runtimeEvents = () => [
+  { message: "REPORT RequestId: private-request Duration: 100 ms Memory Size: 2048 MB Max Memory Used: 1700 MB" },
+  { message: JSON.stringify({ type: "platform.report", record: { requestId: "private-request", metrics: { memorySizeMB: 2048, maxMemoryUsedMB: 1800 }, privateData: "private-platform" } }) },
+  { message: JSON.stringify({ eventType: "BROWSER_PROGRESS", message: "Resource counters: " + JSON.stringify({
+    "memory.events": "low 0\nhigh 0\nmax 3\noom 2\noom_kill 1\nprivate 999",
+    "pids.events": "max 4", "memory.peak": "1900000000", "memory.max": "2147483648", "pids.peak": "900", "pids.max": "1024",
+    privateKey: "private-resource", "unknown.numeric": 888,
+  }) }) },
+  { message: JSON.stringify({ eventType: "SCRAPER_JOB_FAILED", errorMessage: "Browser extraction failed: session_invalid/navigation_network_error https://private.example", privateData: "private-error" }) },
+];
+
+test("runtime diagnostics parse text and JSON REPORT memory and known cgroup counters", () => {
+  const summary = summarizeRuntimeEvents(runtimeEvents());
+  assert.equal(summary.reportCount, 2);
+  assert.equal(summary.maxMemoryUsedMB, 1800);
+  assert.equal(summary.memorySizeMB, 2048);
+  assert.equal(summary.resourceSampleCount, 1);
+  assert.equal(summary.memoryEventsSampleCount, 1);
+  assert.equal(summary.pidsEventsSampleCount, 1);
+  assert.equal(summary.memoryOomCount, 2);
+  assert.equal(summary.memoryOomKillCount, 1);
+  assert.equal(summary.memoryMaxCount, 3);
+  assert.equal(summary.pidsMaxCount, 4);
+  assert.equal(summary.memoryPeakBytes, 1900000000);
+  assert.equal(summary.pidsPeak, 900);
+  assert.equal(summary.networkFailureCount, 1);
+  assert.equal(summary.sessionReasonCounts.navigation_network_error, 1);
+  assert.equal(JSON.stringify(summary).includes("private"), false);
+});
+
+test("runtime diagnostics discard unknown fields, invalid numbers, malformed counters, and unbounded input", () => {
+  const summary = summarizeRuntimeEvents([
+    { message: JSON.stringify({ type: "platform.report", record: { metrics: { memorySizeMB: "private-memory", maxMemoryUsedMB: -1 } } }) },
+    { message: JSON.stringify({ eventType: "BROWSER_PROGRESS", message: "Resource counters: not-json-private" }) },
+    { message: JSON.stringify({ eventType: "BROWSER_PROGRESS", message: "Resource counters: " + JSON.stringify({ "memory.peak": "max", "pids.max": "NaN", "memory.events": "oom -1\noom_kill private\nmax 999999999999999999999" }) }) },
+    { message: JSON.stringify({ eventType: "SCRAPER_JOB_FAILED", sessionReason: "private-reason" }) },
+  ]);
+  assert.equal(summary.maxMemoryUsedMB, 0);
+  assert.equal(summary.memorySizeMB, 0);
+  assert.equal(summary.memoryOomCount, 0);
+  assert.equal(summary.memoryOomKillCount, 0);
+  assert.equal(summary.memoryMaxCount, 0);
+  assert.equal(summary.networkFailureCount, 0);
+  assert.equal(JSON.stringify(summary).includes("private"), false);
+  assert.throws(() => summarizeRuntimeEvents(new Array(20001)));
+});
+
+test("session diagnostics encrypt runtime aggregates and never print private resource telemetry", async () => {
+  let readCount = 0;
+  let invokeCount = 0;
+  const lines = [];
+  const envelope = await verifySessionDiagnostics({ publicKey: diagnosticPublicKey, emit: (line) => lines.push(line),
+    invoke: async (event) => { invokeCount += 1; assert.deepEqual(event, { inspectSession: true }); return diagnosticsResponse(); },
+    readRuntimeEvents: async () => { readCount += 1; return runtimeEvents(); },
+  });
+  assert.equal(invokeCount, 1);
+  assert.equal(readCount, 1);
+  const report = decryptDiagnostics(envelope);
+  assert.deepEqual(report.runtimeDiagnostics, summarizeRuntimeEvents(runtimeEvents()));
+  for (const value of ["private", "maxMemoryUsedMB", "memoryOomCount", "navigation_network_error", "runtimeDiagnostics"]) {
+    assert.equal(lines.join("").includes(value), false);
+  }
+});
+
+
+test("runtime diagnostics aggregate only finite HTTP statuses, bounded retry delays, and challenge counts", () => {
+  const events = [
+    { eventType: "BROWSER_NAVIGATION_HTTP", status: 403, retryAfterSeconds: null, challenge: true, headers: { cookie: "private-cookie" }, url: "https://private.example", requestId: "private-id" },
+    { eventType: "BROWSER_NAVIGATION_HTTP", status: 429, retryAfterSeconds: 60, challenge: false },
+    { eventType: "BROWSER_NAVIGATION_HTTP", status: 429, retryAfterSeconds: 120, challenge: true },
+    { eventType: "BROWSER_NAVIGATION_HTTP", status: 599, retryAfterSeconds: 86401, challenge: "private-challenge" },
+    { eventType: "BROWSER_NAVIGATION_HTTP", status: 400, retryAfterSeconds: -1, challenge: false },
+    { eventType: "BROWSER_NAVIGATION_HTTP", status: "private-status", retryAfterSeconds: 86400, challenge: true },
+    { eventType: "BROWSER_NAVIGATION_HTTP", status: 200, retryAfterSeconds: 86400, challenge: true },
+    { eventType: "BROWSER_NAVIGATION_HTTP", status: 600, retryAfterSeconds: 86400, challenge: true },
+    { eventType: "BROWSER_NAVIGATION_HTTP", status: 401.5, retryAfterSeconds: 86400, challenge: true },
+    { eventType: "OTHER", status: 401, retryAfterSeconds: 86400, challenge: true },
+  ].map((record) => ({ message: JSON.stringify({ eventType: "BROWSER_PROGRESS", message: JSON.stringify(record) }) }));
+  const summary = summarizeRuntimeEvents(events);
+  assert.deepEqual(summary.navigationHttpStatusCounts, { 400: 1, 403: 1, 429: 2, 599: 1 });
+  assert.equal(summary.navigationMaxRetryAfterSeconds, 120);
+  assert.equal(summary.navigationChallengeCount, 2);
+  for (const value of ["private", "headers", "requestId", "https://"]) assert.equal(JSON.stringify(summary).includes(value), false);
+});
+
+test("HTTP resource telemetry stays inside the encrypted diagnostic envelope", async () => {
+  const lines = [];
+  const envelope = await verifySessionDiagnostics({ publicKey: diagnosticPublicKey, emit: (line) => lines.push(line),
+    invoke: async () => diagnosticsResponse(), readRuntimeEvents: async () => [{ message: JSON.stringify({
+      eventType: "BROWSER_NAVIGATION_HTTP", status: 429, retryAfterSeconds: 60, challenge: true, rawHeaders: "private-header",
+    }) }],
+  });
+  const report = decryptDiagnostics(envelope);
+  assert.deepEqual(report.runtimeDiagnostics.navigationHttpStatusCounts, { 429: 1 });
+  assert.equal(report.runtimeDiagnostics.navigationMaxRetryAfterSeconds, 60);
+  assert.equal(report.runtimeDiagnostics.navigationChallengeCount, 1);
+  for (const value of ["navigationHttpStatusCounts", "retryAfterSeconds", "private-header"]) assert.equal(lines.join("").includes(value), false);
+});
+
+
+test("runtime HTTP diagnostics accept direct, progress, and Lambda JSON envelopes", () => {
+  const event = { eventType: "BROWSER_NAVIGATION_HTTP", status: 403, retryAfterSeconds: null, challenge: true };
+  const progress = { eventType: "BROWSER_PROGRESS", message: JSON.stringify(event) };
+  const summary = summarizeRuntimeEvents([
+    { message: JSON.stringify(event) }, { message: JSON.stringify(progress) },
+    { message: JSON.stringify({ timestamp: "private-time", requestId: "private-request", message: JSON.stringify(progress) }) },
+    { message: JSON.stringify({ eventType: "BROWSER_PROGRESS", message: "{private-malformed" }) },
+    { message: JSON.stringify({ eventType: "BROWSER_PROGRESS", message: JSON.stringify({ eventType: "PRIVATE_UNKNOWN", status: 429, challenge: true }) }) },
+    { message: JSON.stringify({ eventType: "SCRAPER_JOB_FAILED", sessionReason: "navigation_http_rejected" }) },
+    { message: JSON.stringify({ eventType: "SCRAPER_JOB_FAILED", errorMessage: "Browser extraction failed: navigation_rate_limited" }) },
+  ]);
+  assert.deepEqual(summary.navigationHttpStatusCounts, { 403: 3 });
+  assert.equal(summary.navigationChallengeCount, 3);
+  assert.equal(summary.sessionReasonCounts.navigation_http_rejected, 1);
+  assert.equal(summary.sessionReasonCounts.navigation_rate_limited, 1);
+  assert.equal(JSON.stringify(summary).includes("private"), false);
 });
