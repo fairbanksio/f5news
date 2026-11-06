@@ -79,3 +79,8 @@ functions:
           enabled: true
           input:
             subreddit: Economics
+
+resources:
+  extensions:
+    FetchPostsLogGroup:
+      UpdateReplacePolicy: Retain
