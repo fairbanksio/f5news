@@ -108,7 +108,70 @@ async function verifyFeeds({ allFeeds = false, subreddit = "politics", session =
   return { results, summary };
 }
 
-async function verifySessionDiagnostics({ invoke, publicKey, emit = console.log } = {}) {
+function summarizeRuntimeEvents(events) {
+  assert.ok(Array.isArray(events) && events.length <= 20000, "Runtime diagnostics exceeded its event limit");
+  const summary = { reportCount: 0, maxMemoryUsedMB: 0, memorySizeMB: 0, resourceSampleCount: 0,
+    memoryPeakBytes: 0, memoryLimitBytes: 0, pidsPeak: 0, pidsLimit: 0, memoryEventsSampleCount: 0, pidsEventsSampleCount: 0,
+    memoryOomCount: 0, memoryOomKillCount: 0, memoryMaxCount: 0, pidsMaxCount: 0, networkFailureCount: 0,
+    navigationHttpStatusCounts: {}, navigationMaxRetryAfterSeconds: 0, navigationChallengeCount: 0 };
+  const reasons = ["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception",
+    "navigation_network_error", "navigation_http_rejected", "navigation_rate_limited", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"];
+  summary.sessionReasonCounts = Object.fromEntries(reasons.map((reason) => [reason, 0]));
+  const number = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER ? value : undefined;
+  const maximum = (field, value) => { const valid = number(value); if (valid !== undefined) summary[field] = Math.max(summary[field], valid); };
+  const counter = (value) => typeof value === "string" && /^\d+$/.test(value) ? number(Number(value)) : number(value);
+  for (const event of events) {
+    const message = typeof event.message === "string" ? event.message.slice(0, 65536) : "";
+    const report = message.match(/\bREPORT\s+RequestId:[^\n]*?Memory Size:\s*(\d+)\s*MB\s+Max Memory Used:\s*(\d+)\s*MB/);
+    if (report) { summary.reportCount += 1; maximum("memorySizeMB", Number(report[1])); maximum("maxMemoryUsedMB", Number(report[2])); }
+    const records = logRecords({ LogResult: Buffer.from(message).toString("base64") });
+    for (let record of records) {
+      if (record.eventType === "BROWSER_PROGRESS" && typeof record.message === "string" && record.message.length <= 65536 && record.message.startsWith("{")) {
+        try {
+          const navigation = JSON.parse(record.message);
+          if (navigation?.eventType === "BROWSER_NAVIGATION_HTTP") record = navigation;
+        } catch { /* Ignore malformed nested browser diagnostics. */ }
+      }
+      if (record.eventType === "BROWSER_NAVIGATION_HTTP" && Number.isInteger(record.status) && record.status >= 400 && record.status <= 599) {
+        summary.navigationHttpStatusCounts[record.status] = (summary.navigationHttpStatusCounts[record.status] || 0) + 1;
+        if (Number.isInteger(record.retryAfterSeconds) && record.retryAfterSeconds >= 0 && record.retryAfterSeconds <= 86400) {
+          maximum("navigationMaxRetryAfterSeconds", record.retryAfterSeconds);
+        }
+        if (record.challenge === true) summary.navigationChallengeCount += 1;
+      }
+      if (record.type === "platform.report" && record.record?.metrics) {
+        summary.reportCount += 1;
+        maximum("maxMemoryUsedMB", record.record.metrics.maxMemoryUsedMB);
+        maximum("memorySizeMB", record.record.metrics.memorySizeMB);
+      }
+      const reason = reasons.includes(record.sessionReason) ? record.sessionReason : record.eventType === "SCRAPER_JOB_FAILED"
+        ? reasons.find((item) => String(record.errorMessage || "").includes(item)) : undefined;
+      if (reason) {
+        summary.sessionReasonCounts[reason] += 1;
+        if (reason === "navigation_network_error") summary.networkFailureCount += 1;
+      }
+      if (record.eventType !== "BROWSER_PROGRESS" || typeof record.message !== "string" || !record.message.startsWith("Resource counters: ")) continue;
+      let resources;
+      try { resources = JSON.parse(record.message.slice("Resource counters: ".length)); } catch { continue; }
+      if (!resources || typeof resources !== "object" || Array.isArray(resources)) continue;
+      summary.resourceSampleCount += 1;
+      for (const [source, target] of [["memory.peak", "memoryPeakBytes"], ["memory.max", "memoryLimitBytes"], ["pids.peak", "pidsPeak"], ["pids.max", "pidsLimit"]]) {
+        maximum(target, counter(resources[source]));
+      }
+      for (const [source, mappings] of [["memory.events", { oom: "memoryOomCount", oom_kill: "memoryOomKillCount", max: "memoryMaxCount" }], ["pids.events", { max: "pidsMaxCount" }]]) {
+        if (typeof resources[source] !== "string") continue;
+        summary[source === "memory.events" ? "memoryEventsSampleCount" : "pidsEventsSampleCount"] += 1;
+        for (const line of resources[source].split("\n")) {
+          const match = line.match(/^(\w+)\s+(\d+)$/);
+          if (match && Object.hasOwn(mappings, match[1])) maximum(mappings[match[1]], Number(match[2]));
+        }
+      }
+    }
+  }
+  return summary;
+}
+
+async function verifySessionDiagnostics({ invoke, publicKey, readRuntimeEvents, emit = console.log } = {}) {
   let key;
   try {
     assert.ok(typeof publicKey === "string" && /^[A-Za-z0-9+/]+={0,2}$/.test(publicKey));
@@ -137,6 +200,7 @@ async function verifySessionDiagnostics({ invoke, publicKey, emit = console.log 
     assert.ok(Number.isSafeInteger(record[field]) && record[field] >= 0, `Session diagnostics missing count field: ${field}`);
     summary[field] = record[field];
   }
+  if (readRuntimeEvents) summary.runtimeDiagnostics = summarizeRuntimeEvents(await readRuntimeEvents());
   const secretKey = randomBytes(32);
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", secretKey, iv);
@@ -193,19 +257,30 @@ async function verifyScheduled({ readEvents, now = Date.now, sleep = (ms) => new
   }
 }
 
-function readScheduledEvents(startTime) {
+function readLogEvents(startTime, filterPattern) {
   const events = [];
   let nextToken;
+  const deadline = Date.now() + 120000;
   for (let page = 0; page < 20; page += 1) {
+    assert.ok(Date.now() < deadline, "Scraper log lookup exceeded its time limit");
     const result = JSON.parse(execFileSync("aws", ["logs", "filter-log-events", "--log-group-name", "/aws/lambda/scraper-dev-fetchPosts-browser",
-      "--start-time", String(startTime), "--end-time", String(Date.now()), "--filter-pattern", "?SCRAPER_JOB_COMPLETED ?SCRAPER_JOB_FAILED", "--limit", "1000", "--no-paginate", "--cli-read-timeout", "20",
+      "--start-time", String(startTime), "--end-time", String(Date.now()),
+      ...(filterPattern ? ["--filter-pattern", filterPattern] : []), "--limit", "1000", "--no-paginate", "--cli-read-timeout", "20",
       ...(nextToken ? ["--next-token", nextToken] : [])],
-    { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, AWS_MAX_ATTEMPTS: "1" } }));
+    { encoding: "utf8", timeout: 25000, maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, AWS_MAX_ATTEMPTS: "1" } }));
     events.push(...(result.events || []));
     if (!result.nextToken || result.nextToken === nextToken) return events;
     nextToken = result.nextToken;
   }
-  assert.fail("Scheduled scraper log lookup exceeded its bounded page limit");
+  assert.fail("Scraper log lookup exceeded its bounded page limit");
+}
+
+function readScheduledEvents(startTime) {
+  return readLogEvents(startTime, "?SCRAPER_JOB_COMPLETED ?SCRAPER_JOB_FAILED");
+}
+
+function readRuntimeEvents() {
+  return readLogEvents(Date.now() - 3600000, '?REPORT ?"platform.report" ?"Resource counters:" ?SCRAPER_JOB_FAILED ?BROWSER_NAVIGATION_HTTP');
 }
 
 function invokeLive(event) {
@@ -230,7 +305,7 @@ function invokeLive(event) {
 
 if (require.main === module) {
   const verification = process.env.F5_PROBE_DIAGNOSTICS === "true"
-    ? verifySessionDiagnostics({ invoke: invokeLive, publicKey: process.env.F5_PROBE_DIAGNOSTICS_KEY })
+    ? verifySessionDiagnostics({ invoke: invokeLive, publicKey: process.env.F5_PROBE_DIAGNOSTICS_KEY, readRuntimeEvents })
     : process.env.F5_PROBE_SCHEDULED === "true"
     ? verifyScheduled({ readEvents: readScheduledEvents })
     : verifyFeeds({ allFeeds: process.env.F5_PROBE_ALL_FEEDS === "true", subreddit: process.env.F5_PROBE_SUBREDDIT || "politics",
@@ -243,4 +318,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, FEEDS };
+module.exports = { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, summarizeRuntimeEvents, FEEDS };

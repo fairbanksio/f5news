@@ -1,9 +1,11 @@
 """Check cookie and local storage reuse in real Firefox without network access."""
 
 import sys
+import json
 import tempfile
 from pathlib import Path
 from urllib.parse import quote
+from unittest.mock import patch
 
 import smoke
 from invisible_playwright import InvisiblePlaywright
@@ -42,6 +44,40 @@ def check_access_classification(page):
         assert smoke.state(page) == expected
 
 
+def check_navigation_http(browser):
+    for status, expected in ((403, "navigation_http_rejected"), (429, "navigation_rate_limited"), (503, "navigation_network_error")):
+        page = browser.new_page()
+        requests = []
+        def fulfill(route):
+            if route.request.is_navigation_request():
+                requests.append(True)
+            headers = {"content-type": "text/html", "content-length": "0", "set-cookie": "fixture=never-log-this-header; Secure; Path=/"}
+            if status == 429:
+                headers["retry-after"] = "60"
+            elif status == 403:
+                headers["cf-mitigated"] = "challenge"
+            route.fulfill(status=status, headers=headers, body="")
+        page.route("https://www.reddit.com/**", fulfill)
+        messages = []
+        with patch.object(smoke, "log", side_effect=messages.append):
+            try:
+                smoke.navigate(page, "https://www.reddit.com/offline-status-check", timeout=10000 if status == 503 else 5000)
+            except smoke.SessionError as error:
+                assert error.code == expected, "Offline HTTP reason did not match"
+                assert error.http_status == status, "Offline HTTP status was not retained"
+                assert error.retry_after_seconds == (60 if status == 429 else None), "Offline Retry-After metadata did not match"
+            else:
+                raise AssertionError("The offline HTTP fixture was not rejected")
+        attempts = 3 if status == 503 else 1
+        assert len(requests) == attempts, "Offline HTTP attempt count did not match"
+        events = [json.loads(message) for message in messages if message.startswith("{")]
+        assert events == [{"eventType": "BROWSER_NAVIGATION_HTTP", "status": status,
+                           "retryAfterSeconds": 60 if status == 429 else None, "contentLength": 0,
+                           "challenge": status == 403}] * attempts, "Offline HTTP event metadata did not match"
+        assert not any("never-log-this-header" in message or "https://" in message or "set-cookie" in message for message in messages)
+        page.close()
+
+
 def main():
     stage = "starting"
     try:
@@ -49,7 +85,7 @@ def main():
             path = Path(directory) / "session.json"
             seed = 12345
             stage = "exporting"
-            with InvisiblePlaywright(seed=seed, headless=True, timezone="UTC", locale="en-US") as browser:
+            with InvisiblePlaywright(seed=seed, headless=True, timezone="UTC", locale="en-US", extra_prefs=smoke.BROWSER_EXTRA_PREFS) as browser:
                 stage = "creating the export page"
                 page = offline_page(browser)
                 stage = "setting the fixture cookie"
@@ -69,12 +105,14 @@ def main():
                 smoke.export_session(page, seed, path)
                 stage = "checking access classification"
                 check_access_classification(page)
+                stage = "checking offline HTTP response diagnostics"
+                check_navigation_http(browser)
             stage = "reading saved session state"
             saved = smoke.read_session(path)
             assert path.stat().st_mode & 0o777 == 0o600
             assert saved["seed"] == seed
             stage = "restoring"
-            with InvisiblePlaywright(seed=saved["seed"], headless=True, timezone="UTC", locale="en-US") as browser:
+            with InvisiblePlaywright(seed=saved["seed"], headless=True, timezone="UTC", locale="en-US", extra_prefs=smoke.BROWSER_EXTRA_PREFS) as browser:
                 page = offline_page(browser)
                 assert smoke.reuse_session(page, saved, FEED) == "reused"
                 assert any(cookie["name"] == "reddit_session" and cookie["value"] == COOKIE_VALUE for cookie in page.context.cookies())
@@ -86,6 +124,9 @@ def main():
                 assert page.evaluate_read("name => localStorage.getItem(name)", STORAGE_KEY) == "fresh-after-restore"
         print("Offline Firefox session roundtrip passed.")
         return 0
+    except AssertionError as error:
+        print("Offline Firefox session roundtrip failed while " + stage + ": " + (str(error) or "fixture assertion failed") + ".", file=sys.stderr)
+        return 1
     except Exception:
         print("Offline Firefox session roundtrip failed while " + stage + ".", file=sys.stderr)
         return 1

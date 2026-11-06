@@ -69,7 +69,18 @@ function createSessionStore({ bucket = process.env.F5_REDDIT_SESSION_BUCKET, cli
 }
 
 const renewableFailure = (error) => /^Browser extraction failed: session_(invalid|blocked|challenge)$/.test(error.message);
-const SESSION_REASONS = ["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception", "navigation_network_error", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"];
+const SESSION_REASONS = ["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception", "navigation_network_error", "navigation_http_rejected", "navigation_rate_limited", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"];
+const HTTP_REJECTIONS = ["navigation_http_rejected", "navigation_rate_limited"];
+const rejectionFields = (error) => ({
+  ...([401, 403, 429].includes(error.httpStatus) ? { httpStatus: error.httpStatus } : {}),
+  ...(Number.isInteger(error.retryAfterSeconds) && error.retryAfterSeconds >= 0 && error.retryAfterSeconds <= 86400 ? { retryAfterSeconds: error.retryAfterSeconds } : {}),
+});
+const sessionReadError = (status, reason, fields = {}) => {
+  const details = Object.entries(fields).map(([name, value]) => `${name}=${value}`).join(", ");
+  const error = new Error(`Browser extraction failed: ${status}${reason ? `/${reason}` : ""}${details ? ` (${details})` : ""}`);
+  if (reason) error.sessionReason = reason;
+  return Object.assign(error, fields);
+};
 const credentialFailure = (status, reason) => status === "session_invalid" &&
   (reason === undefined || ["invalid_data", "root_cookie_expired", "root_cookie_missing", "feed_cookie_missing"].includes(reason));
 function createSessionRunner({ store = createSessionStore(), now = Date.now, pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
@@ -125,15 +136,16 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
                 validReuse = result;
                 break;
               } catch (error) {
-                if (!renewableFailure(error)) throw error;
-                lastReuseFailure = error.message.slice("Browser extraction failed: ".length);
+                const rejected = HTTP_REJECTIONS.includes(error.sessionReason);
+                if (!renewableFailure(error) && !rejected) throw error;
+                lastReuseFailure = /^Browser extraction failed: (session_invalid|session_blocked|session_challenge|network_error)$/.exec(error.message)?.[1] || "runtime_error";
                 lastReuseReason = SESSION_REASONS.includes(error.sessionReason) ? error.sessionReason : undefined;
-                options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "reuse_failed", generation, status: lastReuseFailure, ...(lastReuseReason ? { reason: lastReuseReason } : {}), attempt }));
+                const fields = rejected ? rejectionFields(error) : {};
+                options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "reuse_failed", generation, status: lastReuseFailure, ...(lastReuseReason ? { reason: lastReuseReason } : {}), ...fields, attempt }));
+                if (rejected) throw sessionReadError(lastReuseFailure, lastReuseReason, fields);
                 if (credentialFailure(lastReuseFailure, lastReuseReason)) break;
                 if (attempt === 2) {
-                  const failure = new Error(`Browser extraction failed: ${lastReuseFailure}${lastReuseReason ? `/${lastReuseReason}` : ""}`);
-                  if (lastReuseReason) failure.sessionReason = lastReuseReason;
-                  throw failure;
+                  throw sessionReadError(lastReuseFailure, lastReuseReason);
                 }
                 budget(100000);
                 await pause(2000);

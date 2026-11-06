@@ -15,6 +15,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlsplit
 
+# Preserve HTTP error responses so status diagnostics can distinguish denials.
+BROWSER_EXTRA_PREFS = {"browser.http.blank_page_with_error_response.enabled": True}
 ROOT = Path(__file__).resolve().parent
 SUBREDDITS = Path(os.environ.get("F5_SUBREDDITS_FILE", str(ROOT / "../../services/posts/subreddits.json")))
 READER = Path(os.environ.get("F5_BROWSER_READER", str(ROOT / "../reddit-stagehand/browser-reader.js")))
@@ -249,33 +251,104 @@ MAX_SESSION_BYTES = 1024 * 1024
 
 
 SESSION_REASONS = frozenset(("invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing",
-                             "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge", "navigation_network_error"))
+                             "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge", "navigation_network_error", "navigation_http_rejected", "navigation_rate_limited"))
 
 
 class SessionError(RuntimeError):
-    def __init__(self, message, code="invalid_data"):
+    def __init__(self, message, code="invalid_data", http_status=None, retry_after_seconds=None):
         super().__init__(message)
         self.code = code if code in SESSION_REASONS else "invalid_data"
+        self.http_status = http_status if type(http_status) is int and 400 <= http_status <= 599 else None
+        self.retry_after_seconds = retry_after_seconds if type(retry_after_seconds) is int and 0 <= retry_after_seconds <= 86400 else None
+
+    def diagnostics(self):
+        result = {"sessionReason": self.code}
+        if self.http_status is not None:
+            result["httpStatus"] = self.http_status
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = self.retry_after_seconds
+        return result
 
 
 def navigate(page, url, wait_until="domcontentloaded", timeout=30000, now=time.monotonic, sleep=time.sleep):
     deadline = now() + timeout / 1000
-    for attempt in range(3):
-        remaining = deadline - now()
-        if remaining <= 0:
-            raise SessionError("Browser navigation failed", "navigation_network_error")
+    observed = {}
+    active = True
+
+    def header_integer(value, maximum):
+        return int(value) if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= 16 and int(value) <= maximum else None
+
+    def response_observer(response):
+        if not active:
+            return
         try:
-            return page.goto(url, wait_until=wait_until, timeout=max(1, int(remaining * 1000)))
-        except Exception as error:
-            first_line = str(error).splitlines()[0] if str(error) else ""
-            if not re.search(r"(?:^|:\s*)(?:NS_ERROR_NET_EMPTY_RESPONSE|NS_ERROR_NET_RESET|(?:net::)?ERR_CONNECTION_RESET)(?:\s|:|$)", first_line):
+            request = response.request
+            if (not request.is_navigation_request() or request.frame.parent_frame is not None
+                    or urlsplit(request.url).hostname not in ("reddit.com", "www.reddit.com")):
+                return
+            status = response.status
+            if type(status) is not int or not 400 <= status <= 599:
+                return
+        except Exception:
+            return
+        event = {"eventType": "BROWSER_NAVIGATION_HTTP", "status": status,
+                 "retryAfterSeconds": None, "contentLength": None, "challenge": False}
+        try:
+            headers = response.headers
+            event["retryAfterSeconds"] = header_integer(headers.get("retry-after", headers.get("Retry-After")), 86400)
+            event["contentLength"] = header_integer(headers.get("content-length", headers.get("Content-Length")), 2**53 - 1)
+            event["challenge"] = str(headers.get("cf-mitigated", headers.get("CF-Mitigated", ""))).lower() == "challenge"
+        except Exception:
+            pass
+        observed.update(event)
+        try:
+            log(json.dumps(event))
+        except Exception:
+            pass
+
+    def reject_explicit_http():
+        status = observed.get("status")
+        if status in (401, 403, 429):
+            code = "navigation_rate_limited" if status == 429 else "navigation_http_rejected"
+            raise SessionError("Browser navigation was rejected", code, status, observed.get("retryAfterSeconds"))
+
+    try:
+        try:
+            page.on("response", response_observer)
+        except Exception:
+            pass
+        for attempt in range(3):
+            observed.clear()
+            remaining = deadline - now()
+            if remaining <= 0:
+                raise SessionError("Browser navigation failed", "navigation_network_error")
+            try:
+                result = page.goto(url, wait_until=wait_until, timeout=max(1, int(remaining * 1000)))
+                if not observed:
+                    response_observer(result)
+                reject_explicit_http()
+                if not 500 <= observed.get("status", 0) <= 599:
+                    return result
+            except SessionError:
                 raise
+            except Exception as error:
+                reject_explicit_http()
+                first_line = str(error).splitlines()[0] if str(error) else ""
+                if not re.search(r"(?:^|:\s*)(?:NS_ERROR_NET_EMPTY_RESPONSE|NS_ERROR_NET_RESET|(?:net::)?ERR_CONNECTION_RESET)(?:\s|:|$)", first_line):
+                    raise
             remaining = deadline - now()
             delay = attempt + 1
             if attempt == 2 or remaining <= delay:
-                raise SessionError("Browser navigation failed", "navigation_network_error") from None
+                raise SessionError("Browser navigation failed", "navigation_network_error", observed.get("status"), observed.get("retryAfterSeconds")) from None
             log("Retrying a transient browser navigation.")
             sleep(delay)
+
+    finally:
+        active = False
+        try:
+            page.remove_listener("response", response_observer)
+        except Exception:
+            pass
 
 
 def reddit_domain(value):
@@ -559,7 +632,7 @@ def run(config):
         except SessionError as error:
             return {"status": "session_invalid", "sessionReason": error.code, "subreddit": config.subreddit, "posts": []}
     seed = session["seed"] if session else secrets.randbelow(2**31)
-    launch_options = {"headless": True}
+    launch_options = {"headless": True, "extra_prefs": BROWSER_EXTRA_PREFS}
     if session or getattr(config, "authenticate", False):
         launch_options["seed"] = seed
     log("Launching the isolated Firefox session.")
@@ -574,7 +647,7 @@ def run(config):
                 access = reuse_session(page, session, url, diagnostics=diagnostics)
             except SessionError as error:
                 access = "session_invalid"
-                diagnostics["sessionReason"] = error.code
+                diagnostics.update(error.diagnostics())
             if access != "reused":
                 return {"status": access, **diagnostics, "subreddit": config.subreddit, "posts": []}
         elif getattr(config, "authenticate", False):
@@ -640,12 +713,12 @@ def main():
         with browser_lifecycle():
             result = run(config)
     except SessionError as error:
-        if error.code != "navigation_network_error":
+        if error.code not in ("navigation_network_error", "navigation_http_rejected", "navigation_rate_limited"):
             detail = redact(str(error))
             log(f"Browser test failed ({type(error).__name__}): {detail[:1200]}")
             return 1
         result = {"status": "session_invalid" if getattr(config, "session_input", None) else "network_error",
-                  "sessionReason": error.code, "subreddit": config.subreddit, "posts": []}
+                  **error.diagnostics(), "subreddit": config.subreddit, "posts": []}
     except (Exception, BrowserCancelled) as error:
         detail = redact(str(error))
         log(f"Browser test failed ({type(error).__name__}): {detail[:1200]}")
