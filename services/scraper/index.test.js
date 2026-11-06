@@ -1176,7 +1176,7 @@ test("scheduled sessions inherit the runtime default and report reuse metadata",
     scrapePostsImpl: async (options) => { calls.push(options); const posts = []; posts.sessionMode = "reused"; posts.sessionGeneration = "fixture-generation"; return posts; },
     logger, mongooseClient: { connect: async () => {} }, newPostModel: { find: async () => [] },
   });
-  await handler({ subreddit: "politics", renewSession: true }, { getRemainingTimeInMillis: () => 240000 });
+  await handler({ subreddit: "politics", renewSession: true, scheduled: true }, { getRemainingTimeInMillis: () => 240000 });
   await handler({ subreddit: "politics", session: false }, { getRemainingTimeInMillis: () => 240000 });
   assert.equal(calls[0].session, true);
   assert.equal(calls[0].renewSession, true);
@@ -1184,6 +1184,7 @@ test("scheduled sessions inherit the runtime default and report reuse metadata",
   assert.equal(calls[1].session, false);
   assert.equal(calls[1].timeoutMs, 90000);
   const terminal = parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED")[0];
+  assert.equal(terminal.trigger, "schedule");
   assert.equal(terminal.sessionMode, "reused");
   assert.equal(terminal.sessionGeneration, "fixture-generation");
 });

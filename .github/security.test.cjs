@@ -70,6 +70,7 @@ test('manual browser probe runs only main and does not deploy services', () => {
   assert.equal(workflow.jobs.verify.if, "github.ref == 'refs/heads/main'");
   assert.equal(workflow.jobs.verify.permissions['id-token'], 'write');
   assert.equal(workflow.on.workflow_dispatch.inputs.all_feeds.default, false);
+  assert.equal(workflow.on.workflow_dispatch.inputs.scheduled.default, false);
   assert.equal(workflow.on.workflow_dispatch.inputs.session.default, true);
   assert.equal(workflow.on.workflow_dispatch.inputs.authenticate.default, false);
   assert.equal(workflow.on.workflow_dispatch.inputs.renew_session.default, false);

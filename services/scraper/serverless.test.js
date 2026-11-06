@@ -56,6 +56,7 @@ test("scheduled feeds reuse the shared session without independent login attempt
   for (const schedule of schedules) {
     assert.equal(schedule.enabled, false);
     assert.equal(schedule.input.session, true);
+    assert.equal(schedule.input.scheduled, true);
     assert.equal(schedule.input.authenticate, undefined);
   }
   assert.deepEqual(config.provider.iam.role.statements, [{

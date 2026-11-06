@@ -29,9 +29,11 @@ function createSessionStore({ bucket = process.env.F5_REDDIT_SESSION_BUCKET, cli
           leaseUntil: { $dateAdd: { startDate: "$$NOW", unit: "second", amount: 300 } },
           nextAttemptAt: { $dateAdd: { startDate: "$$NOW", unit: "second", amount: 900 } },
         } }], { returnDocument: "after", ...operationOptions });
-      // Provider errors can contain private connection details.
-      // eslint-disable-next-line preserve-caught-error
-      } catch (error) { if (error.code === 11000) return null; throw new Error("Session coordination unavailable"); }
+      } catch (error) {
+        if (error.code === 11000) return null;
+        // eslint-disable-next-line preserve-caught-error -- Provider causes can contain private connection details.
+        throw new Error("Session coordination unavailable");
+      }
     },
     async read(generation) {
       if (!bucket) throw new Error("Session bucket is not configured");
@@ -41,9 +43,11 @@ function createSessionStore({ bucket = process.env.F5_REDDIT_SESSION_BUCKET, cli
         const bytes = await result.Body.transformToByteArray();
         if (bytes.length > MAX_BYTES) throw new Error("Session size limit exceeded");
         return bytes;
-      // Provider errors can contain private connection details.
-      // eslint-disable-next-line preserve-caught-error
-      } catch (error) { if (error.name === "NoSuchKey") return null; throw new Error("Session storage unavailable"); }
+      } catch (error) {
+        if (error.name === "NoSuchKey") return null;
+        // eslint-disable-next-line preserve-caught-error -- Provider causes can contain private connection details.
+        throw new Error("Session storage unavailable");
+      }
     },
     async publish(owner, generation, bytes) {
       if (!bucket || bytes.length > MAX_BYTES) throw new Error("Invalid session storage configuration or size");

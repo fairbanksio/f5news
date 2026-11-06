@@ -336,7 +336,7 @@ const createFetchPosts = ({
       const degraded = imageCounts.some((metrics) => metrics.missing || metrics.errors || metrics.dependencyFailures || metrics.updateErrors || metrics.queryErrors);
       logStructured(logger, {
         eventType: terminalError ? "SCRAPER_JOB_FAILED" : "SCRAPER_JOB_COMPLETED",
-        subreddit, stage, outcome: terminalError ? "failed" : degraded ? "degraded" : "success",
+        subreddit, stage, trigger: event.scheduled === true ? "schedule" : "manual", outcome: terminalError ? "failed" : degraded ? "degraded" : "success",
         durationMs: Date.now() - startedAt, requestId: context.awsRequestId || "",
         fetchedCount: job.fetchedCount, savedCount: job.savedCount,
         ...(job.sessionMode ? { sessionMode: job.sessionMode, sessionGeneration: job.sessionGeneration } : {}),

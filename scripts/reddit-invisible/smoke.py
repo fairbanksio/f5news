@@ -319,7 +319,9 @@ def write_session(path, session):
 
 def export_session(page, seed, path):
     try:
-        cookies = [cookie for cookie in page.context.cookies() if reddit_domain(cookie.get("domain"))]
+        # Firefox adds read-only metadata that add_cookies does not accept.
+        cookies = [{key: value for key, value in cookie.items() if key not in ("size", "session")}
+                   for cookie in page.context.cookies() if reddit_domain(cookie.get("domain"))]
         origin = page.evaluate_read("""() => ({origin: location.origin, localStorage: Object.entries(localStorage).map(([name, value]) => ({name, value}))})""")
         write_session(path, {"version": 1, "seed": seed, "cookies": cookies, "origins": [origin]})
     except Exception:
@@ -328,7 +330,10 @@ def export_session(page, seed, path):
 
 def reuse_session(page, session, feed_url):
     try:
-        page.context.add_cookies(session["cookies"])
+        # Firefox reads session expiry as -1 but drops cookies set with that value.
+        cookies = [{key: value for key, value in cookie.items() if key != "expires" or value != -1}
+                   for cookie in session["cookies"]]
+        page.context.add_cookies(cookies)
         origins = json.dumps(session["origins"])
         script = "(() => { const records = " + origins + "; const record = records.find(item => item.origin === location.origin); if (record) for (const item of record.localStorage) localStorage.setItem(item.name, item.value); })();"
         with page.add_init_script(script=script):

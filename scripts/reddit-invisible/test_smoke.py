@@ -366,9 +366,21 @@ class SessionTests(unittest.TestCase):
             goto=lambda url, **kwargs: events.append(("goto", url)))
         with patch.object(smoke, "state", return_value="feed"), patch.object(smoke, "has_account_session", return_value=True):
             self.assertEqual(smoke.reuse_session(page, self.session(), "https://www.reddit.com/r/politics/rising/"), "reused")
-        self.assertEqual(events[0], ("cookies", self.session()["cookies"]))
+        self.assertEqual(events[0], ("cookies", [{key: value for key, value in self.session()["cookies"][0].items() if key != "expires"}]))
         self.assertIn("item.origin === location.origin", events[1][1])
         self.assertEqual(events[-1], "script_removed")
+
+    def test_restore_preserves_real_expiries_and_omits_only_session_sentinel(self):
+        session = self.session()
+        session["cookies"].append({"name": "persistent", "value": "fixture-persistent", "domain": ".reddit.com", "path": "/", "expires": 9999999999})
+        added = []
+        page = types.SimpleNamespace(context=types.SimpleNamespace(add_cookies=lambda cookies: added.extend(cookies)),
+                                     add_init_script=lambda **_kwargs: nullcontext(), goto=lambda *_args, **_kwargs: None)
+        with patch.object(smoke, "state", return_value="feed"), patch.object(smoke, "has_account_session", return_value=True):
+            self.assertEqual(smoke.reuse_session(page, session, "https://www.reddit.com/r/politics/rising/"), "reused")
+        self.assertNotIn("expires", added[0])
+        self.assertEqual(added[1]["expires"], 9999999999)
+        self.assertEqual(session["cookies"][0]["expires"], -1)
 
     def test_reuse_access_failure_does_not_authenticate(self):
         page = types.SimpleNamespace(context=types.SimpleNamespace(add_cookies=lambda _cookies: None),
@@ -386,7 +398,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(str(caught.exception), "Session could not be restored")
 
     def test_export_reads_localstorage_separately_and_filters_third_party_cookies(self):
-        cookies = self.session()["cookies"] + [{"name": "foreign", "value": "foreign-value", "domain": ".example.com", "path": "/"}]
+        cookies = [{**self.session()["cookies"][0], "size": 42, "session": True}] + [{"name": "foreign", "value": "foreign-value", "domain": ".example.com", "path": "/"}]
         page = types.SimpleNamespace(context=types.SimpleNamespace(cookies=lambda: cookies),
                                      evaluate_read=lambda _expression: self.session()["origins"][0])
         with tempfile.TemporaryDirectory() as directory:

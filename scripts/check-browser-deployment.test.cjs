@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkInvocation, failureSummary, verifyFeeds, FEEDS } = require("./check-browser-deployment.cjs");
+const { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, FEEDS } = require("./check-browser-deployment.cjs");
 const response = (fields = {}) => ({ StatusCode: 200, LogResult: Buffer.from('request prefix\t' + JSON.stringify({ eventType: "SCRAPER_JOB_COMPLETED", outcome: "success", fetchedCount: 25, savedCount: 25, ...fields })).toString("base64") });
 test("deployment probe accepts saved posts and optional image degradation", () => {
   assert.equal(checkInvocation(response()).savedCount, 25);
@@ -171,4 +171,74 @@ test("anonymous verification explicitly disables deployed shared-session default
     return response();
   } });
   assert.deepEqual(calls, [{ subreddit: "politics", session: false }]);
+});
+
+
+const scheduledEvent = (subreddit, timestamp, fields = {}) => ({ timestamp,
+  message: JSON.stringify({ message: JSON.stringify({ eventType: "SCRAPER_JOB_COMPLETED", trigger: "schedule", subreddit,
+    outcome: "success", fetchedCount: 25, savedCount: 25, sessionMode: "reused", sessionGeneration: "generation-1", ...fields }) }),
+});
+
+test("scheduled verification reads all fresh feed completions and emits only safe counts", async () => {
+  const lines = [];
+  const starts = [];
+  const summary = await verifyScheduled({ now: () => 1000, readEvents: async (start) => {
+    starts.push(start);
+    return FEEDS.map((feed) => scheduledEvent(feed, 1001, { privateData: "private-marker" }));
+  }, emit: (line) => lines.push(line) });
+  assert.deepEqual(starts, [1000]);
+  assert.equal(summary.feedCount, 11);
+  assert.equal(summary.savedCount, 275);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].includes("private-marker"), false);
+});
+
+test("scheduled verification ignores stale or manual runs and polls to a fresh schedule", async () => {
+  let clock = 1000;
+  let reads = 0;
+  const summary = await verifyScheduled({ now: () => clock, timeoutMs: 30000, sleep: async (ms) => { clock += ms; },
+    readEvents: async () => {
+      reads += 1;
+      return FEEDS.map((feed) => scheduledEvent(feed, reads === 1 ? 999 : 1001)).concat(
+        FEEDS.map((feed) => scheduledEvent(feed, 1002, { trigger: "manual" })));
+    }, emit: () => {} });
+  assert.equal(reads, 2);
+  assert.equal(clock, 16000);
+  assert.equal(summary.feedCount, 11);
+});
+
+test("scheduled verification allows a later completion to recover a failed feed", async () => {
+  let clock = 1000;
+  let reads = 0;
+  const summary = await verifyScheduled({ now: () => clock, timeoutMs: 30000, sleep: async (ms) => { clock += ms; },
+    readEvents: async () => {
+      reads += 1;
+      return FEEDS.map((feed) => scheduledEvent(feed, 1001, feed === "politics" && reads === 1
+        ? { eventType: "SCRAPER_JOB_FAILED", outcome: "failed", errorMessage: "private-error" } : {}));
+    }, emit: () => {} });
+  assert.equal(reads, 2);
+  assert.equal(summary.feedCount, 11);
+});
+
+test("scheduled verification rejects missing feeds, missing session proof, and partial writes at its deadline", async () => {
+  for (const fields of [{ savedCount: 0 }, { sessionMode: undefined }, { eventType: "SCRAPER_JOB_FAILED", errorMessage: "private-error" }]) {
+    let clock = 1000;
+    const lines = [];
+    await assert.rejects(verifyScheduled({ now: () => clock, timeoutMs: 30000, sleep: async (ms) => { clock += ms; },
+      readEvents: async () => FEEDS.map((feed) => scheduledEvent(feed, 1001, feed === "politics" ? fields : {})),
+      emit: (line) => lines.push(JSON.parse(line)),
+    }), /politics/);
+    assert.equal(clock, 31000);
+    assert.deepEqual(lines[0].pendingFeeds, ["politics"]);
+    assert.equal(JSON.stringify(lines).includes("private-error"), false);
+  }
+});
+
+test("scheduled verification requires every feed and rejects a newer failure after success", async () => {
+  const complete = FEEDS.map((feed) => scheduledEvent(feed, 1001));
+  for (const events of [complete.slice(1), [...complete, scheduledEvent("politics", 1002, { eventType: "SCRAPER_JOB_FAILED" })]]) {
+    await assert.rejects(verifyScheduled({ now: () => 1000, timeoutMs: 0,
+      readEvents: async () => events, emit: () => {},
+    }), /politics/);
+  }
 });

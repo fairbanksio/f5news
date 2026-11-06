@@ -16,7 +16,7 @@ Events use a shared authenticated session when `F5_REDDIT_SESSION_ENABLED=true` 
 
 A missing, invalid, or 12-hour-old session triggers one coordinated login using the existing SSM-backed account credentials. A MongoDB lease uses server time and lasts five minutes. Each login attempt records a 15-minute cooldown before it starts; successful publication reduces that to five minutes. Other invocations wait for the active session. Immutable objects and an owner-checked pointer update prevent an expired lease holder from replacing a newer session. Objects expire after seven days. Challenges and rejected credentials fail without repeated login attempts.
 
-The manual verification workflow supports `all_feeds` to check all 11 feeds and repeat politics, requiring one session generation. `renew_session` renews the first invocation under the same lease and cooldown, then verifies reuse. Explicit `session: false, authenticate: true` retains the single-login diagnostic; `session: false` disables shared state for an anonymous diagnostic.
+The manual verification workflow supports `scheduled` to read fresh scheduled completions for all 11 feeds without invoking Lambda. It also supports `all_feeds` to check all 11 feeds and repeat politics, requiring one session generation. `renew_session` renews the first invocation under the same lease and cooldown, then verifies reuse. Explicit `session: false, authenticate: true` retains the single-login diagnostic; `session: false` disables shared state for an anonymous diagnostic.
 
 Schedules remain paused during the initial verification rollout. Enable them after both all-feed reuse and renewal checks pass.
 

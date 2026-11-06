@@ -50,66 +50,77 @@ functions:
           input:
             subreddit: politics
             session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
           enabled: false
           input:
             subreddit: worldnews
             session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
           enabled: false
           input:
             subreddit: europe
             session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
           enabled: false
           input:
             subreddit: news
             session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
           enabled: false
           input:
             subreddit: technology
             session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
           enabled: false
           input:
             subreddit: science
             session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
           enabled: false
           input:
             subreddit: health
             session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
           enabled: false
           input:
             subreddit: energy
             session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
           enabled: false
           input:
             subreddit: sports
             session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
           enabled: false
           input:
             subreddit: business
             session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
           enabled: false
           input:
             subreddit: Economics
             session: true
+            scheduled: true
 
 resources:
   extensions:

@@ -33,15 +33,24 @@ def main():
             seed = 12345
             stage = "exporting"
             with InvisiblePlaywright(seed=seed, headless=True, timezone="UTC", locale="en-US") as browser:
+                stage = "creating the export page"
                 page = offline_page(browser)
+                stage = "setting the fixture cookie"
                 page.context.add_cookies([{
                     "name": "reddit_session", "value": COOKIE_VALUE, "domain": ".reddit.com",
-                    "path": "/", "expires": -1, "secure": True, "httpOnly": True, "sameSite": "Lax",
+                    "path": "/", "secure": True, "httpOnly": True, "sameSite": "Lax",
                 }])
+                stage = "loading the offline fixture"
                 page.goto(FEED, wait_until="domcontentloaded", timeout=15000)
+                stage = "setting fixture local storage"
                 page.evaluate("([name, value]) => localStorage.setItem(name, value)", [STORAGE_KEY, STORAGE_VALUE])
-                assert smoke.state(page) == "feed" and smoke.has_account_session(page)
+                stage = "checking the fixture feed"
+                assert smoke.state(page) == "feed"
+                stage = "checking the fixture cookie"
+                assert smoke.has_account_session(page)
+                stage = "exporting session state"
                 smoke.export_session(page, seed, path)
+            stage = "reading saved session state"
             saved = smoke.read_session(path)
             assert path.stat().st_mode & 0o777 == 0o600
             assert saved["seed"] == seed

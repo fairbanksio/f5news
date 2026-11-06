@@ -3,6 +3,10 @@ name: Verify Browser Scraper
 on:
   workflow_dispatch:
     inputs:
+      scheduled:
+        description: Read fresh scheduled completions for every feed without invoking Lambda
+        type: boolean
+        default: false
       all_feeds:
         description: Verify all feeds, then repeat politics to confirm session reuse
         type: boolean
@@ -50,6 +54,7 @@ jobs:
 
       - name: Verify Live Extraction
         env:
+          F5_PROBE_SCHEDULED: ${{ inputs.scheduled }}
           F5_PROBE_ALL_FEEDS: ${{ inputs.all_feeds }}
           F5_PROBE_SESSION: ${{ inputs.session }}
           F5_PROBE_RENEW_SESSION: ${{ inputs.renew_session }}

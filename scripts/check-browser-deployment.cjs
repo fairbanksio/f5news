@@ -97,6 +97,64 @@ async function verifyFeeds({ allFeeds = false, session = true, authenticate = fa
   return { results, summary };
 }
 
+async function verifyScheduled({ readEvents, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  emit = console.log, startTime = now(), timeoutMs = 720000, pollMs = 15000 } = {}) {
+  const deadline = now() + timeoutMs;
+  const latest = new Map();
+  while (true) {
+    const events = await readEvents(startTime);
+    for (const event of events) {
+      if (!Number.isFinite(event.timestamp) || event.timestamp < startTime) continue;
+      const records = logRecords({ LogResult: Buffer.from(event.message || "").toString("base64") });
+      for (const record of records) {
+        if (record.trigger !== "schedule" || !FEEDS.includes(record.subreddit) ||
+          !["SCRAPER_JOB_COMPLETED", "SCRAPER_JOB_FAILED"].includes(record.eventType)) continue;
+        if (!latest.has(record.subreddit) || event.timestamp >= latest.get(record.subreddit).timestamp) {
+          latest.set(record.subreddit, { timestamp: event.timestamp, record });
+        }
+      }
+    }
+    const summaries = [];
+    for (const subreddit of FEEDS) {
+      const terminal = latest.get(subreddit);
+      if (!terminal || terminal.record.eventType !== "SCRAPER_JOB_COMPLETED") continue;
+      try {
+        const result = checkInvocation({ StatusCode: 200, LogResult: Buffer.from(JSON.stringify(terminal.record)).toString("base64") }, { session: true });
+        summaries.push({ subreddit, timestamp: terminal.timestamp, ...result });
+      } catch { /* A later scheduled run can recover before the deadline. */ }
+    }
+    if (summaries.length === FEEDS.length) {
+      const summary = { eventType: "BROWSER_SCHEDULED_PROBE_COMPLETED", trigger: "schedule", feedCount: FEEDS.length,
+        savedCount: summaries.reduce((sum, result) => sum + result.savedCount, 0), feeds: summaries };
+      emit(JSON.stringify(summary));
+      return summary;
+    }
+    if (now() >= deadline) {
+      const verified = new Set(summaries.map((result) => result.subreddit));
+      const pending = FEEDS.filter((subreddit) => !verified.has(subreddit));
+      emit(JSON.stringify({ eventType: "BROWSER_SCHEDULED_PROBE_FAILED", verifiedFeedCount: summaries.length,
+        pendingFeeds: pending, feeds: summaries }));
+      assert.fail(`Scheduled scraper verification timed out; missing usable completions for: ${pending.join(", ")}`);
+    }
+    await sleep(Math.min(pollMs, deadline - now()));
+  }
+}
+
+function readScheduledEvents(startTime) {
+  const events = [];
+  let nextToken;
+  for (let page = 0; page < 20; page += 1) {
+    const result = JSON.parse(execFileSync("aws", ["logs", "filter-log-events", "--log-group-name", "/aws/lambda/scraper-dev-fetchPosts-browser",
+      "--start-time", String(startTime), "--end-time", String(Date.now()), "--filter-pattern", "?SCRAPER_JOB_COMPLETED ?SCRAPER_JOB_FAILED", "--limit", "1000", "--no-paginate", "--cli-read-timeout", "20",
+      ...(nextToken ? ["--next-token", nextToken] : [])],
+    { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, AWS_MAX_ATTEMPTS: "1" } }));
+    events.push(...(result.events || []));
+    if (!result.nextToken || result.nextToken === nextToken) return events;
+    nextToken = result.nextToken;
+  }
+  assert.fail("Scheduled scraper log lookup exceeded its bounded page limit");
+}
+
 function invokeLive(event) {
   const payloadFile = "/tmp/f5-browser-live-probe.json";
   const options = { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, AWS_MAX_ATTEMPTS: "1" } };
@@ -118,14 +176,16 @@ function invokeLive(event) {
 }
 
 if (require.main === module) {
-  verifyFeeds({ allFeeds: process.env.F5_PROBE_ALL_FEEDS === "true",
-    session: process.env.F5_PROBE_SESSION !== "false", authenticate: process.env.F5_PROBE_AUTHENTICATE === "true",
-    renewSession: process.env.F5_PROBE_RENEW_SESSION === "true",
-    invoke: invokeLive,
-  }).catch((error) => {
+  const verification = process.env.F5_PROBE_SCHEDULED === "true"
+    ? verifyScheduled({ readEvents: readScheduledEvents })
+    : verifyFeeds({ allFeeds: process.env.F5_PROBE_ALL_FEEDS === "true",
+      session: process.env.F5_PROBE_SESSION !== "false", authenticate: process.env.F5_PROBE_AUTHENTICATE === "true",
+      renewSession: process.env.F5_PROBE_RENEW_SESSION === "true", invoke: invokeLive,
+    });
+  verification.catch((error) => {
     console.error(error instanceof assert.AssertionError ? error.message : "Unable to verify the browser scraper invocation");
     process.exitCode = 1;
   });
 }
 
-module.exports = { checkInvocation, failureSummary, verifyFeeds, FEEDS };
+module.exports = { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, FEEDS };
