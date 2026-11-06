@@ -32,3 +32,15 @@ test("failed probe summaries include only browser failure messages", () => {
   assert.deepEqual(summary.browserErrors, [logs[2].message]);
   assert.ok(!JSON.stringify(summary).includes("private-post"));
 });
+
+
+test("bootstrap diagnostics keep error messages and omit stack frames", () => {
+  const lines = [
+    "Error: Cannot find module /var/task/index", "    at privateStack (/private/stack.js:10)",
+    JSON.stringify({ errorType: "Runtime.ImportModuleError", errorMessage: "missing handler https://private.example/path?token=hidden", stack: ["private-stack"] }),
+  ];
+  const result = failureSummary({ LogResult: Buffer.from(lines.join("\n")).toString("base64") }, {});
+  assert.ok(result.startupErrors.includes(lines[0]));
+  const output = JSON.stringify(result);
+  for (const secret of ["privateStack", "private-stack", "private.example", "hidden"]) assert.ok(!output.includes(secret));
+});

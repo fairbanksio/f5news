@@ -139,7 +139,7 @@ jobs:
       - name: Check Read-Only Browser Startup
         run: |
           docker run --rm --network none --read-only --pids-limit 256 --memory 2g \
-            --tmpfs /tmp:rw,size=512m --entrypoint /usr/bin/tini f5-scraper:test -s -- python -c '
+            --tmpfs /tmp:rw,size=512m f5-scraper:test python -c '
           import os, subprocess, sys
           assert os.getuid() != 0
           check = """from invisible_playwright import InvisiblePlaywright
@@ -151,6 +151,16 @@ jobs:
           for _ in range(3):
               subprocess.run([sys.executable, "-c", check], check=True)
           '
+
+      - name: Check Lambda Entrypoint Compatibility
+        run: |
+          cat > /tmp/f5-lambda-seccomp.json <<'EOF'
+          {"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["prctl"],"action":"SCMP_ACT_ERRNO","errnoRet":1,"args":[{"index":0,"value":36,"op":"SCMP_CMP_EQ"}]}]}
+          EOF
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt seccomp=/tmp/f5-lambda-seccomp.json \
+            --tmpfs /tmp:rw,size=64m --env AWS_LAMBDA_RUNTIME_API=test \
+            f5-scraper:test node -e 'require("node:assert/strict").equal(process.pid, 1)'
 
   webui:
     name: Web UI

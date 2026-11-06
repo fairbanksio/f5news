@@ -23,10 +23,18 @@ function failureSummary(metadata, payload, env = process.env) {
       .replace(/\b(password|token|secret|authorization|api[_-]?key)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]").slice(0, 500);
   };
   const errorType = clean(payload?.errorType || "LambdaInvocationError");
+  const records = logRecords(metadata);
+  const structuredErrors = records.filter((record) => record.errorMessage).map((record) => /^Mongo/.test(record.errorType || record.errorName || "") ? "Database operation failed" : clean(record.errorMessage));
+  const startupLines = Buffer.from(metadata.LogResult || "", "base64").toString().split("\n").filter((line) => {
+    if (/\bat\s+.*(?:\(|:\d)/.test(line)) return false;
+    if (line.includes("{")) return false;
+    return /\b(?:Error|TypeError|ReferenceError|SyntaxError):|\[FATAL\b|cannot open shared object|GLIBC_|Permission denied|No such file/i.test(line);
+  }).map(clean);
   return {
     errorType,
     errorMessage: /^Mongo/.test(errorType) ? "Database operation failed" : clean(payload?.errorMessage || "Lambda invocation failed"),
-    browserErrors: logRecords(metadata).filter((record) => record.eventType === "BROWSER_PROGRESS" && /Browser test failed|Browser page crashed/.test(record.message || ""))
+    startupErrors: [...new Set([...structuredErrors, ...startupLines])].slice(0, 3),
+    browserErrors: records.filter((record) => record.eventType === "BROWSER_PROGRESS" && /Browser test failed|Browser page crashed/.test(record.message || ""))
       .slice(-2).map((record) => clean(record.message)),
   };
 }
@@ -51,7 +59,15 @@ if (require.main === module) {
       "--log-type", "Tail", "--cli-read-timeout", "260", payloadFile], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
     if (result.FunctionError) {
       const error = JSON.parse(readFileSync(payloadFile, "utf8"));
-      console.error(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE_FAILED", ...failureSummary(result, error) }));
+      let logText = Buffer.from(result.LogResult || "", "base64").toString();
+      try {
+        const logs = JSON.parse(execFileSync("aws", ["logs", "filter-log-events", "--log-group-name", "/aws/lambda/scraper-dev-fetchPosts-browser",
+          "--start-time", String(Date.now() - 120_000), "--limit", "50"],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+        logText += "\n" + (logs.events || []).map((event) => event.message).join("\n");
+      } catch { console.error("Initialization log lookup unavailable"); }
+      const diagnostics = { ...result, LogResult: Buffer.from(logText).toString("base64") };
+      console.error(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE_FAILED", ...failureSummary(diagnostics, error) }));
     }
     console.log(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE", subreddit: "politics", ...checkInvocation(result) }));
   } catch (error) {
