@@ -156,7 +156,7 @@ class AuthenticationTests(unittest.TestCase):
             self.assertNotIn(secret, output.getvalue())
         self.assertIn("[redacted]", output.getvalue())
 
-    def login_page(self):
+    def login_page(self, click_error=None):
         events = []
 
         class Field:
@@ -177,6 +177,8 @@ class AuthenticationTests(unittest.TestCase):
 
             def click(self, **_kwargs):
                 events.append(("click", self.name))
+                if click_error:
+                    raise click_error
 
             def get_by_role(self, *_args, **_kwargs):
                 return Field("submit")
@@ -205,6 +207,36 @@ class AuthenticationTests(unittest.TestCase):
         self.assertEqual(sum(event[0] == "click" for event in events), 1)
         self.assertEqual(sum(event[0] == "fill" for event in events), 2)
         self.assertEqual(events[-1], ("goto", "https://www.reddit.com/r/politics/rising/"))
+
+    def test_dispatched_descendant_click_observes_success_without_resubmitting(self):
+        error = RuntimeError("Locator.click: the action went out but did not reach the element: mouseup landed on span.flex.items-center.gap-xs")
+        page, events = self.login_page(click_error=error)
+        with patch.dict(os.environ, {"REDDIT_USERNAME": "test-account", "REDDIT_PASSWORD": "test-password"}), patch.object(smoke, "login_state", side_effect=["login", "loading"]), patch.object(smoke, "has_account_session", return_value=True), patch.object(smoke, "state", return_value="feed"):
+            self.assertEqual(smoke.authenticate_once(page, "https://www.reddit.com/r/politics/rising/"), "authenticated")
+        self.assertEqual(sum(event[0] == "click" for event in events), 1)
+
+    def test_dispatched_click_observes_rejection_or_challenge_without_resubmitting(self):
+        for state in ("failed", "challenge", "blocked"):
+            error = RuntimeError("the action went out but did not reach the element: mouseup landed on span.flex")
+            page, events = self.login_page(click_error=error)
+            with patch.dict(os.environ, {"REDDIT_USERNAME": "test-account", "REDDIT_PASSWORD": "test-password"}), patch.object(smoke, "login_state", side_effect=["login", state]):
+                self.assertEqual(smoke.authenticate_once(page, "https://www.reddit.com/r/politics/rising/"), "auth_" + state)
+            self.assertEqual(sum(event[0] == "click" for event in events), 1)
+
+    def test_dispatched_click_without_account_session_stays_unverified(self):
+        error = RuntimeError("the action went out but did not reach the element: mouseup landed on span.flex")
+        page, events = self.login_page(click_error=error)
+        with patch.dict(os.environ, {"REDDIT_USERNAME": "test-account", "REDDIT_PASSWORD": "test-password"}), patch.object(smoke, "login_state", side_effect=["login", "loading"]), patch.object(smoke, "has_account_session", return_value=False), patch.object(smoke.time, "monotonic", side_effect=[0, 1, 2, 3, 40]), patch.object(smoke.time, "sleep"):
+            self.assertEqual(smoke.authenticate_once(page, "https://www.reddit.com/r/politics/rising/"), "auth_unverified")
+        self.assertEqual(sum(event[0] == "click" for event in events), 1)
+
+    def test_other_click_errors_propagate_without_another_attempt(self):
+        for message in ("Timeout waiting for element", "mouseup landed on span.flex", "action went out but did not reach the element: mouseup was never sent"):
+            page, events = self.login_page(click_error=RuntimeError(message))
+            with patch.dict(os.environ, {"REDDIT_USERNAME": "test-account", "REDDIT_PASSWORD": "test-password"}), patch.object(smoke, "login_state", return_value="login"):
+                with self.assertRaisesRegex(RuntimeError, message):
+                    smoke.authenticate_once(page, "https://www.reddit.com/r/politics/rising/")
+            self.assertEqual(sum(event[0] == "click" for event in events), 1)
 
     def test_login_challenge_or_block_prevents_fill(self):
         for access in ("challenge", "blocked"):
