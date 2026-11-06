@@ -18,7 +18,7 @@ A missing, invalid, or 12-hour-old session triggers one coordinated login using 
 
 The manual verification workflow supports `scheduled` to read fresh scheduled completions for all 11 feeds without invoking Lambda. It also supports `all_feeds` to check all 11 feeds and repeat politics, requiring one session generation. `renew_session` renews the first invocation under the same lease and cooldown, then verifies reuse. Explicit `session: false, authenticate: true` retains the single-login diagnostic; `session: false` disables shared state for an anonymous diagnostic.
 
-Schedules remain paused during the initial verification rollout. Enable them after both all-feed reuse and renewal checks pass.
+All 11 shared-session schedules run every five minutes. The scheduled verification mode checks fresh EventBridge-triggered completions independently of manual probes.
 
 Each invocation starts a fresh browser and reads exact timestamps, counts, destination links, and media metadata. Gallery posts receive a detail-page read. Native video manifests are verified before storage. Missing required data, blocked access, unresolved human checks, browser failures, and empty feeds fail the job before any post writes. Optional article thumbnail failures retain the existing degraded-job behavior.
 
