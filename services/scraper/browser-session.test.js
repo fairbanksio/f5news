@@ -262,16 +262,40 @@ test("reuse failures report only a finite status when renewal is cooling down", 
   const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW), nextAttemptAt: new Date(NOW + 300000) });
   store.objects.set(generation, SECRET);
   const messages = [];
-  const runner = createSessionRunner({ store, now: () => NOW });
+  const runner = createSessionRunner({ store, now: () => NOW, pause: async () => {} });
   let calls = 0;
   await assert.rejects(runner(options(messages), async (request) => {
     calls++;
     assert.equal(request.authenticate, false);
     throw new Error("Browser extraction failed: session_blocked");
   }), /cooling down.*session_blocked/);
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   const record = messages.map(JSON.parse).find((item) => item.mode === "reuse_failed");
   assert.equal(record.status, "session_blocked");
   assert.equal(record.generation, generation);
   assert.ok(!messages.join().includes("private-cookie-value"));
+});
+
+
+test("a transient access failure retries the same session without another login", async () => {
+  for (const status of ["session_blocked", "session_challenge"]) {
+    const generation = randomUUID();
+    const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
+    store.objects.set(generation, SECRET);
+    const calls = [];
+    const delays = [];
+    const runner = createSessionRunner({ store, now: () => NOW, pause: async (ms) => { delays.push(ms); } });
+    const result = await runner(options(), async (request) => {
+      calls.push(request);
+      if (calls.length === 1) throw new Error(`Browser extraction failed: ${status}`);
+      return { status: "accessible", posts: [] };
+    });
+    assert.equal(calls.length, 2);
+    assert.ok(calls.every((request) => request.authenticate === false));
+    assert.equal(calls[0].sessionInput, calls[1].sessionInput);
+    assert.deepEqual(delays, [2000]);
+    assert.equal(result.sessionGeneration, generation);
+    assert.equal(result.sessionMode, "reused");
+    assert.equal(store.attempts.length, 0);
+  }
 });
