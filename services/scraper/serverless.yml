@@ -16,6 +16,24 @@ provider:
     MONGO_CONNECTION_STRING: ${env:MONGO_CONNECTION_STRING, ssm:/primary_db_connection_string}
     REDDIT_USERNAME: ${env:REDDIT_USERNAME, ssm:/reddit_username}
     REDDIT_PASSWORD: ${env:REDDIT_PASSWORD, ssm:/reddit_password}
+    F5_REDDIT_SESSION_BUCKET: ${env:F5_REDDIT_SESSION_BUCKET, ssm:/f5_reddit_session_bucket}
+    F5_REDDIT_SESSION_ENABLED: "true"
+  iam:
+    role:
+      statements:
+        - Sid: SharedRedditSessionObjects
+          Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+          Resource:
+            Fn::Join:
+              - ""
+              - - "arn:"
+                - Ref: AWS::Partition
+                - ":s3:::"
+                - ${self:provider.environment.F5_REDDIT_SESSION_BUCKET}
+                - "/reddit/sessions/*.json"
 
 functions:
   fetchPosts:
@@ -28,59 +46,81 @@ functions:
     events:
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: politics
+            session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: worldnews
+            session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: europe
+            session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: news
+            session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: technology
+            session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: science
+            session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: health
+            session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: energy
+            session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: sports
+            session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: business
+            session: true
+            scheduled: true
       - schedule:
           rate: rate(5 minutes)
-          enabled: true
+          enabled: false
           input:
             subreddit: Economics
+            session: true
+            scheduled: true
 
 resources:
   extensions:

@@ -3,8 +3,24 @@ name: Verify Browser Scraper
 on:
   workflow_dispatch:
     inputs:
+      scheduled:
+        description: Read fresh scheduled completions for every feed without invoking Lambda
+        type: boolean
+        default: false
+      all_feeds:
+        description: Verify all feeds, then repeat politics to confirm session reuse
+        type: boolean
+        default: false
+      session:
+        description: Use the shared persisted Reddit session
+        type: boolean
+        default: true
+      renew_session:
+        description: Renew the shared session once, subject to login cooldown
+        type: boolean
+        default: false
       authenticate:
-        description: Try one login with the approved Reddit account
+        description: Bootstrap one login with the approved Reddit account
         type: boolean
         default: false
 
@@ -16,7 +32,7 @@ jobs:
     name: Live Browser Probe
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 55
     permissions:
       contents: read
       id-token: write
@@ -34,9 +50,13 @@ jobs:
         with:
           aws-region: us-east-1
           role-to-assume: arn:aws:iam::633025216388:role/GithubActions-Fairbanksio-F5oclock
-          role-duration-seconds: 900
+          role-duration-seconds: 3600
 
       - name: Verify Live Extraction
         env:
+          F5_PROBE_SCHEDULED: ${{ inputs.scheduled }}
+          F5_PROBE_ALL_FEEDS: ${{ inputs.all_feeds }}
+          F5_PROBE_SESSION: ${{ inputs.session }}
+          F5_PROBE_RENEW_SESSION: ${{ inputs.renew_session }}
           F5_PROBE_AUTHENTICATE: ${{ inputs.authenticate }}
         run: node scripts/check-browser-deployment.cjs
