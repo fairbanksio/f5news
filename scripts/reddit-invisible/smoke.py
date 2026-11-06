@@ -181,7 +181,14 @@ def authenticate_once(page, feed_url):
         return "auth_login_unavailable"
     username_field.fill(username, timeout=5000)
     password_field.fill(password, timeout=5000)
-    submit.click(timeout=5000)
+    try:
+        submit.click(timeout=5000)
+    except Exception as error:
+        message = str(error)
+        if "action went out but did not reach the element:" not in message or "mouseup landed on " not in message:
+            raise
+        # Invisible reports this after dispatch. A second click could submit twice.
+        log("Login click was dispatched. Checking its result without another submission.")
     started = time.monotonic()
     while time.monotonic() - started < 30:
         access = login_state(page)
