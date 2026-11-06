@@ -57,4 +57,4 @@ COPY scripts/reddit-stagehand/browser-reader.js scripts/reddit-stagehand/f5-dom.
 COPY services/posts/subreddits.json /app/services/posts/subreddits.json
 USER 10001:10001
 ENTRYPOINT ["/app/services/scraper/entrypoint.sh"]
-CMD ["/usr/local/bin/node", "/opt/lambda-ric/index.mjs", "index.fetchPosts"]
+CMD ["index.fetchPosts"]

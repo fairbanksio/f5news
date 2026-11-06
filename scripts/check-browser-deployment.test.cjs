@@ -27,9 +27,11 @@ test("failed probe summaries include only browser failure messages", () => {
     { eventType: "POST_BATCH", privateData: "private-post" },
     { eventType: "BROWSER_PROGRESS", message: "Launching browser." },
     { eventType: "BROWSER_PROGRESS", message: "Browser test failed (PermissionError): Read-only filesystem" },
+    { eventType: "BROWSER_PROGRESS", message: "[128] SandboxBroker: Operation not permitted" },
+    { eventType: "BROWSER_PROGRESS", message: "    at SandboxHandler (/private-stack.js:1)" },
   ];
   const summary = failureSummary({ LogResult: Buffer.from(logs.map(JSON.stringify).join("\n")).toString("base64") }, {});
-  assert.deepEqual(summary.browserErrors, [logs[2].message]);
+  assert.deepEqual(summary.browserErrors, [logs[2].message, logs[3].message]);
   assert.ok(!JSON.stringify(summary).includes("private-post"));
 });
 

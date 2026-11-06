@@ -34,8 +34,8 @@ function failureSummary(metadata, payload, env = process.env) {
     errorType,
     errorMessage: /^Mongo/.test(errorType) ? "Database operation failed" : clean(payload?.errorMessage || "Lambda invocation failed"),
     startupErrors: [...new Set([...structuredErrors, ...startupLines])].slice(0, 3),
-    browserErrors: records.filter((record) => record.eventType === "BROWSER_PROGRESS" && /Browser test failed|Browser page crashed/.test(record.message || ""))
-      .slice(-2).map((record) => clean(record.message)),
+    browserErrors: records.filter((record) => record.eventType === "BROWSER_PROGRESS" && !/\bat\s+.*(?:\(|:\d)/.test(record.message || "") && /Browser test failed|Browser page crashed|Failed to|not permitted|Permission denied|Sandbox|ENOENT|EACCES|EPERM|SIGSEGV|SIGABRT|Read-only|No such file/i.test(record.message || ""))
+      .slice(-3).map((record) => clean(record.message)),
   };
 }
 
