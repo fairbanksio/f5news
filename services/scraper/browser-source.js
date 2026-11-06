@@ -15,6 +15,7 @@ const runBrowser = ({ subreddit, limit, timeoutMs, logger, authenticate = false,
   });
   let output = "";
   let diagnostics = "";
+  let droppingDiagnostic = false;
   let failure;
   const displays = new Map();
   const stopDisplays = () => {
@@ -46,8 +47,13 @@ const runBrowser = ({ subreddit, limit, timeoutMs, logger, authenticate = false,
   child.stderr.on("data", (data) => {
     diagnostics += data.toString();
     const lines = diagnostics.split("\n");
-    diagnostics = lines.pop().slice(-4096);
+    diagnostics = lines.pop();
     for (const line of lines) {
+      if (droppingDiagnostic || line.length > 4096) {
+        droppingDiagnostic = false;
+        logger.log(JSON.stringify({ eventType: "BROWSER_PROGRESS", subreddit, message: "Browser diagnostic line exceeded its size limit" }));
+        continue;
+      }
       try {
         const event = JSON.parse(line);
         if (event.eventType === "BROWSER_OWNED_DISPLAY" && Number.isSafeInteger(event.pid) && event.pid > 1 && event.pgid === event.pid && /^\d+$/.test(String(event.startTime))) displays.set(event.pid, event.startTime);
@@ -55,6 +61,10 @@ const runBrowser = ({ subreddit, limit, timeoutMs, logger, authenticate = false,
       } catch { /* Normal browser progress is plain text. */ }
       const { errorMessage: message } = errorFields({ message: line }, redactionValues);
       logger.log(JSON.stringify({ eventType: "BROWSER_PROGRESS", subreddit, message }));
+    }
+    if (droppingDiagnostic || diagnostics.length > 4096) {
+      diagnostics = "";
+      droppingDiagnostic = true;
     }
   });
   child.once("error", (error) => { failure = error; });

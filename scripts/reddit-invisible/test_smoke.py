@@ -170,7 +170,7 @@ class AuthenticationTests(unittest.TestCase):
                 return True
 
             def is_enabled(self):
-                return True
+                raise AssertionError("Click must wait for enabled state rather than sample it immediately")
 
             def fill(self, value, **_kwargs):
                 events.append(("fill", self.name, value))
@@ -243,6 +243,15 @@ class AuthenticationTests(unittest.TestCase):
                                  ({"name": "token_v2", "value": "session-secret", "domain": "evil.example"}, False)]:
             page.context.cookies = lambda: [cookie]
             self.assertEqual(smoke.has_account_session(page), expected)
+
+    def test_exception_redaction_precedes_truncation(self):
+        secret = "private-password-crossing-log-boundary"
+        error = RuntimeError("x" * 1190 + secret + " trailing details")
+        output = io.StringIO()
+        with patch.dict(os.environ, {"REDDIT_PASSWORD": secret}), patch.object(smoke, "options", return_value=argparse.Namespace()), patch.object(smoke, "browser_lifecycle", return_value=nullcontext()), patch.object(smoke, "run", side_effect=error), patch.object(smoke, "log_resources"), patch.object(sys, "stderr", output):
+            self.assertEqual(smoke.main(), 1)
+        self.assertNotIn(secret[:10], output.getvalue())
+        self.assertIn("[redacted]", output.getvalue())
 
     def test_auth_failure_cli_returns_nonzero_with_no_posts(self):
         output = io.StringIO()

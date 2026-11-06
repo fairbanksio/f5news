@@ -181,8 +181,6 @@ def authenticate_once(page, feed_url):
         return "auth_login_unavailable"
     username_field.fill(username, timeout=5000)
     password_field.fill(password, timeout=5000)
-    if not submit.is_enabled():
-        return "auth_failed"
     submit.click(timeout=5000)
     started = time.monotonic()
     while time.monotonic() - started < 30:
@@ -355,7 +353,7 @@ def main():
         with browser_lifecycle():
             result = run(config)
     except (Exception, BrowserCancelled) as error:
-        detail = re.sub(r"(https?://[^\s?]+)\?[^\s]+", r"\1?[redacted]", str(error))
+        detail = redact(str(error))
         log(f"Browser test failed ({type(error).__name__}): {detail[:1200]}")
         return 1
     finally:
