@@ -46,14 +46,14 @@ functions:
     events:
       - schedule:
           rate: rate(5 minutes)
-          enabled: false
+          enabled: true
           input:
             allFeeds: true
             session: true
             scheduled: true
       - schedule:
           rate: rate(12 hours)
-          enabled: false
+          enabled: true
           input:
             subreddit: politics
             session: true
