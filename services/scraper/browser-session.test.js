@@ -299,3 +299,29 @@ test("a transient access failure retries the same session without another login"
     assert.equal(store.attempts.length, 0);
   }
 });
+
+test("session inspection returns only safe counts and expiry metadata without writes", async () => {
+  const { inspectSession } = require("./browser-session");
+  const generation = randomUUID();
+  const state = { version: 1, seed: 42, cookies: [
+    { name: "reddit_session", value: "private-account-cookie", domain: ".reddit.com", path: "/", expires: -1 },
+    { name: "reddit_session", value: "private-expired-cookie", domain: ".reddit.com", path: "/", expires: NOW / 1000 - 30 },
+    { name: "reddit_session", value: "private-subdomain-cookie", domain: ".www.reddit.com", path: "/", expires: NOW / 1000 - 30 },
+    { name: "private-cookie-name", value: "private-cookie-value", domain: ".reddit.com", path: "/", expires: NOW / 1000 - 1, size: 3 },
+  ], origins: [{ origin: "https://www.reddit.com", localStorage: [{ name: "private-key", value: "private-storage" }] }] };
+  const report = await inspectSession({ now: () => NOW, store: {
+    current: async () => ({ activeGeneration: generation, sessionCreatedAt: new Date(NOW - 60000), owner: "private-owner", leaseUntil: new Date(NOW + 10000), nextAttemptAt: new Date(NOW + 20000) }),
+    read: async () => Buffer.from(JSON.stringify(state)),
+  } });
+  assert.equal(report.sessionAgeSeconds, 60);
+  assert.equal(report.leaseActive, true);
+  assert.equal(report.cooldownSeconds, 20);
+  assert.equal(report.rootAccountCookieCount, 2);
+  assert.equal(report.unexpiredRootAccountCookieCount, 1);
+  assert.equal(report.expiredRootAccountCookieCount, 1);
+  assert.equal(report.sessionRootAccountCookieCount, 1);
+  assert.equal(report.otherExpiredCookieCount, 2);
+  assert.equal(report.minimumRootAccountExpirySeconds, -30);
+  assert.equal(report.unknownCookieAttributeCount, 1);
+  assert.ok(!JSON.stringify(report).includes("private"));
+});

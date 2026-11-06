@@ -78,7 +78,11 @@ const runBrowser = ({ subreddit, limit, timeoutMs, logger, authenticate = false,
     if (failure) return reject(failure);
     let result;
     try { result = JSON.parse(output); } catch { return reject(new Error(code === 0 ? "Browser returned invalid extraction output" : `Browser process failed (${signal || code})`)); }
-    if (code !== 0 || result.status !== "accessible") return reject(new Error(`Browser extraction failed: ${["blocked", "empty", "loading_timeout", "challenge_required", "auth_credentials_missing", "auth_blocked", "auth_challenge", "auth_failed", "auth_login_unavailable", "auth_unverified", "auth_feed_timeout", "session_invalid", "session_blocked", "session_challenge"].includes(result.status) ? result.status : "runtime_error"}`));
+    if (code !== 0 || result.status !== "accessible") {
+      const error = new Error(`Browser extraction failed: ${["blocked", "empty", "loading_timeout", "challenge_required", "auth_credentials_missing", "auth_blocked", "auth_challenge", "auth_failed", "auth_login_unavailable", "auth_unverified", "auth_feed_timeout", "session_invalid", "session_blocked", "session_challenge"].includes(result.status) ? result.status : "runtime_error"}`);
+      if (["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"].includes(result.sessionReason)) error.sessionReason = result.sessionReason;
+      return reject(error);
+    }
     resolve(result);
   });
 });

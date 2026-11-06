@@ -13,7 +13,7 @@ import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 ROOT = Path(__file__).resolve().parent
 SUBREDDITS = Path(os.environ.get("F5_SUBREDDITS_FILE", str(ROOT / "../../services/posts/subreddits.json")))
@@ -238,8 +238,14 @@ def authenticate_once(page, feed_url):
 MAX_SESSION_BYTES = 1024 * 1024
 
 
+SESSION_REASONS = frozenset(("invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing",
+                             "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"))
+
+
 class SessionError(RuntimeError):
-    pass
+    def __init__(self, message, code="invalid_data"):
+        super().__init__(message)
+        self.code = code if code in SESSION_REASONS else "invalid_data"
 
 
 def reddit_domain(value):
@@ -256,6 +262,7 @@ def validate_session(session):
             raise ValueError()
         seen = set()
         account = False
+        expired_account = False
         usable_cookies = []
         for cookie in session["cookies"]:
             if not isinstance(cookie, dict) or not {"name", "value", "domain", "path"} <= set(cookie) or set(cookie) - {"name", "value", "domain", "path", "expires", "httpOnly", "secure", "sameSite"}:
@@ -268,8 +275,7 @@ def validate_session(session):
             if type(expires) not in (int, float) or not math.isfinite(expires):
                 raise ValueError()
             if expires != -1 and expires <= time.time():
-                if cookie["name"] == "reddit_session":
-                    raise ValueError()
+                expired_account |= cookie["name"] == "reddit_session" and cookie["domain"].lstrip(".") == "reddit.com" and cookie["path"] == "/"
                 continue
             if any(key in cookie and type(cookie[key]) is not bool for key in ("secure", "httpOnly")) or cookie.get("sameSite", "Lax") not in ("Lax", "None", "Strict"):
                 raise ValueError()
@@ -280,7 +286,7 @@ def validate_session(session):
             usable_cookies.append(cookie)
             account |= cookie["name"] == "reddit_session" and bool(cookie["value"]) and cookie["domain"].lstrip(".") == "reddit.com" and cookie["path"] == "/"
         if not account:
-            raise ValueError()
+            raise SessionError("Session data is invalid", "root_cookie_expired" if expired_account else "root_cookie_missing")
         origins = set()
         for origin in session["origins"]:
             if not isinstance(origin, dict) or set(origin) != {"origin", "localStorage"} or origin["origin"] not in ("https://www.reddit.com", "https://reddit.com") or origin["origin"] in origins or not isinstance(origin["localStorage"], list):
@@ -294,6 +300,8 @@ def validate_session(session):
         if len(json.dumps(session)) > MAX_SESSION_BYTES:
             raise ValueError()
         return {**session, "cookies": usable_cookies}
+    except SessionError:
+        raise
     except Exception:
         raise SessionError("Session data is invalid") from None
 
@@ -305,8 +313,10 @@ def read_session(path):
             if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > MAX_SESSION_BYTES:
                 raise ValueError()
             return validate_session(json.load(source))
+    except SessionError:
+        raise
     except Exception:
-        raise SessionError("Session input is invalid") from None
+        raise SessionError("Session input is invalid", "input_file_invalid") from None
 
 
 def write_session(path, session):
@@ -341,7 +351,12 @@ def export_session(page, seed, path):
         raise SessionError("Session output could not be saved") from None
 
 
-def reuse_session(page, session, feed_url):
+def reuse_session(page, session, feed_url, diagnostics=None):
+    def invalid(reason, status="session_invalid"):
+        if diagnostics is not None:
+            diagnostics["sessionReason"] = reason
+        return status
+
     try:
         # Firefox reads session expiry as -1 but drops cookies set with that value.
         cookies = [{key: value for key, value in cookie.items() if key != "expires" or value != -1}
@@ -355,13 +370,13 @@ def reuse_session(page, session, feed_url):
             while time.monotonic() - started < 60:
                 access = state(page)
                 if access in ("blocked", "challenge"):
-                    return "session_" + access
+                    return invalid("feed_" + access, "session_" + access)
                 if access == "feed":
-                    return "reused" if has_account_session(page) else "session_invalid"
+                    return "reused" if has_account_session(page) else invalid("feed_cookie_missing")
                 time.sleep(1)
-        return "session_invalid"
+        return invalid("feed_timeout")
     except Exception:
-        raise SessionError("Session could not be restored") from None
+        raise SessionError("Session could not be restored", "restore_exception") from None
 
 
 CORE_ATTRIBUTES = ("id", "subreddit-name", "permalink", "content-href", "post-title", "author", "created-timestamp", "score", "comment-count", "post-type")
@@ -439,6 +454,56 @@ def enrich_gallery(page, reader, post, subreddit):
             "thumbnail": post.get("thumbnail") or detail.get("thumbnail") or images[0]["url"]}
 
 
+def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_budget=25):
+    candidates = []
+    for index, post in enumerate(posts):
+        if post["attributes"].get("post-type") not in ("link", "crosspost"):
+            continue
+        try:
+            image = urlsplit(post.get("thumbnail") or "")
+            widths = parse_qs(image.query).get("width", [])
+            if image.scheme not in ("http", "https") or len(widths) != 1 or not widths[0].isdigit() or not 0 < int(widths[0]) <= 320:
+                continue
+            score = post["attributes"].get("score", "")
+            candidates.append((int(score) if re.fullmatch(r"-?\d{1,20}", score) else 0, index))
+        except (TypeError, ValueError):
+            continue
+    selected = list(posts)
+    deadline = time.monotonic() + time_budget
+    for _score, index in sorted(candidates, key=lambda item: item[0], reverse=True)[:max_details]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        post = posts[index]
+        try:
+            target = gallery_url(post, subreddit)
+            page.goto(target, wait_until="domcontentloaded", timeout=max(1, min(5000, int(remaining * 1000))))
+            ready_deadline = min(deadline, time.monotonic() + 2)
+            access = state(page)
+            while access == "loading" and time.monotonic() < ready_deadline:
+                time.sleep(min(0.2, max(0, ready_deadline - time.monotonic())))
+                access = state(page)
+            if access in ("blocked", "challenge"):
+                log("Optional image details require browser access. Keeping listing images.")
+                break
+            if access != "feed" or time.monotonic() >= deadline:
+                continue
+            details = read_posts(page, reader, detail=True)
+            detail = next((item for item in details if item["attributes"].get("id") == post["attributes"]["id"]
+                           and (item["attributes"].get("subreddit-name") or "").lower() == subreddit.lower()), None)
+            preview = detail.get("preview") if detail else None
+            url = preview["images"][0]["source"]["url"] if isinstance(preview, dict) else None
+            parsed = urlsplit(url or "")
+            if parsed.scheme not in ("http", "https") or parsed.hostname not in ("i.redd.it", "preview.redd.it", "external-preview.redd.it") or parsed.username or parsed.password:
+                continue
+            # Only media changes. Exact identity, counts, and dates stay from the listing.
+            selected[index] = {**post, "thumbnail": url, "preview": preview}
+            log("Improved an optional link preview from the published image source.")
+        except Exception:
+            log("Optional image details were unavailable. Keeping the listing image.")
+    return selected
+
+
 def run(config):
     from invisible_playwright import InvisiblePlaywright
 
@@ -454,8 +519,8 @@ def run(config):
     if session_input:
         try:
             session = read_session(session_input)
-        except SessionError:
-            return {"status": "session_invalid", "subreddit": config.subreddit, "posts": []}
+        except SessionError as error:
+            return {"status": "session_invalid", "sessionReason": error.code, "subreddit": config.subreddit, "posts": []}
     seed = session["seed"] if session else secrets.randbelow(2**31)
     launch_options = {"headless": True}
     if session or getattr(config, "authenticate", False):
@@ -467,12 +532,14 @@ def run(config):
         page.on("crash", lambda *_args: log("Browser page crashed."))
         page.on("close", lambda *_args: log("Browser page closed."))
         if session:
+            diagnostics = {}
             try:
-                access = reuse_session(page, session, url)
-            except SessionError:
+                access = reuse_session(page, session, url, diagnostics=diagnostics)
+            except SessionError as error:
                 access = "session_invalid"
+                diagnostics["sessionReason"] = error.code
             if access != "reused":
-                return {"status": access, "subreddit": config.subreddit, "posts": []}
+                return {"status": access, **diagnostics, "subreddit": config.subreddit, "posts": []}
         elif getattr(config, "authenticate", False):
             authentication = authenticate_once(page, url)
             if authentication != "authenticated":
@@ -489,7 +556,7 @@ def run(config):
                 log(f"Still waiting for feed access ({current}).")
                 last_report = time.monotonic()
             if session and current in ("blocked", "challenge"):
-                return {"status": "session_" + current, "subreddit": config.subreddit, "posts": []}
+                return {"status": "session_" + current, "sessionReason": "feed_" + current, "subreddit": config.subreddit, "posts": []}
             if current == "blocked":
                 return {"status": "blocked", "subreddit": config.subreddit, "posts": []}
             if current == "feed":
@@ -502,7 +569,7 @@ def run(config):
                     clicked = True
             time.sleep(1)
         else:
-            return {"status": "session_invalid" if session else "challenge_required" if state(page) == "challenge" else "loading_timeout", "subreddit": config.subreddit, "checkboxClicked": clicked, "posts": []}
+            return {"status": "session_invalid" if session else "challenge_required" if state(page) == "challenge" else "loading_timeout", **({"sessionReason": "feed_timeout"} if session else {}), "subreddit": config.subreddit, "checkboxClicked": clicked, "posts": []}
 
         if session_output:
             export_session(page, seed, session_output)
@@ -526,6 +593,7 @@ def run(config):
         for index, post in enumerate(selected):
             if post["attributes"]["post-type"] == "gallery":
                 selected[index] = enrich_gallery(page, reader, post, config.subreddit)
+        selected = enrich_link_previews(page, reader, selected, config.subreddit)
         return {"status": "accessible" if selected else "empty", "subreddit": config.subreddit, "checkboxClicked": clicked, "posts": selected, "durationSeconds": round(time.monotonic() - started, 2)}
 
 

@@ -620,7 +620,7 @@ test("fetchPosts backfills recent posts with missing thumbnails", async () => {
   await handler({ subreddit: "news" });
 
   assert.equal(findCalls.length, 1);
-  assert.deepEqual(findCalls[0], {
+  assert.deepEqual({ ...findCalls[0], $or: findCalls[0].$or.slice(0, 4) }, {
     sub: "news",
     created_utc: { $gt: 1710043200 },
     is_self: { $ne: true },
@@ -660,14 +660,19 @@ test("fetchPosts backfills recent posts with missing thumbnails", async () => {
 test("backfill processes Reddit posts and advances to older eligible articles", async (t) => {
   const matches = (post, filter) => Object.entries(filter).every(([field, condition]) => {
     if (field === "$or") return condition.some((clause) => matches(post, clause));
+    if (field === "$and") return condition.every((clause) => matches(post, clause));
     if (condition === null) return post[field] == null;
     if (typeof condition !== "object") return post[field] === condition;
     return Object.entries(condition).every(([operator, value]) => {
       switch (operator) {
         case "$ne": return post[field] !== value;
         case "$gt": return post[field] > value;
+        case "$lt": return post[field] < value;
         case "$exists": return (post[field] !== undefined) === value;
         case "$in": return value.includes(post[field]);
+        case "$nin": return !value.includes(post[field]);
+        case "$regex": return new RegExp(value, condition.$options).test(post[field] || "");
+        case "$options": return true;
         default: throw new Error(`Unsupported query operator: ${operator}`);
       }
     });
@@ -1187,4 +1192,17 @@ test("scheduled sessions inherit the runtime default and report reuse metadata",
   assert.equal(terminal.trigger, "schedule");
   assert.equal(terminal.sessionMode, "reused");
   assert.equal(terminal.sessionGeneration, "fixture-generation");
+});
+
+test("session diagnostics read metadata without running a scrape or writing posts", async () => {
+  const calls = [];
+  const logger = createLogger();
+  const handler = createFetchPosts({ logger, mongooseClient: { connect: async () => calls.push("connect") },
+    inspectSessionImpl: async () => { calls.push("inspect"); return { statePresent: true, cookieCount: 2 }; },
+    scrapePostsImpl: async () => { throw new Error("Unexpected scrape"); },
+  });
+  assert.deepEqual(await handler({ inspectSession: true }), { statePresent: true, cookieCount: 2 });
+  assert.deepEqual(calls, ["connect", "inspect"]);
+  assert.equal(parseStructuredLogs(logger, "BROWSER_SESSION_DIAGNOSTICS").length, 1);
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 0);
 });

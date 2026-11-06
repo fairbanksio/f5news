@@ -78,6 +78,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
     const owner = randomUUID();
     let attemptedGeneration;
     let lastReuseFailure;
+    let lastReuseReason;
     let initialGeneration;
     let observedInitial = false;
     let ownsLease = false;
@@ -100,15 +101,16 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
             await writeFile(input, bytes, { mode: 0o600 });
             for (let attempt = 1; attempt <= 2; attempt++) {
               try {
-                const result = await runBrowser({ ...options, authenticate: false, sessionInput: input, sessionOutput: undefined, timeoutMs: budget(70000) });
+                const result = await runBrowser({ ...options, authenticate: false, sessionInput: input, sessionOutput: undefined, timeoutMs: budget(100000) });
                 report("reused", generation);
                 return { ...result, sessionMode: "reused", sessionGeneration: generation };
               } catch (error) {
                 if (!renewableFailure(error)) throw error;
                 lastReuseFailure = error.message.slice("Browser extraction failed: ".length);
-                options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "reuse_failed", generation, status: lastReuseFailure, attempt }));
+                lastReuseReason = ["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"].includes(error.sessionReason) ? error.sessionReason : undefined;
+                options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "reuse_failed", generation, status: lastReuseFailure, ...(lastReuseReason ? { reason: lastReuseReason } : {}), attempt }));
                 if (lastReuseFailure === "session_invalid" || attempt === 2) break;
-                budget(70000);
+                budget(100000);
                 await pause(2000);
               }
             }
@@ -129,7 +131,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
         }
         if (current?.nextAttemptAt && new Date(current.nextAttemptAt).getTime() > now() && (!current.owner || new Date(current.leaseUntil).getTime() <= now())) {
           if ((await store.current())?.activeGeneration !== generation) continue;
-          throw new Error(`Session renewal is cooling down after a recent attempt${lastReuseFailure ? `: ${lastReuseFailure}` : ""}`);
+          throw new Error(`Session renewal is cooling down after a recent attempt${lastReuseFailure ? `: ${lastReuseFailure}${lastReuseReason ? `/${lastReuseReason}` : ""}` : ""}`);
         }
         await pause(Math.min(2000, Math.max(0, deadline - now() - 25000)));
       }
@@ -142,3 +144,57 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
 }
 
 module.exports = { createSessionRunner, createSessionStore, key };
+
+async function inspectSession({ store = createSessionStore(), now = Date.now } = {}) {
+  const current = await store.current();
+  const instant = now();
+  const seconds = (value, direction = 1) => {
+    const timestamp = new Date(value).getTime();
+    return Number.isFinite(timestamp) ? Math.max(0, Math.floor(direction * (timestamp - instant) / 1000)) : null;
+  };
+  const generation = current?.activeGeneration;
+  let safeGeneration = "none";
+  if (generation) { try { key(generation); safeGeneration = generation; } catch { safeGeneration = "invalid"; } }
+  const report = {
+    generation: safeGeneration, statePresent: Boolean(generation), stateReadable: false,
+    sessionAgeSeconds: current?.sessionCreatedAt ? seconds(current.sessionCreatedAt, -1) : null,
+    leaseActive: Boolean(current?.owner && new Date(current.leaseUntil).getTime() > instant),
+    cooldownSeconds: current?.nextAttemptAt ? seconds(current.nextAttemptAt) : null,
+    versionSupported: false, seedValid: false, cookieCount: 0, rootAccountCookieCount: 0,
+    unexpiredRootAccountCookieCount: 0, expiredRootAccountCookieCount: 0, sessionRootAccountCookieCount: 0,
+    otherExpiredCookieCount: 0, minimumRootAccountExpirySeconds: null,
+    unknownCookieAttributeCount: 0, originCount: 0, stateBytes: 0,
+  };
+  if (!generation || safeGeneration === "invalid") return report;
+  const bytes = await store.read(generation);
+  if (!bytes) return report;
+  report.stateBytes = bytes.length;
+  let state;
+  try { state = JSON.parse(Buffer.from(bytes).toString("utf8")); } catch { return report; }
+  if (!state || typeof state !== "object") return report;
+  report.stateReadable = true;
+  report.versionSupported = state.version === 1;
+  report.seedValid = Number.isSafeInteger(state.seed) && state.seed >= 0;
+  report.originCount = Array.isArray(state.origins) ? state.origins.length : 0;
+  const fields = new Set(["name", "value", "domain", "path", "expires", "httpOnly", "secure", "sameSite"]);
+  const expiries = [];
+  for (const cookie of Array.isArray(state.cookies) ? state.cookies : []) {
+    report.cookieCount++;
+    if (!cookie || typeof cookie !== "object") continue;
+    report.unknownCookieAttributeCount += Object.keys(cookie).filter((field) => !fields.has(field)).length;
+    const expires = cookie.expires === undefined ? -1 : cookie.expires;
+    const timed = typeof expires === "number" && Number.isFinite(expires) && expires !== -1;
+    const expired = timed && expires * 1000 <= instant;
+    const root = cookie.name === "reddit_session" && String(cookie.domain).replace(/^\./, "") === "reddit.com" && cookie.path === "/";
+    if (root) {
+      report.rootAccountCookieCount++;
+      if (timed) expiries.push(Math.floor(expires - instant / 1000));
+      if (expired) report.expiredRootAccountCookieCount++;
+      else if ((timed || expires === -1) && typeof cookie.value === "string" && cookie.value.length > 0) report.unexpiredRootAccountCookieCount++;
+      if (expires === -1) report.sessionRootAccountCookieCount++;
+    } else if (expired) report.otherExpiredCookieCount++;
+  }
+  if (expiries.length) report.minimumRootAccountExpirySeconds = Math.min(...expiries);
+  return report;
+}
+module.exports.inspectSession = inspectSession;
