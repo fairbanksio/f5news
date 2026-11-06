@@ -17,3 +17,8 @@ test("explicit fetchedAt values are preserved", () => {
   const observedAt = new Date("2026-09-01T12:00:00Z");
   assert.equal(new Post({ fetchedAt: observedAt }).fetchedAt.getTime(), observedAt.getTime());
 });
+
+test("thumbnail quality metadata is excluded from ordinary post queries", () => {
+  const Post = require("./models/post");
+  assert.equal(Post.schema.path("thumbnailQualityCheckedAt").options.select, false);
+});

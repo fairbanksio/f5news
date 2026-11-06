@@ -70,3 +70,50 @@ test("DASH candidates are only emitted after a successful Reddit manifest check"
   const external = { hls_url: "https://untrusted.example/media/HLSPlaylist.m3u8" };
   assert.equal(await resolveVideoManifest(external, async () => { throw new Error("Must not fetch"); }), external);
 });
+
+test("link detail previews use the largest advertised signed source and deduplicate hero copies", () => {
+  const small = "https://external-preview.redd.it/story-v0-media123.jpeg?width=140&height=78&s=small";
+  const medium = "https://external-preview.redd.it/story-v0-media123.jpeg?width=640&s=medium";
+  const full = "https://external-preview.redd.it/story-v0-media123.jpeg?width=1080&s=full";
+  const dom = new JSDOM(`<shreddit-post post-type="link"><a slot="thumbnail"><img src="${small}"></a>
+    <img src="${medium}" srcset="${medium} 640w, ${full} 1080w">
+    <img src="${medium}" srcset="${medium} 640w, ${full} 1080w"></shreddit-post>`);
+  globalThis.document = dom.window.document;
+  try {
+    const [post] = readRenderedPosts({ detail: true });
+    assert.equal(post.thumbnail, full);
+    assert.equal(post.images.length, 1);
+    assert.equal(post.images[0].url, full);
+    assert.equal(post.preview.images[0].source.url, full);
+    assert.equal(readRenderedPosts()[0].preview, undefined);
+  } finally { delete globalThis.document; dom.window.close(); }
+});
+
+test("picture sources and original links retain published image URLs", () => {
+  const full = "https://preview.redd.it/media123.jpg?width=1280&s=published";
+  const dom = new JSDOM(`<shreddit-post post-type="image"><picture>
+    <source srcset="https://preview.redd.it/media123.jpg?width=640&amp;s=medium 640w, ${full} 1280w">
+    <img width="320" src="https://preview.redd.it/media123.jpg?width=320" srcset="https://preview.redd.it/media123.jpg?width=640&amp;s=density 2x">
+  </picture></shreddit-post>`);
+  globalThis.document = dom.window.document;
+  try {
+    assert.equal(readRenderedPosts()[0].images[0].url, full);
+    const image = document.querySelector('img');
+    const anchor = document.createElement('a');
+    anchor.href = 'https://i.redd.it/media123.jpg';
+    image.replaceWith(anchor); anchor.append(image);
+    assert.equal(readRenderedPosts()[0].images[0].url, anchor.href);
+  } finally { delete globalThis.document; dom.window.close(); }
+});
+
+test("unusable srcset entries preserve the thumbnail without inventing a full preview", () => {
+  const thumbnail = "https://external-preview.redd.it/media123.jpg?width=140&s=published";
+  const dom = new JSDOM(`<shreddit-post post-type="link"><a slot="thumbnail"><img src="${thumbnail}"
+    srcset="javascript:alert(1) 1080w, https://user:secret@preview.redd.it/media123.jpg 1280w"></a></shreddit-post>`);
+  globalThis.document = dom.window.document;
+  try {
+    const [post] = readRenderedPosts({ detail: true });
+    assert.equal(post.thumbnail, thumbnail);
+    assert.equal(post.preview, undefined);
+  } finally { delete globalThis.document; dom.window.close(); }
+});

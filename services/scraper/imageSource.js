@@ -36,6 +36,30 @@ const hasUsableThumbnail = (thumbnail) => {
   );
 };
 
+const imageUrlWidth = (url) => {
+  try {
+    const widths = new URL(url.replace(/amp;/g, "")).searchParams.getAll("width");
+    const width = widths.length === 1 && /^[1-9]\d*$/.test(widths[0]) ? Number(widths[0]) : null;
+    return Number.isSafeInteger(width) ? width : null;
+  } catch {
+    return null;
+  }
+};
+
+const SMALL_THUMBNAIL_PATTERN = "^https?://(?![^#]*[?&]width=[^#]*[?&]width=)(?:(?:[a-z0-9-]+\\.)?thumbs\\.redditmedia\\.com/[^#]*|[^#]*[?&]width=(?:[1-9]|[1-9][0-9]|[12][0-9]{2}|3[01][0-9]|320)(?:&[^#]*)?)$";
+
+const isSmallRedditThumbnail = (url) => {
+  if (!hasUsableThumbnail(url)) return false;
+  try {
+    const parsed = new URL(url.replace(/amp;/g, ""));
+    const width = imageUrlWidth(url);
+    if (parsed.searchParams.has("width")) return width !== null && width <= 320;
+    return /(^|\.)thumbs\.redditmedia\.com$/.test(parsed.hostname);
+  } catch {
+    return false;
+  }
+};
+
 const isPrivateIPv4 = (address) => {
   const parts = address.split(".").map((part) => Number(part));
   if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
@@ -278,10 +302,29 @@ const mapWithConcurrency = async (items, concurrency, mapper) => {
   return results;
 };
 
-const readResponseBody = async (response, maxBytes) => {
+const readResponseBody = async (response, maxBytes, binary = false) => {
   if (!response.body || typeof response.body.on !== "function") {
+    if (binary) {
+      if (!response.body?.getReader) return Buffer.alloc(0);
+      const reader = response.body.getReader();
+      const chunks = [];
+      let size = 0;
+      try {
+        while (size < maxBytes) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = Buffer.from(value).subarray(0, maxBytes - size);
+          chunks.push(chunk);
+          size += chunk.length;
+        }
+        return Buffer.concat(chunks);
+      } finally {
+        await reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
+    }
     const text = await response.text();
-    return text.slice(0, maxBytes);
+    return binary ? Buffer.from(text).subarray(0, maxBytes) : text.slice(0, maxBytes);
   }
 
   return new Promise((resolve, reject) => {
@@ -294,7 +337,8 @@ const readResponseBody = async (response, maxBytes) => {
         return;
       }
       settled = true;
-      resolve(Buffer.concat(chunks).toString("utf8"));
+      const bytes = Buffer.concat(chunks);
+      resolve(binary ? bytes : bytes.toString("utf8"));
     };
 
     response.body.on("data", (chunk) => {
@@ -613,13 +657,80 @@ const fetchArticleImage = async (url, options = {}) => {
   return "";
 };
 
+const imageWidthFromBytes = (bytes) => {
+  if (bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return bytes.readUInt32BE(16);
+  if (bytes.length >= 10 && /^GIF8[79]a$/.test(bytes.toString("ascii", 0, 6))) return bytes.readUInt16LE(6);
+  if (bytes.length >= 30 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") {
+    const kind = bytes.toString("ascii", 12, 16);
+    if (kind === "VP8X") return bytes.readUIntLE(24, 3) + 1;
+    if (kind === "VP8L" && bytes[20] === 0x2f) return (bytes.readUInt16LE(21) & 0x3fff) + 1;
+    if (kind === "VP8 " && bytes.subarray(23, 26).equals(Buffer.from([0x9d, 1, 0x2a]))) return bytes.readUInt16LE(26) & 0x3fff;
+  }
+  if (bytes.length >= 4 && bytes.readUInt16BE(0) === 0xffd8) {
+    let offset = 2;
+    while (offset + 4 <= bytes.length && bytes[offset] === 0xff) {
+      const marker = bytes[offset + 1];
+      offset += 2;
+      const size = bytes.readUInt16BE(offset);
+      if (size < 2) return null;
+      if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+        return size >= 7 && offset + 7 <= bytes.length ? bytes.readUInt16BE(offset + 5) : null;
+      }
+      offset += size;
+    }
+  }
+  return null;
+};
+
+const fetchImageWidth = async (url, options = {}) => {
+  const fetchImpl = normalizeFetch(options.fetchImpl || fetch);
+  const resolveHostname = options.resolveHostname || dns.lookup;
+  const controller = new AbortController();
+  const timeoutMs = options.imageTimeoutMs || 1500;
+  let response;
+  const operation = async () => {
+    let nextUrl = url;
+    for (let redirects = 0; redirects <= 2; redirects += 1) {
+      if (!(await isSafeHttpUrl(nextUrl, { resolveHostname })) || controller.signal.aborted) return null;
+      response = await fetchImpl(nextUrl, {
+        headers: { ...DEFAULT_ARTICLE_HEADERS, Accept: "image/*", Range: "bytes=0-65535" },
+        agent: makeSafeAgent(resolveHostname), redirect: "manual", signal: controller.signal,
+      });
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = getHeader(response, "location");
+        if (!location) return null;
+        nextUrl = new URL(location, nextUrl).href;
+        await destroyResponseBody(response);
+        response = null;
+        continue;
+      }
+      if (!response.ok) return null;
+      return imageWidthFromBytes(await readResponseBody(response, 64 * 1024, true));
+    }
+    return null;
+  };
+  try {
+    return await withTimeout(operation(), timeoutMs, () => controller.abort());
+  } catch {
+    return null;
+  } finally {
+    await destroyResponseBody(response);
+  }
+};
+
 const redditImageSource = (data) => {
   if (data.preview) {
     if (data.preview.images) {
       if (data.preview.images.length > 0) {
         const image = data.preview.images[0];
-        if (image.source && image.source.url) {
-          return image.source.url.replace(/amp;/g, "");
+        const candidates = [image.source, ...(image.resolutions || [])].filter((candidate) => candidate?.url);
+        let preferred = candidates[0];
+        const width = (candidate) => imageUrlWidth(candidate.url) || (Number.isFinite(candidate.width) && candidate.width > 0 ? candidate.width : null);
+        for (const candidate of candidates.slice(1)) {
+          if (width(preferred) !== null && width(candidate) > width(preferred)) preferred = candidate;
+        }
+        if (preferred) {
+          return preferred.url.replace(/amp;/g, "");
         }
       }
     }
@@ -652,11 +763,19 @@ const shouldPreferArticleImage = (data, options) => {
       (data.post_hint && data.post_hint !== "link") || data.preview?.images?.[0]?.source?.url ||
       !hasUsableThumbnail(data.thumbnail)) return false;
   try {
-    const thumbnail = new URL(data.thumbnail.replace(/amp;/g, ""));
-    const widths = thumbnail.searchParams.getAll("width");
-    if (widths.length !== 1 || !/^\d+$/.test(widths[0]) || Number(widths[0]) < 1 || Number(widths[0]) > 320) return false;
+    if (!isSmallRedditThumbnail(data.thumbnail)) return false;
     const article = new URL(data.url_overridden_by_dest || data.url);
     return ["http:", "https:"].includes(article.protocol) && !/(^|\.)(reddit\.com|redd\.it)$/.test(article.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const isExternalLinkPost = (data) => {
+  if (data.is_video || data.is_gallery || data.is_self || data.rpan_video || (data.post_hint && data.post_hint !== "link")) return false;
+  try {
+    const url = new URL(data.url_overridden_by_dest || data.url);
+    return ["http:", "https:"].includes(url.protocol) && !/(^|\.)(reddit\.com|redd\.it)$/.test(url.hostname);
   } catch {
     return false;
   }
@@ -688,6 +807,12 @@ module.exports = {
   extractMetaImage,
   fetchArticleImage,
   hasUsableThumbnail,
+  imageUrlWidth,
+  isSmallRedditThumbnail,
+  isExternalLinkPost,
+  SMALL_THUMBNAIL_PATTERN,
+  fetchImageWidth,
+  imageWidthFromBytes,
   imageSource,
   isSafeHttpUrl,
   mapWithConcurrency,

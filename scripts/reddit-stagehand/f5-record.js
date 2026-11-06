@@ -78,6 +78,10 @@ export function toF5Record(raw, subreddit, { fetchedAt = new Date() } = {}) {
     if (image) preview = { images: [{ source: { url: image.url } }] };
     check("preview", preview, true);
   }
+  if (type === "link") {
+    const previewUrl = httpUrl(source.preview?.images?.[0]?.source?.url);
+    if (previewUrl) preview = { images: [{ source: { url: previewUrl } }] };
+  }
   if (type === "gallery") {
     const entries = images.filter((image) => typeof image.id === "string" && /^[a-zA-Z0-9_-]+$/.test(image.id));
     if (entries.length !== source.images?.length || new Set(entries.map((image) => image.id)).size !== entries.length) {

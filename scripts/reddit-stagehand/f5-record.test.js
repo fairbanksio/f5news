@@ -122,3 +122,20 @@ test("crossposts retain the parent link and the listing's own identity", () => {
   assert.equal(map(raw({ "post-type": "crosspost", "content-href": "//outside.example/story" })).ready, false);
   assert.equal(map(raw({ "post-type": "link", "content-href": "/r/worldnews/comments/parent/story/" })).ready, false);
 });
+
+test("published link detail preview upgrades the thumbnail without changing link behavior", () => {
+  const previewUrl = "https://external-preview.redd.it/media123.jpeg?width=1080&s=published";
+  const link = { ...raw(), thumbnail: "https://external-preview.redd.it/media123.jpeg?width=140&s=small",
+    preview: { images: [{ source: { url: previewUrl } }] } };
+  const result = map(link);
+  assert.equal(result.ready, true);
+  assert.equal(result.post.thumbnail, previewUrl);
+  assert.equal(result.reddit.data.preview.images[0].source.url, previewUrl);
+  assert.equal(result.post.post_hint, undefined);
+  assert.equal(result.post.is_gallery, undefined);
+  for (const url of ["javascript:alert(1)", "https://user:secret@example.com/image.jpg"]) {
+    const invalid = map({ ...link, preview: { images: [{ source: { url } }] } });
+    assert.equal(invalid.post.thumbnail, link.thumbnail);
+    assert.equal(invalid.reddit.data.preview, undefined);
+  }
+});
