@@ -8,6 +8,8 @@ The Python browser and the Stagehand prototype share a DOM reader and F5 field m
 
 The function runs from an ARM64 container with 2 GiB RAM, a 240-second timeout, and 1 GiB of temporary storage. Firefox is baked into the image. Runtime state goes under `/tmp`, allowing a read-only root filesystem. Tini reaps orphaned browser processes so repeated warm invocations do not accumulate zombies.
 
+The image builds the Lambda runtime client separately and includes only its bundled JavaScript, compiled native addon, package metadata, and licenses. Its build tools and the application's development dependencies stay out of the runtime image.
+
 Each invocation starts a fresh browser and reads exact timestamps, counts, destination links, and media metadata. Gallery posts receive a detail-page read. Native video manifests are verified before storage. Missing required data, blocked access, unresolved human checks, browser failures, and empty feeds fail the job before any post writes. Optional article thumbnail failures retain the existing degraded-job behavior.
 
 Browser extraction has a 90-second budget, shortened when Lambda has less time remaining. It reserves time for process cleanup and storage. Progress logs include `BROWSER_PROGRESS`, `BROWSER_EXTRACTED`, and the existing terminal scraper events. A deadline stops the browser process group and its owned Xvfb display, then rejects the invocation.
