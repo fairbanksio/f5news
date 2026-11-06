@@ -77,6 +77,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
     const output = path.join(directory, "output.json");
     const owner = randomUUID();
     let attemptedGeneration;
+    let lastReuseFailure;
     let initialGeneration;
     let observedInitial = false;
     let ownsLease = false;
@@ -97,11 +98,20 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
           attemptedGeneration = generation;
           if (bytes) {
             await writeFile(input, bytes, { mode: 0o600 });
-            try {
-              const result = await runBrowser({ ...options, authenticate: false, sessionInput: input, sessionOutput: undefined, timeoutMs: budget(70000) });
-              report("reused", generation);
-              return { ...result, sessionMode: "reused", sessionGeneration: generation };
-            } catch (error) { if (!renewableFailure(error)) throw error; }
+            for (let attempt = 1; attempt <= 2; attempt++) {
+              try {
+                const result = await runBrowser({ ...options, authenticate: false, sessionInput: input, sessionOutput: undefined, timeoutMs: budget(70000) });
+                report("reused", generation);
+                return { ...result, sessionMode: "reused", sessionGeneration: generation };
+              } catch (error) {
+                if (!renewableFailure(error)) throw error;
+                lastReuseFailure = error.message.slice("Browser extraction failed: ".length);
+                options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "reuse_failed", generation, status: lastReuseFailure, attempt }));
+                if (lastReuseFailure === "session_invalid" || attempt === 2) break;
+                budget(70000);
+                await pause(2000);
+              }
+            }
           }
         }
         if (await store.acquire(owner, generation)) {
@@ -119,7 +129,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
         }
         if (current?.nextAttemptAt && new Date(current.nextAttemptAt).getTime() > now() && (!current.owner || new Date(current.leaseUntil).getTime() <= now())) {
           if ((await store.current())?.activeGeneration !== generation) continue;
-          throw new Error("Session renewal is cooling down after a recent attempt");
+          throw new Error(`Session renewal is cooling down after a recent attempt${lastReuseFailure ? `: ${lastReuseFailure}` : ""}`);
         }
         await pause(Math.min(2000, Math.max(0, deadline - now() - 25000)));
       }

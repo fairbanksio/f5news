@@ -127,10 +127,23 @@ def options(args=None):
 def state(page):
     try:
         return page.evaluate_read("""() => {
-          const text = `${document.title}\n${document.body?.innerText || ''}`;
+          if (!document.body) return 'loading';
+          const hasPosts = Boolean(document.querySelector('shreddit-post'));
+          const visibleText = hasPosts ? [] : [document.title];
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          let node;
+          while ((node = walker.nextNode())) {
+            const parent = node.parentElement;
+            if (!parent || parent.closest('shreddit-post,script,style,noscript,template,[hidden],[aria-hidden="true"]') ||
+                getComputedStyle(parent).visibility !== 'visible' || !node.textContent.trim()) continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            if ([...range.getClientRects()].some(rect => rect.width > 0 && rect.height > 0)) visibleText.push(node.textContent.trim());
+          }
+          const text = visibleText.join(' ');
           if (/prove your humanity|verify (that )?you('re| are) human|complete the challenge/i.test(text)) return 'challenge';
           if (/blocked by network security|you.have been blocked/i.test(text)) return 'blocked';
-          if (document.querySelector('shreddit-post')) return 'feed';
+          if (hasPosts) return 'feed';
           return 'loading';
         }""")
     except Exception as error:
