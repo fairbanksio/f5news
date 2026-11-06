@@ -1,6 +1,15 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, FEEDS } = require("./check-browser-deployment.cjs");
+const { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, FEEDS } = require("./check-browser-deployment.cjs");
+const { generateKeyPairSync, privateDecrypt, createDecipheriv, constants } = require("node:crypto");
+const diagnosticKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const diagnosticPublicKey = diagnosticKeys.publicKey.export({ type: "spki", format: "der" }).toString("base64");
+const decryptDiagnostics = (envelope) => {
+  const key = privateDecrypt({ key: diagnosticKeys.privateKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" }, Buffer.from(envelope.wrappedKey, "base64"));
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
+  decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
+  return JSON.parse(Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, "base64")), decipher.final()]).toString("utf8"));
+};
 const response = (fields = {}) => ({ StatusCode: 200, LogResult: Buffer.from('request prefix\t' + JSON.stringify({ eventType: "SCRAPER_JOB_COMPLETED", outcome: "success", fetchedCount: 25, savedCount: 25, ...fields })).toString("base64") });
 test("deployment probe accepts saved posts and optional image degradation", () => {
   assert.equal(checkInvocation(response()).savedCount, 25);
@@ -262,4 +271,85 @@ test("invalid probe subreddits fail before invoking Lambda", async () => {
     } }), /configured subreddit/);
   }
   assert.equal(invocations, 0);
+});
+
+
+const diagnosticsRecord = (fields = {}) => ({ eventType: "BROWSER_SESSION_DIAGNOSTICS",
+  generation: "01234567-89ab-cdef-0123-456789abcdef", statePresent: true, stateReadable: true,
+  sessionAgeSeconds: 42, leaseActive: false, cooldownSeconds: null, versionSupported: true, seedValid: true,
+  cookieCount: 10, rootAccountCookieCount: 2, unexpiredRootAccountCookieCount: 1, expiredRootAccountCookieCount: 1,
+  sessionRootAccountCookieCount: 0, otherExpiredCookieCount: 1, minimumRootAccountExpirySeconds: -1,
+  unknownCookieAttributeCount: 0, originCount: 2, stateBytes: 1024, ...fields,
+});
+const diagnosticsResponse = (fields = {}) => ({ StatusCode: 200,
+  LogResult: Buffer.from(JSON.stringify({ message: JSON.stringify(diagnosticsRecord(fields)) })).toString("base64"),
+});
+
+test("session diagnostics invokes inspection once and copies only safe metadata fields", async () => {
+  const calls = [];
+  const lines = [];
+  const summary = await verifySessionDiagnostics({ publicKey: diagnosticPublicKey, emit: (line) => lines.push(line), invoke: async (event) => {
+    calls.push(event);
+    return { ...diagnosticsResponse({ cookies: [{ value: "private-cookie" }], state: "private-state", unknown: "private-extra" }),
+      payload: "private-payload", privateMetadata: "private-metadata" };
+  } });
+  assert.deepEqual(calls, [{ inspectSession: true }]);
+  assert.deepEqual(decryptDiagnostics(summary), diagnosticsRecord());
+  assert.equal(summary.eventType, "BROWSER_SESSION_DIAGNOSTICS_ENCRYPTED");
+  assert.equal(summary.version, 1);
+  assert.deepEqual(Object.keys(summary).sort(), ["eventType", "version", "wrappedKey", "iv", "tag", "ciphertext"].sort());
+  assert.equal(lines.length, 1);
+  for (const hidden of ["private", "01234567-89ab-cdef-0123-456789abcdef", "cookieCount", "sessionAgeSeconds", "1024"]) {
+    assert.equal(lines[0].includes(hidden), false);
+  }
+});
+
+test("session diagnostics accepts missing or invalid state without exposing state data", async () => {
+  for (const generation of ["none", "invalid"]) {
+    const summary = await verifySessionDiagnostics({ publicKey: diagnosticPublicKey, emit: () => {}, invoke: async () => diagnosticsResponse({
+      generation, statePresent: false, stateReadable: false, seedValid: false, versionSupported: false,
+      sessionAgeSeconds: null, cooldownSeconds: null, minimumRootAccountExpirySeconds: null,
+    }) });
+    assert.equal(decryptDiagnostics(summary).generation, generation);
+    assert.equal(decryptDiagnostics(summary).stateReadable, false);
+  }
+});
+
+test("session diagnostics rejects invalid safe-field types without emitting secret strings", async () => {
+  for (const fields of [{ generation: "private-generation" }, { cookieCount: "private-cookie" },
+    { seedValid: "private-seed" }, { sessionAgeSeconds: "private-age" }]) {
+    const lines = [];
+    let failure;
+    await assert.rejects(verifySessionDiagnostics({ publicKey: diagnosticPublicKey, emit: (line) => lines.push(line), invoke: async () => diagnosticsResponse(fields) }), (error) => {
+      failure = error;
+      return true;
+    });
+    assert.equal(lines.length, 0);
+    assert.equal(String(failure).includes("private"), false);
+  }
+});
+
+test("session diagnostics rejects failed invocations and missing result records", async () => {
+  for (const metadata of [{ ...diagnosticsResponse(), FunctionError: "Unhandled" },
+    { ...diagnosticsResponse(), StatusCode: 500 }, response()]) {
+    await assert.rejects(verifySessionDiagnostics({ publicKey: diagnosticPublicKey, emit: () => {}, invoke: async () => metadata }));
+  }
+});
+
+
+test("diagnostics rejects missing, malformed, or weak public keys before invoking Lambda", async () => {
+  const weak = generateKeyPairSync("rsa", { modulusLength: 1024 }).publicKey.export({ type: "spki", format: "der" }).toString("base64");
+  const ec = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).publicKey.export({ type: "spki", format: "der" }).toString("base64");
+  let calls = 0;
+  for (const publicKey of [undefined, "", "private-invalid-key", Buffer.from("private-data").toString("base64"), weak, ec]) {
+    await assert.rejects(verifySessionDiagnostics({ publicKey, emit: () => {}, invoke: async () => { calls += 1; return diagnosticsResponse(); } }), /RSA public key/);
+  }
+  assert.equal(calls, 0);
+});
+
+test("encrypted diagnostic reports reject tampering", async () => {
+  const envelope = await verifySessionDiagnostics({ publicKey: diagnosticPublicKey, emit: () => {}, invoke: async () => diagnosticsResponse() });
+  const bytes = Buffer.from(envelope.ciphertext, "base64");
+  bytes[0] ^= 1;
+  assert.throws(() => decryptDiagnostics({ ...envelope, ciphertext: bytes.toString("base64") }));
 });

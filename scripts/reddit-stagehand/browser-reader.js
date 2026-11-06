@@ -1,4 +1,39 @@
 export function readRenderedPosts({ detail = false } = {}) {
+  const httpImage = (value) => {
+    try {
+      const url = new URL(value);
+      return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password ? url : null;
+    } catch { return null; }
+  };
+  const redditImage = (value) => {
+    const url = httpImage(value);
+    return url && /^(i\.redd\.it|preview\.redd\.it|external-preview\.redd\.it)$/.test(url.hostname);
+  };
+  const larger = (left, right) => !left || (right && (Number(right.original) > Number(left.original) ||
+    (right.original === left.original && right.width > left.width))) ? right : left;
+  const imageSource = (image) => {
+    if (!image) return null;
+    let best = null;
+    const add = (value, advertisedWidth = 0) => {
+      const url = httpImage(value);
+      if (!url) return;
+      const queryWidth = Number(url.searchParams.get("width"));
+      const width = advertisedWidth || (queryWidth > 0 && Number.isFinite(queryWidth) ? queryWidth : 0);
+      best = larger(best, { url: url.href, original: url.hostname === "i.redd.it", width });
+    };
+    add(image.getAttribute("src"));
+    add(image.currentSrc);
+    for (const node of [image, ...image.closest("picture")?.querySelectorAll("source") || []]) {
+      const srcset = node.getAttribute("srcset") || "";
+      for (const match of srcset.matchAll(/(\S+)\s+(\d+(?:\.\d+)?)([wx])(?:\s*,\s*|$)/g)) {
+        const width = Number(match[2]) * (match[3] === "x" ? Number(image.getAttribute("width")) || image.naturalWidth || 1 : 1);
+        add(match[1], width);
+      }
+    }
+    const original = image.closest("a[href]")?.getAttribute("href");
+    if (httpImage(original)?.hostname === "i.redd.it") add(original);
+    return best;
+  };
   const attributes = ["id", "permalink", "content-href", "post-title", "author", "created-timestamp", "score", "comment-count", "domain", "post-type", "subreddit-name"];
   return [...document.querySelectorAll("shreddit-post")].filter((post) =>
     !post.hasAttribute("promoted") && !post.hasAttribute("is-promoted") &&
@@ -6,20 +41,16 @@ export function readRenderedPosts({ detail = false } = {}) {
   ).map((post) => {
     const attrs = Object.fromEntries(attributes.map((name) => [name, post.getAttribute(name)]));
     const player = post.querySelector("shreddit-player");
-    const imageNodes = [...post.querySelectorAll("img")].filter((image) => {
-      try { return /(^|\.)(i\.redd\.it|preview\.redd\.it|external-preview\.redd\.it)$/.test(new URL(image.getAttribute("src")).hostname); }
-      catch { return false; }
-    });
-    const seen = new Set();
-    const images = imageNodes.flatMap((image) => {
-      const link = image.closest("a[href]")?.getAttribute("href");
-      const url = link?.startsWith("https://i.redd.it/") ? link : image.getAttribute("src");
-      const parsed = new URL(url);
+    const imageNodes = [...post.querySelectorAll("img")].map(image => ({ image, source: imageSource(image) }))
+      .filter(({ source }) => source && redditImage(source.url));
+    const byId = new Map();
+    for (const { image, source } of imageNodes) {
+      const parsed = new URL(source.url);
       const id = image.getAttribute("data-media-id") || parsed.pathname.match(/(?:-v0-)?([a-z0-9]+)\.[a-z]+$/i)?.[1];
-      if (!id || seen.has(id)) return [];
-      seen.add(id);
-      return [{ id, url }];
-    });
+      if (!id) continue;
+      byId.set(id, larger(byId.get(id), source));
+    }
+    const images = [...byId].map(([id, source]) => ({ id, url: source.url }));
     if (attrs["post-type"] === "image" && attrs["content-href"]?.startsWith("https://i.redd.it/")) {
       const url = attrs["content-href"];
       const id = new URL(url).pathname.match(/([a-z0-9]+)\.[a-z]+$/i)?.[1];
@@ -29,7 +60,10 @@ export function readRenderedPosts({ detail = false } = {}) {
         images.unshift({ id, url });
       }
     }
-    const thumbnail = post.querySelector('[slot="thumbnail"] img')?.getAttribute("src") || player?.getAttribute("poster") || images[0]?.url || null;
+    const bestImage = imageNodes.reduce((best, { source }) => larger(best, source), imageSource(post.querySelector('[slot="thumbnail"] img')));
+    const thumbnail = bestImage?.url || player?.getAttribute("poster") || images[0]?.url || null;
+    const preview = detail && ["link", "crosspost"].includes(attrs["post-type"]) && bestImage && (bestImage.original || bestImage.width > 320)
+      ? { images: [{ source: { url: bestImage.url } }] } : null;
     const sources = [player?.getAttribute("src"), ...post.querySelectorAll("source")].map((source) => typeof source === "string" ? source : source?.getAttribute("src")).filter(Boolean);
     const video = player ? {
       dash_url: sources.find((url) => /\.mpd(?:\?|$)/i.test(url)) || null,
@@ -39,6 +73,7 @@ export function readRenderedPosts({ detail = false } = {}) {
       attributes: attrs,
       thumbnail,
       images,
+      ...(preview ? { preview } : {}),
       video,
       mediaComplete: detail || attrs["post-type"] !== "gallery",
     };
