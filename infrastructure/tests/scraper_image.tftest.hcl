@@ -57,11 +57,11 @@ run "scoped_scraper_image_permissions" {
       jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[1].Action == ["ecr:GetAuthorizationToken"] &&
       jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[1].Resource == ["*"] &&
       jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[1].Condition.StringEquals["aws:RequestedRegion"] == "us-east-1" &&
-      length(jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement) == 6 &&
+      length(jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement) == 7 &&
       alltrue([for statement in jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement : statement.Effect == "Allow"]) &&
-      alltrue([for statement in jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement : statement.Resource != ["*"] || statement.Action == ["ecr:GetAuthorizationToken"]])
+      alltrue([for statement in jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement : statement.Resource != ["*"] || statement.Action == ["ecr:GetAuthorizationToken"] || statement.Action == ["logs:DescribeLogGroups"]])
     )
-    error_message = "Registry authentication is the only wildcard resource permission and must remain in us-east-1."
+    error_message = "Only registry authentication and log-group discovery may use wildcard resources."
   }
 
   assert {
@@ -110,6 +110,15 @@ run "scoped_scraper_image_permissions" {
       ])])
     )
     error_message = "Log lifecycle and diagnostics must stay limited to the browser log group and its streams."
+  }
+
+  assert {
+    condition = (
+      jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[6].Action == ["logs:DescribeLogGroups"] &&
+      jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[6].Resource == ["*"] &&
+      jsondecode(aws_iam_role_policy.scraper_image_deploy.policy).Statement[6].Condition.StringEquals["aws:RequestedRegion"] == "us-east-1"
+    )
+    error_message = "Log-group discovery must only grant regional metadata access required by CloudFormation."
   }
 
   assert {

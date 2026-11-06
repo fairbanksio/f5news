@@ -104,6 +104,16 @@ resource "aws_iam_role_policy" "scraper_image_deploy" {
         Action   = ["logs:DescribeLogStreams", "logs:FilterLogEvents", "logs:GetLogEvents"]
         Resource = [local.scraper_browser_log_group_arn, "${local.scraper_browser_log_group_arn}:*"]
       },
+      {
+        # CloudFormation reads log groups through this regional discovery API.
+        Sid      = "ScraperLogGroupDiscovery"
+        Effect   = "Allow"
+        Action   = ["logs:DescribeLogGroups"]
+        Resource = ["*"]
+        Condition = {
+          StringEquals = { "aws:RequestedRegion" = "us-east-1" }
+        }
+      },
     ]
   })
 }
