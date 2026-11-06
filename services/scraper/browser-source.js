@@ -10,8 +10,8 @@ const root = path.resolve(__dirname, "../..");
 const load = (file) => import(pathToFileURL(path.join(root, "scripts/reddit-stagehand", file)).href);
 
 // Supervise the browser group and track its detached display separately.
-const runBrowser = ({ subreddit, limit, timeoutMs, logger, authenticate = false, sessionInput, sessionOutput, redactionValues = [process.env.MONGO_CONNECTION_STRING, process.env.REDDIT_USERNAME, process.env.REDDIT_PASSWORD], spawnImpl = spawn }) => new Promise((resolve, reject) => {
-  const child = spawnImpl("python", [path.join(root, "scripts/reddit-invisible/smoke.py"), "--subreddit", subreddit, "--limit", String(limit), ...(authenticate ? ["--authenticate"] : []), ...(sessionInput ? ["--session-input", sessionInput] : []), ...(sessionOutput ? ["--session-output", sessionOutput] : [])], {
+const runBrowser = ({ subreddit, limit, timeoutMs, logger, authenticate = false, sessionInput, sessionOutput, imagePriorityIds, redactionValues = [process.env.MONGO_CONNECTION_STRING, process.env.REDDIT_USERNAME, process.env.REDDIT_PASSWORD], spawnImpl = spawn }) => new Promise((resolve, reject) => {
+  const child = spawnImpl("python", [path.join(root, "scripts/reddit-invisible/smoke.py"), "--subreddit", subreddit, "--limit", String(limit), ...(authenticate ? ["--authenticate"] : []), ...(sessionInput ? ["--session-input", sessionInput] : []), ...(sessionOutput ? ["--session-output", sessionOutput] : []), ...(Array.isArray(imagePriorityIds) ? ["--image-priority-ids", imagePriorityIds.join(",")] : [])], {
     detached: true, stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
@@ -79,20 +79,21 @@ const runBrowser = ({ subreddit, limit, timeoutMs, logger, authenticate = false,
     let result;
     try { result = JSON.parse(output); } catch { return reject(new Error(code === 0 ? "Browser returned invalid extraction output" : `Browser process failed (${signal || code})`)); }
     if (code !== 0 || result.status !== "accessible") {
-      const error = new Error(`Browser extraction failed: ${["blocked", "empty", "loading_timeout", "challenge_required", "auth_credentials_missing", "auth_blocked", "auth_challenge", "auth_failed", "auth_login_unavailable", "auth_unverified", "auth_feed_timeout", "session_invalid", "session_blocked", "session_challenge"].includes(result.status) ? result.status : "runtime_error"}`);
-      if (["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"].includes(result.sessionReason)) error.sessionReason = result.sessionReason;
+      const error = new Error(`Browser extraction failed: ${["blocked", "empty", "loading_timeout", "challenge_required", "auth_credentials_missing", "auth_blocked", "auth_challenge", "auth_failed", "auth_login_unavailable", "auth_unverified", "auth_feed_timeout", "session_invalid", "session_blocked", "session_challenge", "network_error"].includes(result.status) ? result.status : "runtime_error"}`);
+      if (["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge", "navigation_network_error"].includes(result.sessionReason)) error.sessionReason = result.sessionReason;
       return reject(error);
     }
     resolve(result);
   });
 });
 
-const createBrowserSource = ({ runBrowserImpl = runBrowser, fetchImpl = globalThis.fetch, sessionRunner = createSessionRunner() } = {}) => async ({ subreddit, limit = 25, timeoutMs = 90_000, logger = console, authenticate = false, session = false, renewSession = false }) => {
+const createBrowserSource = ({ runBrowserImpl = runBrowser, fetchImpl = globalThis.fetch, sessionRunner = createSessionRunner() } = {}) => async ({ subreddit, limit = 25, timeoutMs = 90_000, logger = console, authenticate = false, session = false, renewSession = false, imagePriorityIds }) => {
   const canonical = feeds.find((name) => name.toLowerCase() === String(subreddit).toLowerCase());
   if (!canonical) throw new Error("Unsupported subreddit");
   if (!Number.isInteger(limit) || limit < 1 || limit > 25) throw new Error("Browser limit must be between 1 and 25");
   if (!Number.isFinite(timeoutMs) || timeoutMs < 10_000) throw new Error("Insufficient time for browser extraction and cleanup");
-  const browserOptions = { subreddit: canonical, limit, timeoutMs: timeoutMs - 9_000, logger, authenticate: authenticate === true, renewSession: renewSession === true };
+  if (imagePriorityIds !== undefined && (!Array.isArray(imagePriorityIds) || imagePriorityIds.length > 25 || new Set(imagePriorityIds).size !== imagePriorityIds.length || imagePriorityIds.some((id) => typeof id !== "string" || !/^t3_[a-z0-9]+$/.test(id)))) throw new Error("Invalid image priority list");
+  const browserOptions = { subreddit: canonical, limit, timeoutMs: timeoutMs - 9_000, logger, authenticate: authenticate === true, renewSession: renewSession === true, imagePriorityIds };
   const result = session ? await sessionRunner(browserOptions, runBrowserImpl) : await runBrowserImpl(browserOptions);
   if (result.subreddit !== canonical || !Array.isArray(result.posts) || !result.posts.length || result.posts.length > limit) throw new Error("Browser returned an invalid post batch");
   const [{ toF5Record }, { resolveVideoManifest }] = await Promise.all([load("f5-record.js"), load("f5-dom.js")]);
@@ -107,6 +108,7 @@ const createBrowserSource = ({ runBrowserImpl = runBrowser, fetchImpl = globalTh
   if (result.sessionMode) {
     children.sessionMode = result.sessionMode;
     children.sessionGeneration = result.sessionGeneration;
+    if (result.sessionRenewalDeferred === true) children.sessionRenewalDeferred = true;
   }
   return children;
 };

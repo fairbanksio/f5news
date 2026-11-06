@@ -1,6 +1,7 @@
 const mongoose = require("./db");
 const { errorFields, sanitizeImageFailure, sanitizeUrl } = require("./telemetry");
 const newPost = require("./models/newPost");
+const supportedSubreddits = require("../posts/subreddits.json");
 const { scrapePosts } = require("./browser-source");
 const { inspectSession } = require("./browser-session");
 const {
@@ -182,6 +183,42 @@ const findMissingThumbnailPosts = async (
   return query;
 };
 
+const findImagePriorityIds = async (newPostModel, subreddit, { now = () => new Date(), logger = console } = {}) => {
+  const canonical = supportedSubreddits.find((name) => name.toLowerCase() === String(subreddit).toLowerCase());
+  if (!canonical) return [];
+  let timer;
+  try {
+    let query = newPostModel.find({
+      sub: canonical,
+      created_utc: { $gt: Math.floor(now().getTime() / 1000) - IMAGE_BACKFILL_LOOKBACK_SECONDS },
+      is_self: { $ne: true }, is_video: { $ne: true }, is_gallery: { $ne: true },
+      post_hint: { $nin: ["image", "rich:video"] },
+      thumbnail: { $regex: SMALL_THUMBNAIL_PATTERN, $options: "i" },
+      url: { $regex: "^https?://(?!(?:[a-z0-9-]+\\.)*(?:reddit\\.com|redd\\.it)(?:[:/]|$))", $options: "i" },
+    });
+    if (!Array.isArray(query) && typeof query.sort === "function") query = query.sort({ upvoteCount: -1 });
+    if (typeof query.limit === "function") query = query.limit(25);
+    if (typeof query.select === "function") query = query.select("commentLink thumbnail");
+    if (typeof query.maxTimeMS === "function") query = query.maxTimeMS(1500);
+    const rows = await Promise.race([
+      Promise.resolve(query),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Image priority deadline")), 1500); }),
+    ]);
+    if (!Array.isArray(rows)) throw new Error("Invalid image priority results");
+    const ids = new Set();
+    for (const post of rows.slice(0, 25)) {
+      const match = typeof post.commentLink === "string" && post.commentLink.match(/^\/r\/([a-z0-9_]{2,21})\/comments\/([a-z0-9]+)(?:\/[^?#]*)?$/i);
+      if (match && match[1].toLowerCase() === canonical.toLowerCase() && isSmallRedditThumbnail(post.thumbnail)) ids.add(`t3_${match[2].toLowerCase()}`);
+    }
+    return [...ids];
+  } catch {
+    (logger.warn || logger.log).call(logger, JSON.stringify({ eventType: "POST_IMAGE_PRIORITY_UNAVAILABLE", subreddit: canonical, severity: "warn" }));
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const updatePostThumbnail = (newPostModel, data, thumbnail, { qualityCheckedAt } = {}) => {
   const postKey = data._id ? { _id: data._id } : createPostKey(data);
   const fields = {};
@@ -360,13 +397,15 @@ const createFetchPosts = ({
     let terminalError;
     try {
       await mongooseClient.connect();
+      const imagePriorityIds = await findImagePriorityIds(newPostModel, subreddit, { now, logger });
       stage = "browser_extract";
       const remaining = typeof context.getRemainingTimeInMillis === "function" ? context.getRemainingTimeInMillis() : 120_000;
       const session = event.session === true || (event.session !== false && env.F5_REDDIT_SESSION_ENABLED === "true");
-      const children = await scrapePostsImpl({ subreddit, limit: 25, timeoutMs: Math.min(session ? 210_000 : event.authenticate === true ? 150_000 : 90_000, remaining - 20_000), logger, authenticate: event.authenticate === true, session, renewSession: event.renewSession === true });
+      const children = await scrapePostsImpl({ subreddit, limit: 25, timeoutMs: Math.min(session ? 210_000 : event.authenticate === true ? 150_000 : 90_000, remaining - 20_000), logger, authenticate: event.authenticate === true, session, renewSession: event.renewSession === true, imagePriorityIds });
       if (children?.sessionMode) {
         job.sessionMode = children.sessionMode;
         job.sessionGeneration = children.sessionGeneration;
+        job.sessionRenewalDeferred = children.sessionRenewalDeferred === true;
       }
       if (!Array.isArray(children)) throw new Error("Browser extraction response missing posts");
       job.fetchedCount = children.length;
@@ -382,13 +421,14 @@ const createFetchPosts = ({
       throw terminalError;
     } finally {
       const imageCounts = [job.scrapeImages, job.backfillImages].filter(Boolean);
-      const degraded = imageCounts.some((metrics) => metrics.missing || metrics.errors || metrics.dependencyFailures || metrics.updateErrors || metrics.queryErrors);
+      const degraded = job.sessionRenewalDeferred === true || imageCounts.some((metrics) => metrics.missing || metrics.errors || metrics.dependencyFailures || metrics.updateErrors || metrics.queryErrors);
       logStructured(logger, {
         eventType: terminalError ? "SCRAPER_JOB_FAILED" : "SCRAPER_JOB_COMPLETED",
         subreddit, stage, trigger: event.scheduled === true ? "schedule" : "manual", outcome: terminalError ? "failed" : degraded ? "degraded" : "success",
         durationMs: Date.now() - startedAt, requestId: context.awsRequestId || "",
         fetchedCount: job.fetchedCount, savedCount: job.savedCount,
         ...(job.sessionMode ? { sessionMode: job.sessionMode, sessionGeneration: job.sessionGeneration } : {}),
+        ...(job.sessionRenewalDeferred ? { sessionRenewalDeferred: true } : {}),
         imageAttempts: imageCounts.reduce((count, metrics) => count + metrics.attempts, 0),
         imageResolved: imageCounts.reduce((count, metrics) => count + metrics.resolved, 0),
         imageMissing: imageCounts.reduce((count, metrics) => count + metrics.missing, 0),
@@ -405,4 +445,5 @@ const createFetchPosts = ({
 
 module.exports.createFetchPosts = createFetchPosts;
 module.exports.backfillMissingPostImages = backfillMissingPostImages;
+module.exports.findImagePriorityIds = findImagePriorityIds;
 module.exports.fetchPosts = createFetchPosts();

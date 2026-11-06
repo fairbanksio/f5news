@@ -74,7 +74,7 @@ test("all-feed verification invokes every feed sequentially and proves session r
   assert.equal(calls.length, 12);
   assert.equal(new Set(FEEDS).size, 11);
   assert.deepEqual(summary, { eventType: "BROWSER_LIVE_PROBE_COMPLETED", feedCount: 11, invocationCount: 12,
-    savedCount: 300, renewalRequested: false, sessionGeneration: "generation-1", renewedCount: 1, reusedCount: 11 });
+    savedCount: 300, renewalRequested: false, initialGeneration: "generation-1", sessionGeneration: "generation-1", generationCount: 1, renewedCount: 1, reusedCount: 11 });
   assert.equal(lines.at(-2).repeated, true);
   assert.equal(lines.filter((entry) => entry.eventType === "BROWSER_LIVE_PROBE").length, 12);
 });
@@ -352,4 +352,61 @@ test("encrypted diagnostic reports reject tampering", async () => {
   const bytes = Buffer.from(envelope.ciphertext, "base64");
   bytes[0] ^= 1;
   assert.throws(() => decryptDiagnostics({ ...envelope, ciphertext: bytes.toString("base64") }));
+});
+
+
+test("all-feed verification allows one coordinated renewal at health and retains the new generation", async () => {
+  const calls = [];
+  let generation = "generation-1";
+  const { results, summary } = await verifyFeeds({ allFeeds: true, emit: () => {}, invoke: async (event) => {
+    calls.push(event);
+    if (event.subreddit === "health") generation = "generation-2";
+    return sharedResponse({ sessionGeneration: generation, sessionMode: event.subreddit === "health" ? "renewed" : "reused" });
+  } });
+  assert.equal(calls.length, 12);
+  assert.equal(summary.initialGeneration, "generation-1");
+  assert.equal(summary.sessionGeneration, "generation-2");
+  assert.equal(summary.generationCount, 2);
+  assert.equal(summary.renewedCount, 1);
+  assert.equal(summary.reusedCount, 11);
+  assert.equal(summary.savedCount, 300);
+  assert.equal(results.at(-1).subreddit, "politics");
+  assert.equal(results.at(-1).sessionMode, "reused");
+  assert.ok(results.slice(6).every((entry) => entry.sessionGeneration === "generation-2"));
+});
+
+test("all-feed verification rejects another renewal, unattributed generation changes, and rollback immediately", async () => {
+  const scenarios = [
+    [{ sessionMode: "renewed", sessionGeneration: "generation-3" }, /more than once/],
+    [{ sessionMode: "reused", sessionGeneration: "generation-3" }, /without a reported renewal/],
+    [{ sessionMode: "reused", sessionGeneration: "generation-1" }, /without a reported renewal/],
+    [{ sessionMode: "renewed", sessionGeneration: "generation-2" }, /more than once/],
+  ];
+  for (const [third, pattern] of scenarios) {
+    let calls = 0;
+    await assert.rejects(verifyFeeds({ allFeeds: true, emit: () => {}, invoke: async () => {
+      calls += 1;
+      const fields = calls === 1 ? {} : calls === 2 ? { sessionMode: "renewed", sessionGeneration: "generation-2" } : third;
+      return sharedResponse(fields);
+    } }), pattern);
+    assert.equal(calls, 3);
+  }
+});
+
+test("a later renewal must identify a new generation", async () => {
+  let calls = 0;
+  await assert.rejects(verifyFeeds({ allFeeds: true, emit: () => {}, invoke: async () => {
+    calls += 1;
+    return sharedResponse({ sessionMode: calls === 1 ? "reused" : "renewed" });
+  } }), /did not report a new generation/);
+  assert.equal(calls, 2);
+});
+
+test("forced renewal still requires every later feed to reuse its first renewed generation", async () => {
+  let calls = 0;
+  await assert.rejects(verifyFeeds({ allFeeds: true, renewSession: true, emit: () => {}, invoke: async () => {
+    calls += 1;
+    return sharedResponse({ sessionMode: calls <= 2 ? "renewed" : "reused", sessionGeneration: `generation-${calls}` });
+  } }), /more than once/);
+  assert.equal(calls, 2);
 });

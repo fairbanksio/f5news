@@ -69,6 +69,9 @@ function createSessionStore({ bucket = process.env.F5_REDDIT_SESSION_BUCKET, cli
 }
 
 const renewableFailure = (error) => /^Browser extraction failed: session_(invalid|blocked|challenge)$/.test(error.message);
+const SESSION_REASONS = ["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception", "navigation_network_error", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"];
+const credentialFailure = (status, reason) => status === "session_invalid" &&
+  (reason === undefined || ["invalid_data", "root_cookie_expired", "root_cookie_missing", "feed_cookie_missing"].includes(reason));
 function createSessionRunner({ store = createSessionStore(), now = Date.now, pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   return async (options, runBrowser) => {
     const deadline = now() + options.timeoutMs;
@@ -82,7 +85,22 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
     let initialGeneration;
     let observedInitial = false;
     let ownsLease = false;
+    let returningValidReuse = false;
     const report = (mode, generation) => options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode, generation }));
+    const reused = (result, generation, deferredReason) => {
+      returningValidReuse = true;
+      if (deferredReason) options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "renewal_deferred", generation, reason: deferredReason, severity: "warn" }));
+      report("reused", generation);
+      return { ...result, sessionMode: "reused", sessionGeneration: generation, ...(deferredReason ? { sessionRenewalDeferred: true } : {}) };
+    };
+    const release = async () => {
+      if (!ownsLease) return;
+      try { await store.release(owner); }
+      catch (error) {
+        if (!returningValidReuse) throw error;
+        options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "release_deferred", severity: "warn" }));
+      }
+    };
     const budget = (max) => {
       const remaining = Math.min(max, deadline - now() - 15000);
       if (remaining < 10000) throw new Error("Session acquisition exceeded its deadline");
@@ -94,7 +112,8 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
         const generation = current?.activeGeneration;
         if (!observedInitial) { initialGeneration = generation; observedInitial = true; }
         const renewalRequested = options.renewSession === true && generation === initialGeneration;
-        if (!renewalRequested && generation && generation !== attemptedGeneration && now() - new Date(current.sessionCreatedAt).getTime() < 12 * 60 * 60 * 1000) {
+        let validReuse;
+        if (!renewalRequested && generation && generation !== attemptedGeneration) {
           const bytes = await store.read(generation);
           attemptedGeneration = generation;
           if (bytes) {
@@ -102,33 +121,51 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
             for (let attempt = 1; attempt <= 2; attempt++) {
               try {
                 const result = await runBrowser({ ...options, authenticate: false, sessionInput: input, sessionOutput: undefined, timeoutMs: budget(100000) });
-                report("reused", generation);
-                return { ...result, sessionMode: "reused", sessionGeneration: generation };
+                if (now() - new Date(current.sessionCreatedAt).getTime() < 12 * 60 * 60 * 1000) return reused(result, generation);
+                validReuse = result;
+                break;
               } catch (error) {
                 if (!renewableFailure(error)) throw error;
                 lastReuseFailure = error.message.slice("Browser extraction failed: ".length);
-                lastReuseReason = ["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"].includes(error.sessionReason) ? error.sessionReason : undefined;
+                lastReuseReason = SESSION_REASONS.includes(error.sessionReason) ? error.sessionReason : undefined;
                 options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "reuse_failed", generation, status: lastReuseFailure, ...(lastReuseReason ? { reason: lastReuseReason } : {}), attempt }));
-                if (lastReuseFailure === "session_invalid" || attempt === 2) break;
+                if (credentialFailure(lastReuseFailure, lastReuseReason)) break;
+                if (attempt === 2) {
+                  const failure = new Error(`Browser extraction failed: ${lastReuseFailure}${lastReuseReason ? `/${lastReuseReason}` : ""}`);
+                  if (lastReuseReason) failure.sessionReason = lastReuseReason;
+                  throw failure;
+                }
                 budget(100000);
                 await pause(2000);
               }
             }
           }
         }
-        if (await store.acquire(owner, generation)) {
+        let acquired;
+        try { acquired = await store.acquire(owner, generation); }
+        catch (error) {
+          if (validReuse) return reused(validReuse, generation, "coordination_unavailable");
+          throw error;
+        }
+        if (acquired) {
           ownsLease = true;
           report("renewing", generation || "none");
-          const result = await runBrowser({ ...options, authenticate: true, sessionInput: undefined, sessionOutput: output, timeoutMs: budget(140000) });
-          const stat = await require("node:fs/promises").stat(output);
-          if (!stat.isFile() || stat.size > MAX_BYTES) throw new Error("Invalid renewed session output");
-          const bytes = await readFile(output);
-          const next = randomUUID();
-          await store.publish(owner, next, bytes);
-          ownsLease = false;
-          report("renewed", next);
-          return { ...result, sessionMode: "renewed", sessionGeneration: next };
+          try {
+            const result = await runBrowser({ ...options, authenticate: true, sessionInput: undefined, sessionOutput: output, timeoutMs: budget(140000) });
+            const stat = await require("node:fs/promises").stat(output);
+            if (!stat.isFile() || stat.size > MAX_BYTES) throw new Error("Invalid renewed session output");
+            const bytes = await readFile(output);
+            const next = randomUUID();
+            await store.publish(owner, next, bytes);
+            ownsLease = false;
+            report("renewed", next);
+            return { ...result, sessionMode: "renewed", sessionGeneration: next };
+          } catch (error) {
+            if (validReuse && options.renewSession !== true) return reused(validReuse, generation, "renewal_failed");
+            throw error;
+          }
         }
+        if (validReuse) return reused(validReuse, generation, "lease_or_cooldown");
         if (current?.nextAttemptAt && new Date(current.nextAttemptAt).getTime() > now() && (!current.owner || new Date(current.leaseUntil).getTime() <= now())) {
           if ((await store.current())?.activeGeneration !== generation) continue;
           throw new Error(`Session renewal is cooling down after a recent attempt${lastReuseFailure ? `: ${lastReuseFailure}${lastReuseReason ? `/${lastReuseReason}` : ""}` : ""}`);
@@ -137,7 +174,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
       }
       throw new Error("Session acquisition exceeded its deadline");
     } finally {
-      try { if (ownsLease) await store.release(owner); }
+      try { await release(); }
       finally { await rm(directory, { recursive: true, force: true }); }
     }
   };

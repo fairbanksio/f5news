@@ -106,6 +106,15 @@ def log_resources():
     log("Resource counters: " + json.dumps(counters))
 
 
+def image_priority_ids(value):
+    if value == "":
+        return []
+    ids = [item.strip() for item in value.split(",")]
+    if len(ids) > 25 or len(set(ids)) != len(ids) or any(not re.fullmatch(r"t3_[a-z0-9]+", item) for item in ids):
+        raise argparse.ArgumentTypeError("Image priority IDs must be up to 25 unique Reddit post IDs")
+    return ids
+
+
 def options(args=None):
     supported = json.loads(SUBREDDITS.read_text())
     names = {name.lower(): name for name in supported}
@@ -113,6 +122,7 @@ def options(args=None):
     parser.add_argument("--subreddit", type=str.lower, default="politics", choices=names)
     parser.add_argument("--limit", type=int, choices=range(1, 26), default=25)
     parser.add_argument("--authenticate", action="store_true", help="Try the configured Reddit website account once")
+    parser.add_argument("--image-priority-ids", type=image_priority_ids)
     parser.add_argument("--session-input", type=Path)
     parser.add_argument("--session-output", type=Path)
     result = parser.parse_args(args)
@@ -182,7 +192,7 @@ def authenticate_once(page, feed_url):
     if not username or not password:
         return "auth_credentials_missing"
     log("Opening Reddit website login for one account attempt.")
-    page.goto("https://www.reddit.com/login/", wait_until="domcontentloaded", timeout=30000)
+    navigate(page, "https://www.reddit.com/login/", wait_until="domcontentloaded", timeout=30000)
     started = time.monotonic()
     while time.monotonic() - started < 30:
         access = login_state(page)
@@ -223,7 +233,7 @@ def authenticate_once(page, feed_url):
     else:
         return "auth_unverified"
     log("Checking authenticated access to the configured feed.")
-    page.goto(feed_url, wait_until="domcontentloaded", timeout=30000)
+    navigate(page, feed_url, wait_until="domcontentloaded", timeout=30000)
     started = time.monotonic()
     while time.monotonic() - started < 60:
         access = state(page)
@@ -239,13 +249,33 @@ MAX_SESSION_BYTES = 1024 * 1024
 
 
 SESSION_REASONS = frozenset(("invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing",
-                             "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"))
+                             "restore_exception", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge", "navigation_network_error"))
 
 
 class SessionError(RuntimeError):
     def __init__(self, message, code="invalid_data"):
         super().__init__(message)
         self.code = code if code in SESSION_REASONS else "invalid_data"
+
+
+def navigate(page, url, wait_until="domcontentloaded", timeout=30000, now=time.monotonic, sleep=time.sleep):
+    deadline = now() + timeout / 1000
+    for attempt in range(3):
+        remaining = deadline - now()
+        if remaining <= 0:
+            raise SessionError("Browser navigation failed", "navigation_network_error")
+        try:
+            return page.goto(url, wait_until=wait_until, timeout=max(1, int(remaining * 1000)))
+        except Exception as error:
+            first_line = str(error).splitlines()[0] if str(error) else ""
+            if not re.search(r"(?:^|:\s*)(?:NS_ERROR_NET_EMPTY_RESPONSE|NS_ERROR_NET_RESET|(?:net::)?ERR_CONNECTION_RESET)(?:\s|:|$)", first_line):
+                raise
+            remaining = deadline - now()
+            delay = attempt + 1
+            if attempt == 2 or remaining <= delay:
+                raise SessionError("Browser navigation failed", "navigation_network_error") from None
+            log("Retrying a transient browser navigation.")
+            sleep(delay)
 
 
 def reddit_domain(value):
@@ -365,7 +395,7 @@ def reuse_session(page, session, feed_url, diagnostics=None):
         origins = json.dumps(session["origins"])
         script = "(() => { const records = " + origins + "; const record = records.find(item => item.origin === location.origin); if (record) for (const item of record.localStorage) localStorage.setItem(item.name, item.value); })();"
         with page.add_init_script(script=script):
-            page.goto(feed_url, wait_until="domcontentloaded", timeout=30000)
+            navigate(page, feed_url, wait_until="domcontentloaded", timeout=30000)
             started = time.monotonic()
             while time.monotonic() - started < 60:
                 access = state(page)
@@ -375,6 +405,8 @@ def reuse_session(page, session, feed_url, diagnostics=None):
                     return "reused" if has_account_session(page) else invalid("feed_cookie_missing")
                 time.sleep(1)
         return invalid("feed_timeout")
+    except SessionError:
+        raise
     except Exception:
         raise SessionError("Session could not be restored", "restore_exception") from None
 
@@ -416,7 +448,7 @@ def gallery_url(post, subreddit):
 def enrich_gallery(page, reader, post, subreddit):
     url = gallery_url(post, subreddit)
     log("Loading gallery detail metadata.")
-    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    navigate(page, url, wait_until="domcontentloaded", timeout=30000)
     started = time.monotonic()
     last_report = started
     while time.monotonic() - started < 60:
@@ -454,7 +486,7 @@ def enrich_gallery(page, reader, post, subreddit):
             "thumbnail": post.get("thumbnail") or detail.get("thumbnail") or images[0]["url"]}
 
 
-def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_budget=25):
+def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_budget=25, priority_ids=None):
     candidates = []
     for index, post in enumerate(posts):
         if post["attributes"].get("post-type") not in ("link", "crosspost"):
@@ -469,15 +501,20 @@ def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_bud
         except (TypeError, ValueError):
             continue
     selected = list(posts)
+    if priority_ids is None:
+        candidates.sort(key=lambda item: item[0], reverse=True)
+    else:
+        by_id = {posts[item[1]]["attributes"]["id"]: item for item in candidates}
+        candidates = [by_id[name] for name in priority_ids if name in by_id]
     deadline = time.monotonic() + time_budget
-    for _score, index in sorted(candidates, key=lambda item: item[0], reverse=True)[:max_details]:
+    for _score, index in candidates[:max_details]:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         post = posts[index]
         try:
             target = gallery_url(post, subreddit)
-            page.goto(target, wait_until="domcontentloaded", timeout=max(1, min(5000, int(remaining * 1000))))
+            navigate(page, target, wait_until="domcontentloaded", timeout=max(1, min(5000, int(remaining * 1000))))
             ready_deadline = min(deadline, time.monotonic() + 2)
             access = state(page)
             while access == "loading" and time.monotonic() < ready_deadline:
@@ -546,7 +583,7 @@ def run(config):
                 return {"status": authentication, "subreddit": config.subreddit, "posts": []}
         else:
             log("Loading the configured Reddit feed in a fresh browser session.")
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            navigate(page, url, wait_until="domcontentloaded", timeout=30000)
         clicked = False
         access_started = time.monotonic()
         last_report = access_started
@@ -593,7 +630,7 @@ def run(config):
         for index, post in enumerate(selected):
             if post["attributes"]["post-type"] == "gallery":
                 selected[index] = enrich_gallery(page, reader, post, config.subreddit)
-        selected = enrich_link_previews(page, reader, selected, config.subreddit)
+        selected = enrich_link_previews(page, reader, selected, config.subreddit, priority_ids=getattr(config, "image_priority_ids", None))
         return {"status": "accessible" if selected else "empty", "subreddit": config.subreddit, "checkboxClicked": clicked, "posts": selected, "durationSeconds": round(time.monotonic() - started, 2)}
 
 
@@ -602,6 +639,13 @@ def main():
     try:
         with browser_lifecycle():
             result = run(config)
+    except SessionError as error:
+        if error.code != "navigation_network_error":
+            detail = redact(str(error))
+            log(f"Browser test failed ({type(error).__name__}): {detail[:1200]}")
+            return 1
+        result = {"status": "session_invalid" if getattr(config, "session_input", None) else "network_error",
+                  "sessionReason": error.code, "subreddit": config.subreddit, "posts": []}
     except (Exception, BrowserCancelled) as error:
         detail = redact(str(error))
         log(f"Browser test failed ({type(error).__name__}): {detail[:1200]}")
