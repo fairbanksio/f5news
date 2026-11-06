@@ -99,3 +99,26 @@ test("invalid session errors expose only whitelisted reasons", async () => {
     }), (error) => error.message === "Browser extraction failed: session_invalid" && error.sessionReason === expected && !error.message.includes("private"));
   }
 });
+
+test("explicit image priorities reach the browser without adding fallback candidates", async () => {
+  for (const ids of [[], ["t3_target", "t3_other"]]) {
+    await runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger, imagePriorityIds: ids,
+      spawnImpl: (_executable, args) => {
+        const index = args.indexOf("--image-priority-ids");
+        assert.ok(index >= 0);
+        assert.equal(args[index + 1], ids.join(","));
+        return spawnCode('console.log(JSON.stringify({status:"accessible",posts:[]}))')();
+      },
+    });
+  }
+  const scrape = createBrowserSource({ runBrowserImpl: async () => { throw new Error("Unexpected browser"); } });
+  for (const ids of [["t3_ok", "t3_ok"], ["../../bad"], "t3_target", Array.from({ length: 26 }, (_, i) => `t3_${i}`)]) {
+    await assert.rejects(scrape({ subreddit: "news", imagePriorityIds: ids }), /Invalid image priority/);
+  }
+});
+
+test("exhausted GET transport errors retain their finite classification", async () => {
+  await assert.rejects(runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger,
+    spawnImpl: spawnCode('console.log(JSON.stringify({status:"network_error",sessionReason:"navigation_network_error"}));process.exitCode=2'),
+  }), (error) => error.message === "Browser extraction failed: network_error" && error.sessionReason === "navigation_network_error");
+});

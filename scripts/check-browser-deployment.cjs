@@ -78,8 +78,15 @@ async function verifyFeeds({ allFeeds = false, subreddit = "politics", session =
       assert.equal(result.sessionMode, "renewed", "Requested session renewal did not create a renewed session");
     }
     if (allFeeds && results.length) {
-      assert.equal(result.sessionGeneration, results[0].sessionGeneration, "Feed verification did not retain one shared session generation");
-      assert.ok(result.sessionMode !== "renewed" || !results.some((entry) => entry.sessionMode === "renewed"), "Feed verification renewed the session more than once");
+      const previous = results.at(-1);
+      const changed = result.sessionGeneration !== previous.sessionGeneration;
+      if (result.sessionMode === "renewed") {
+        assert.ok(!results.some((entry) => entry.sessionMode === "renewed"), "Feed verification renewed the session more than once");
+        assert.ok(changed, "Session renewal did not report a new generation");
+        assert.ok(!results.some((entry) => entry.sessionGeneration === result.sessionGeneration), "Session renewal returned an earlier generation");
+      } else {
+        assert.ok(!changed, "Feed verification changed session generation without a reported renewal");
+      }
     }
     const entry = { eventType: "BROWSER_LIVE_PROBE", subreddit: event.subreddit, repeated: results.length === FEEDS.length, ...result };
     results.push(entry);
@@ -91,7 +98,9 @@ async function verifyFeeds({ allFeeds = false, subreddit = "politics", session =
   const summary = { eventType: "BROWSER_LIVE_PROBE_COMPLETED", feedCount: allFeeds ? FEEDS.length : 1,
     invocationCount: results.length, savedCount: results.reduce((sum, result) => sum + result.savedCount, 0),
     renewalRequested: renewSession,
-    ...(session && !authenticate ? { sessionGeneration: results[0].sessionGeneration,
+    ...(session && !authenticate ? { initialGeneration: results[0].sessionGeneration,
+      sessionGeneration: results.at(-1).sessionGeneration,
+      generationCount: new Set(results.map((result) => result.sessionGeneration)).size,
       renewedCount: results.filter((result) => result.sessionMode === "renewed").length,
       reusedCount: results.filter((result) => result.sessionMode === "reused").length } : {}),
   };

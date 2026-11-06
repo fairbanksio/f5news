@@ -87,17 +87,20 @@ test("concurrent bootstrap authenticates once and the waiter reuses the publishe
   assert.ok(messages.every((message) => !message.includes("private-cookie-value") && !message.includes("reddit_session")));
 });
 
-test("sessions older than twelve hours renew without attempting to restore expired cookies", async () => {
+test("sessions older than twelve hours are restored before proactive renewal", async () => {
   const generation = randomUUID();
   const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW - 13 * 3600000) });
-  store.read = async () => assert.fail("Expired session must not be restored");
+  store.objects.set(generation, SECRET);
+  const modes = [];
   const result = await createSessionRunner({ store, now: () => NOW })(options(), async (request) => {
-    assert.equal(request.authenticate, true);
+    modes.push(request.authenticate);
+    if (!request.authenticate) return { posts: ["old"] };
     await writeFile(request.sessionOutput, SECRET, { mode: 0o600 });
     return { posts: [] };
   });
   assert.equal(result.sessionMode, "renewed");
   assert.notEqual(result.sessionGeneration, generation);
+  assert.deepEqual(modes, [false, true]);
 });
 
 test("failed login releases ownership but preserves cooldown for the following invocation", async () => {
@@ -257,7 +260,7 @@ test("duplicate bootstrap insertion is treated as contention without leaking dat
 });
 
 
-test("reuse failures report only a finite status when renewal is cooling down", async () => {
+test("access failures report only a finite status and never request renewal", async () => {
   const generation = randomUUID();
   const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW), nextAttemptAt: new Date(NOW + 300000) });
   store.objects.set(generation, SECRET);
@@ -268,8 +271,9 @@ test("reuse failures report only a finite status when renewal is cooling down", 
     calls++;
     assert.equal(request.authenticate, false);
     throw new Error("Browser extraction failed: session_blocked");
-  }), /cooling down.*session_blocked/);
+  }), /Browser extraction failed: session_blocked/);
   assert.equal(calls, 2);
+  assert.equal(store.attempts.length, 0);
   const record = messages.map(JSON.parse).find((item) => item.mode === "reuse_failed");
   assert.equal(record.status, "session_blocked");
   assert.equal(record.generation, generation);
@@ -298,6 +302,104 @@ test("a transient access failure retries the same session without another login"
     assert.equal(result.sessionMode, "reused");
     assert.equal(store.attempts.length, 0);
   }
+});
+
+test("transport and restore failures retry reads twice without acquiring a password lease", async () => {
+  for (const reason of ["restore_exception", "navigation_network_error", "feed_timeout", "input_file_invalid"]) {
+    const generation = randomUUID();
+    const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
+    store.objects.set(generation, SECRET);
+    let calls = 0;
+    const messages = [];
+    const runner = createSessionRunner({ store, now: () => NOW, pause: async () => {} });
+    await assert.rejects(runner(options(messages), async (request) => {
+      calls++;
+      assert.equal(request.authenticate, false);
+      throw Object.assign(new Error("Browser extraction failed: session_invalid"), { sessionReason: reason });
+    }), (error) => error.sessionReason === reason && error.message === `Browser extraction failed: session_invalid/${reason}`);
+    assert.equal(calls, 2);
+    assert.equal(store.attempts.length, 0);
+    assert.equal(store.releases.length, 0);
+    assert.ok(!messages.join().includes("private-cookie-value"));
+  }
+});
+
+test("credential-invalid states permit one coordinated renewal without retrying the same cookies", async () => {
+  for (const reason of ["root_cookie_expired", "root_cookie_missing", "invalid_data", "feed_cookie_missing"]) {
+    const generation = randomUUID();
+    const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
+    store.objects.set(generation, SECRET);
+    const modes = [];
+    const result = await createSessionRunner({ store, now: () => NOW })(options(), async (request) => {
+      modes.push(request.authenticate);
+      if (!request.authenticate) throw Object.assign(new Error("Browser extraction failed: session_invalid"), { sessionReason: reason });
+      await writeFile(request.sessionOutput, SECRET, { mode: 0o600 });
+      return { posts: ["renewed"] };
+    });
+    assert.deepEqual(modes, [false, true]);
+    assert.equal(store.attempts.length, 1);
+    assert.equal(result.sessionMode, "renewed");
+  }
+});
+
+test("failed proactive authentication retains proven posts, the old pointer, and failure cooldown", async () => {
+  const generation = randomUUID();
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW - 13 * 3600000) });
+  store.objects.set(generation, SECRET);
+  const modes = [];
+  const messages = [];
+  const result = await createSessionRunner({ store, now: () => NOW })(options(messages), async (request) => {
+    modes.push(request.authenticate);
+    if (!request.authenticate) return { posts: ["proven"] };
+    throw new Error("private-provider-details");
+  });
+  assert.deepEqual(modes, [false, true]);
+  assert.deepEqual(result.posts, ["proven"]);
+  assert.equal(result.sessionMode, "reused");
+  assert.equal(result.sessionGeneration, generation);
+  assert.equal(result.sessionRenewalDeferred, true);
+  const current = await store.current();
+  assert.equal(current.activeGeneration, generation);
+  assert.equal(current.owner, undefined);
+  assert.equal(current.nextAttemptAt.getTime(), NOW + 900000);
+  assert.equal(store.releases.length, 1);
+  assert.ok(messages.map(JSON.parse).some((entry) => entry.mode === "renewal_deferred" && entry.reason === "renewal_failed"));
+  assert.ok(!messages.join().includes("private-provider-details"));
+});
+
+test("valid old sessions keep serving during another renewal or a cooldown", async () => {
+  for (const busy of [false, true]) {
+    const generation = randomUUID();
+    const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW - 13 * 3600000),
+      nextAttemptAt: new Date(NOW + 900000), ...(busy ? { owner: "another-holder", leaseUntil: new Date(NOW + 300000) } : {}) });
+    store.objects.set(generation, SECRET);
+    let calls = 0;
+    const result = await createSessionRunner({ store, now: () => NOW })(options(), async (request) => {
+      calls++;
+      assert.equal(request.authenticate, false);
+      return { posts: ["proven"] };
+    });
+    assert.equal(calls, 1);
+    assert.equal(result.sessionGeneration, generation);
+    assert.equal(result.sessionRenewalDeferred, true);
+    assert.deepEqual(result.posts, ["proven"]);
+    assert.equal(store.releases.length, 0);
+  }
+});
+
+test("explicit renewal never falls back to old posts after failed verification", async () => {
+  const generation = randomUUID();
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW - 13 * 3600000) });
+  store.objects.set(generation, SECRET);
+  let calls = 0;
+  await assert.rejects(createSessionRunner({ store, now: () => NOW })({ ...options(), renewSession: true }, async (request) => {
+    calls++;
+    assert.equal(request.authenticate, true);
+    throw new Error("Browser extraction failed: auth_unverified");
+  }), /auth_unverified/);
+  assert.equal(calls, 1);
+  assert.equal((await store.current()).activeGeneration, generation);
+  assert.equal(store.releases.length, 1);
 });
 
 test("session inspection returns only safe counts and expiry metadata without writes", async () => {
