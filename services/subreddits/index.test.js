@@ -5,16 +5,8 @@ const { get_subreddits: handler } = require("./index");
 
 const configuredSubreddits = [
   "politics",
-  "worldnews",
-  "europe",
   "news",
-  "technology",
-  "science",
-  "health",
-  "energy",
-  "sports",
-  "business",
-  "Economics",
+  "worldnews",
 ];
 
 const getJsonBody = (response) => JSON.parse(response.body);

@@ -12,8 +12,7 @@ test("one scheduled batch covers the supported news feeds", () => {
   assert.equal(schedules[0].schedule.input.allFeeds, true);
   assert.equal(schedules[0].schedule.input.subreddit, undefined);
   assert.deepEqual(require("../posts/subreddits.json"), [
-    "politics", "worldnews", "europe", "news", "technology", "science",
-    "health", "energy", "sports", "business", "Economics",
+    "politics", "news", "worldnews",
   ]);
 });
 

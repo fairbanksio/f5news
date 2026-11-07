@@ -83,8 +83,15 @@ class SmokeTests(unittest.TestCase):
             smoke.state(page)
 
     def test_options_restrict_targets_and_limits(self):
-        self.assertEqual(smoke.options(["--subreddit", "economics"]).subreddit, "Economics")
-        self.assertEqual(smoke.options(["--subreddit", "Economics"]).subreddit, "Economics")
+        configured = json.loads(smoke.SUBREDDITS.read_text())
+        for feed in configured:
+            self.assertEqual(smoke.options(["--subreddit", feed.upper()]).subreddit, feed)
+        alternate = types.SimpleNamespace(read_text=lambda: '["MixedCase"]')
+        with patch.object(smoke, "SUBREDDITS", alternate):
+            self.assertEqual(smoke.options(["--subreddit", "mixedcase"]).subreddit, "MixedCase")
+        for feed in ("economics", "science", "technology", "europe", "health", "energy", "sports", "business"):
+            with self.assertRaises(SystemExit):
+                smoke.options(["--subreddit", feed])
         with self.assertRaises(SystemExit):
             smoke.options(["--subreddit", "woodworking"])
         with self.assertRaises(SystemExit):
@@ -955,7 +962,7 @@ class BatchTests(unittest.TestCase):
         feeds = json.loads(smoke.SUBREDDITS.read_text())
         fixture = SessionTests().session()
         stats = {"launches": 0, "pages": 0, "requests": [], "restores": 0, "closed": 0, "feeds": feeds}
-        config = argparse.Namespace(subreddit="politics", limit=1, all_feeds=True, authenticate=False,
+        config = argparse.Namespace(subreddit=feeds[0], limit=1, all_feeds=True, authenticate=False,
                                     session_input=Path(directory) / "input.json", session_output=Path(directory) / "output.json",
                                     image_priority_map=None, batch_budget_seconds=130)
         for key, value in overrides.items():
@@ -1019,26 +1026,27 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(stats["pages"], 1)
             self.assertEqual(stats["restores"], 1)
             self.assertEqual(stats["closed"], 1)
-            self.assertEqual(len(stats["requests"]), 11)
+            self.assertEqual(len(stats["requests"]), len(stats["feeds"]))
             self.assertEqual(smoke.read_session(config.session_output), fixture)
 
     def test_rate_limit_or_denial_preserves_prefix_and_stops_remaining_reads(self):
         for status, reason in ((429, "navigation_rate_limited"), (403, "navigation_http_rejected")):
             with tempfile.TemporaryDirectory() as directory:
                 config, stats, fixture, browser = self.setup_batch(directory)
-                stats.update(fail_on="europe", error=smoke.SessionError("Browser navigation was rejected", reason, status, 60 if status == 429 else None))
+                failure_index = len(stats["feeds"]) // 2
+                stats.update(fail_on=stats["feeds"][failure_index], error=smoke.SessionError("Browser navigation was rejected", reason, status, 60 if status == 429 else None))
                 result = self.execute(config, stats, fixture, browser)
-                self.assertEqual([item["subreddit"] for item in result["feeds"]], ["politics", "worldnews"])
-                self.assertEqual(result["batchFailure"]["subreddit"], "europe")
+                self.assertEqual([item["subreddit"] for item in result["feeds"]], stats["feeds"][:failure_index])
+                self.assertEqual(result["batchFailure"]["subreddit"], stats["feeds"][failure_index])
                 self.assertEqual(result["batchFailure"]["httpStatus"], status)
                 self.assertEqual(result["batchFailure"]["sessionReason"], reason)
-                self.assertEqual(len(stats["requests"]), 3)
+                self.assertEqual(len(stats["requests"]), failure_index + 1)
                 self.assertEqual(smoke.read_session(config.session_output), fixture)
 
     def test_failure_before_first_feed_has_no_accessible_prefix(self):
         with tempfile.TemporaryDirectory() as directory:
             config, stats, fixture, browser = self.setup_batch(directory)
-            stats.update(fail_on="politics", error=smoke.SessionError("Browser navigation was rejected", "navigation_rate_limited", 429))
+            stats.update(fail_on=stats["feeds"][0], error=smoke.SessionError("Browser navigation was rejected", "navigation_rate_limited", 429))
             result = self.execute(config, stats, fixture, browser)
             self.assertEqual(result["status"], "session_invalid")
             self.assertEqual(result["posts"], [])
@@ -1048,10 +1056,10 @@ class BatchTests(unittest.TestCase):
     def test_malformed_metadata_does_not_lose_earlier_valid_feeds_or_leak_errors(self):
         with tempfile.TemporaryDirectory() as directory:
             config, stats, fixture, browser = self.setup_batch(directory)
-            stats["malformed"] = "worldnews"
+            stats["malformed"] = stats["feeds"][1]
             result = self.execute(config, stats, fixture, browser)
             self.assertEqual(len(result["feeds"]), 1)
-            self.assertEqual(result["batchFailure"], {"subreddit": "worldnews", "status": "runtime_error"})
+            self.assertEqual(result["batchFailure"], {"subreddit": stats["feeds"][1], "status": "runtime_error"})
             self.assertEqual(len(stats["requests"]), 2)
 
     def test_global_deadline_returns_completed_prefix_before_another_feed(self):
@@ -1062,13 +1070,13 @@ class BatchTests(unittest.TestCase):
             with patch.object(smoke.time, "monotonic", side_effect=lambda: clock["seconds"]):
                 result = self.execute(config, stats, fixture, browser)
             self.assertEqual(len(result["feeds"]), 1)
-            self.assertEqual(result["batchFailure"], {"subreddit": "worldnews", "status": "loading_timeout"})
+            self.assertEqual(result["batchFailure"], {"subreddit": stats["feeds"][1], "status": "loading_timeout"})
             self.assertEqual(len(stats["requests"]), 2)
 
     def test_cancellation_returns_completed_prefix_without_more_http(self):
         with tempfile.TemporaryDirectory() as directory:
             config, stats, fixture, browser = self.setup_batch(directory)
-            stats.update(fail_on="worldnews", error=smoke.BrowserCancelled("cancelled"))
+            stats.update(fail_on=stats["feeds"][1], error=smoke.BrowserCancelled("cancelled"))
             result = self.execute(config, stats, fixture, browser)
             self.assertEqual(len(result["feeds"]), 1)
             self.assertEqual(result["batchFailure"]["status"], "loading_timeout")
@@ -1079,13 +1087,13 @@ class BatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config, stats, fixture, browser = self.setup_batch(directory)
             def optional(_page, _reader, posts, subreddit, **kwargs):
-                if subreddit == "worldnews":
+                if subreddit == stats["feeds"][1]:
                     kwargs["budget"]["failure"] = smoke.SessionError("Browser navigation was rejected", "navigation_rate_limited", 429, 60)
                 return posts
             with patch.object(smoke, "enrich_link_previews", side_effect=optional):
                 result = self.execute(config, stats, fixture, browser)
-            self.assertEqual([item["subreddit"] for item in result["feeds"]], ["politics", "worldnews"])
-            self.assertEqual(result["batchFailure"]["subreddit"], "worldnews")
+            self.assertEqual([item["subreddit"] for item in result["feeds"]], stats["feeds"][:2])
+            self.assertEqual(result["batchFailure"]["subreddit"], stats["feeds"][1])
             self.assertEqual(result["batchFailure"]["stage"], "optional_preview")
             self.assertEqual(len(stats["requests"]), 2)
 
@@ -1102,14 +1110,15 @@ class BatchTests(unittest.TestCase):
                 return posts
             with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke, "state", return_value="feed"), patch.object(smoke, "authenticate_once", side_effect=authenticate) as login, patch.object(smoke, "enrich_link_previews", side_effect=optional):
                 result = smoke.run(config)
-            self.assertEqual(len(result["feeds"]), 11)
+            self.assertEqual(len(result["feeds"]), len(stats["feeds"]))
             self.assertEqual(login.call_count, 1)
-            self.assertEqual(budgets, [True] * 11)
-            self.assertEqual(len(stats["requests"]), 11)
+            self.assertEqual(budgets, [True] * len(stats["feeds"]))
+            self.assertEqual(len(stats["requests"]), len(stats["feeds"]))
 
     def test_optional_work_reserves_time_for_every_remaining_core_feed(self):
         with tempfile.TemporaryDirectory() as directory:
-            config, stats, fixture, browser = self.setup_batch(directory, batch_budget_seconds=126)
+            feed_count = len(json.loads(smoke.SUBREDDITS.read_text()))
+            config, stats, fixture, browser = self.setup_batch(directory, batch_budget_seconds=(feed_count - 1) * 10 + 26)
             clock = {"seconds": 0}
             stats["clock"] = clock
             spent = []
@@ -1123,31 +1132,34 @@ class BatchTests(unittest.TestCase):
                 return posts
             with patch.object(smoke.time, "monotonic", side_effect=lambda: clock["seconds"]), patch.object(smoke, "enrich_link_previews", side_effect=optional):
                 result = self.execute(config, stats, fixture, browser)
-            self.assertEqual(len(result["feeds"]), 11)
+            self.assertEqual(len(result["feeds"]), len(stats["feeds"]))
             self.assertNotIn("batchFailure", result)
             self.assertLess(spent[0], 25)
             self.assertLessEqual(sum(spent), 25)
-            self.assertLessEqual(clock["seconds"], 121)
+            self.assertLessEqual(clock["seconds"], config.batch_budget_seconds - 5)
 
     def test_priority_allocation_rotates_fairly_and_skips_absent_map(self):
-        feeds = ["politics", "worldnews", "europe", "news", "technology"]
-        mapping = {feed: ["t3_" + feed, "t3_" + feed + "2"] for feed in feeds}
+        feeds = json.loads(smoke.SUBREDDITS.read_text())
+        mapping = {feed: ["t3_" + feed.lower(), "t3_" + feed.lower() + "2"] for feed in feeds}
         self.assertEqual(smoke.allocate_image_priorities(feeds, None), {feed: [] for feed in feeds})
         with patch.object(smoke.time, "time", return_value=300):
-            result = smoke.allocate_image_priorities(feeds, mapping)
-        self.assertEqual(result["politics"], [])
+            result = smoke.allocate_image_priorities(feeds, mapping, maximum=len(feeds) - 1)
+        self.assertEqual(result[feeds[0]], [])
         self.assertTrue(all(len(result[feed]) == 1 for feed in feeds[1:]))
         with patch.object(smoke.time, "time", return_value=0):
-            result = smoke.allocate_image_priorities(feeds, {"politics": ["t3_a", "t3_b", "t3_c"], "worldnews": ["t3_d", "t3_e"]})
-        self.assertEqual(result["politics"], ["t3_a", "t3_b"])
-        self.assertEqual(result["worldnews"], ["t3_d", "t3_e"])
+            result = smoke.allocate_image_priorities(feeds, {feeds[0]: ["t3_a", "t3_b", "t3_c"], feeds[1]: ["t3_d", "t3_e"]})
+        self.assertEqual(result[feeds[0]], ["t3_a", "t3_b"])
+        self.assertEqual(result[feeds[1]], ["t3_d", "t3_e"])
+        self.assertEqual(sum(map(len, result.values())), 4)
 
     def test_batch_cli_map_and_budget_validation(self):
-        config = smoke.options(["--all-feeds", "--image-priority-map", '{"politics":[],"Economics":["t3_abc"]}', "--batch-budget-seconds", "126"])
+        feeds = json.loads(smoke.SUBREDDITS.read_text())
+        priorities = json.dumps({feeds[0]: [], feeds[-1]: ["t3_abc"]})
+        config = smoke.options(["--all-feeds", "--image-priority-map", priorities, "--batch-budget-seconds", "126"])
         self.assertTrue(config.all_feeds)
-        self.assertEqual(config.image_priority_map["Economics"], ["t3_abc"])
+        self.assertEqual(config.image_priority_map[feeds[-1]], ["t3_abc"])
         self.assertEqual(config.batch_budget_seconds, 126)
-        for args in (["--all-feeds", "--image-priority-map", '{"economics":[]}'], ["--all-feeds", "--image-priority-map", '{"news":["t3_a","t3_a"]}'], ["--all-feeds", "--image-priority-map", '{"news":null}'], ["--all-feeds", "--batch-budget-seconds", "0"], ["--all-feeds", "--image-priority-ids", "t3_a"]):
+        for args in (["--all-feeds", "--image-priority-map", json.dumps({feeds[0].upper(): []})], ["--all-feeds", "--image-priority-map", '{"Economics":[]}'], ["--all-feeds", "--image-priority-map", json.dumps({feeds[0]: ["t3_a", "t3_a"]})], ["--all-feeds", "--image-priority-map", json.dumps({feeds[0]: None})], ["--all-feeds", "--batch-budget-seconds", "0"], ["--all-feeds", "--image-priority-ids", "t3_a"]):
             with self.assertRaises(SystemExit):
                 smoke.options(args)
 

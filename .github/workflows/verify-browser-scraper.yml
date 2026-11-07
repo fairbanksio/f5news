@@ -17,22 +17,14 @@ on:
         default: politics
         options:
           - politics
-          - worldnews
-          - europe
           - news
-          - technology
-          - science
-          - health
-          - energy
-          - sports
-          - business
-          - Economics
+          - worldnews
       scheduled:
         description: Read fresh scheduled completions for every feed without invoking Lambda
         type: boolean
         default: false
       all_feeds:
-        description: Verify all feeds in one browser, then repeat politics to confirm reuse
+        description: Verify all feeds, then wait five minutes before checking reuse
         type: boolean
         default: false
       session:
