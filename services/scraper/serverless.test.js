@@ -40,7 +40,7 @@ test("scheduled feeds reuse the shared session without independent login attempt
   const schedules = config.functions.fetchPosts.events.map((event) => event.schedule);
   assert.equal(schedules.length, 2);
   for (const schedule of schedules) {
-    assert.equal(schedule.enabled, false);
+    assert.equal(schedule.enabled, true);
     assert.equal(schedule.input.session, true);
     assert.equal(schedule.input.scheduled, true);
     assert.equal(schedule.input.authenticate, undefined);
