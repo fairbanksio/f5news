@@ -12,6 +12,7 @@ import { ViewModeContext } from '../Contexts/ViewModeContext';
 import { LoadingContext } from '../Contexts/LoadingContext';
 import GridView from './GridView';
 import ListView from './ListView';
+import ServiceNotice from './ServiceNotice';
 import usePageVisibility from '../Util/usePageVisibility';
 import { getRuntimeConfigValue, normalizeApiEndpoint } from '../runtimeConfig';
 
@@ -240,6 +241,7 @@ const PostView = () => {
 
   return (
     <Container maxW={maxW} mt={16} pl={padding} pr={padding}>
+      <ServiceNotice />
       {error.show ? (
         <Box>
           <Alert.Root status={error.level}>
