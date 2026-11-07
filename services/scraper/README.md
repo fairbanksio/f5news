@@ -6,7 +6,7 @@ The Python browser and the Stagehand prototype share a DOM reader and F5 field m
 
 ## Runtime
 
-The function runs from an ARM64 container with 4 GiB RAM, a 240-second timeout, and 1 GiB of temporary storage. Firefox is baked into the image. Runtime state goes under `/tmp`, allowing a read-only root filesystem. On Lambda, the entrypoint starts Node directly to avoid unsupported subreaper calls. Local Docker runs use Tini to reap orphaned browser processes across repeated invocations.
+The function runs from an ARM64 container with 3008 MiB RAM, a 240-second timeout, and 1 GiB of temporary storage. Firefox is baked into the image. Runtime state goes under `/tmp`, allowing a read-only root filesystem. On Lambda, the entrypoint starts Node directly to avoid unsupported subreaper calls. Local Docker runs use Tini to reap orphaned browser processes across repeated invocations.
 
 The image command is `index.fetchPosts`. The entrypoint sets the handler and application directory explicitly before starting the Lambda runtime client.
 
@@ -44,7 +44,7 @@ docker build --platform linux/arm64 --provenance=false \
 To check browser extraction without writing to MongoDB:
 
 ```sh
-docker run --rm --init --read-only --memory 4g --pids-limit 1024 \
+docker run --rm --init --read-only --memory 3008m --pids-limit 1024 \
   --tmpfs /tmp:rw,size=1g --entrypoint node f5-scraper:local -e '
 const { scrapePosts } = require("./browser-source");
 scrapePosts({ subreddit: "politics" }).then(posts => {
