@@ -5,13 +5,63 @@ on:
     branches:
     - main
   workflow_dispatch:
+    inputs:
+      scope:
+        description: Deployment scope
+        type: choice
+        default: full
+        options:
+          - full
+          - changed
+          - webui
+          - posts
+          - subreddits
+          - scraper
+          - infrastructure
 permissions:
   contents: read
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  changes:
+    name: 'Deployment Scope'
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      infrastructure: ${{ steps.select.outputs.infrastructure }}
+      posts: ${{ steps.select.outputs.posts }}
+      scraper: ${{ steps.select.outputs.scraper }}
+      subreddits: ${{ steps.select.outputs.subreddits }}
+      webui: ${{ steps.select.outputs.webui }}
+      scraper_verify: ${{ steps.select.outputs.scraper_verify }}
+      services: ${{ steps.select.outputs.services }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Use Node.js 24.x
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 24.x
+    - name: Select Changed Components
+      id: select
+      env:
+        DEPLOY_SCOPE: ${{ inputs.scope }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: node scripts/select-deployment.cjs
+
   infrastructure:
     name: 'Infrastructure'
-    if: github.ref == 'refs/heads/main'
+    needs: changes
+    if: github.ref == 'refs/heads/main' && needs.changes.outputs.infrastructure == 'true'
     runs-on: ubuntu-latest
 
     # Checkout the repository to the GitHub Actions runner
@@ -42,8 +92,11 @@ jobs:
 
   services:
     name: 'Serverless'
-    needs: infrastructure
-    if: github.ref == 'refs/heads/main'
+    needs: [changes, infrastructure]
+    if: >-
+      always() && !cancelled() && github.ref == 'refs/heads/main' && needs.changes.result == 'success' &&
+      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
+      needs.changes.outputs.services == 'true'
     runs-on: ubuntu-24.04-arm
 
     # Required for Github-AWS OIDC to work
@@ -73,10 +126,12 @@ jobs:
 
     # Deploy Posts Service
     - run: npm ci
+      if: needs.changes.outputs.posts == 'true'
       name: "Posts Service - Install dependencies"
       working-directory: 'services/posts'
 
     - run: npx serverless deploy
+      if: needs.changes.outputs.posts == 'true'
       env:
         SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
       name: "Posts Service - Deploy"
@@ -84,10 +139,12 @@ jobs:
 
     # Deploy Scraper Service
     - run: npm ci
+      if: needs.changes.outputs.scraper == 'true' || needs.changes.outputs.scraper_verify == 'true'
       name: "Scraper Service - Install dependencies"
       working-directory: 'services/scraper'
 
     - run: npx serverless deploy
+      if: needs.changes.outputs.scraper == 'true'
       env:
         SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
       name: "Scraper Service - Deploy"
@@ -95,28 +152,36 @@ jobs:
 
     # Deploy Subreddits Service
     - run: npm ci
+      if: needs.changes.outputs.subreddits == 'true'
       name: "Subreddits Service - Install dependencies"
       working-directory: 'services/subreddits'
 
     - run: npm run test:coverage
+      if: needs.changes.outputs.subreddits == 'true'
       name: "Subreddits Service - Test"
       working-directory: 'services/subreddits'
 
     - run: npx serverless deploy
+      if: needs.changes.outputs.subreddits == 'true'
       env:
         SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
       name: "Subreddits Service - Deploy"
       working-directory: 'services/subreddits'
 
     - name: "Scraper Service - Verify Live Extraction"
+      if: needs.changes.outputs.scraper_verify == 'true'
       env:
         F5_PROBE_DEPLOYMENT: "true"
       run: node scripts/check-browser-deployment.cjs
 
   webapp:
     name: 'Web App'
-    needs: services
-    if: github.ref == 'refs/heads/main'
+    needs: [changes, infrastructure, services]
+    if: >-
+      always() && !cancelled() && github.ref == 'refs/heads/main' && needs.changes.result == 'success' &&
+      (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped') &&
+      (needs.services.result == 'success' || needs.services.result == 'skipped') &&
+      needs.changes.outputs.webui == 'true'
     runs-on: ubuntu-latest
 
     # Required for Github-AWS OIDC to work
@@ -147,6 +212,10 @@ jobs:
     # Deploy Posts Service
     - run: npm ci
       name: "Install dependencies"
+      working-directory: 'webui'
+
+    - run: npm run generate-config
+      name: "Generate Runtime Configuration"
       working-directory: 'webui'
 
     - run: npm run deploy
