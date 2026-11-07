@@ -1,5 +1,6 @@
 const { execFileSync } = require("node:child_process");
 const { readFileSync } = require("node:fs");
+const path = require("node:path");
 const assert = require("node:assert/strict");
 const { createPublicKey, randomBytes, createCipheriv, publicEncrypt, constants } = require("node:crypto");
 
@@ -59,7 +60,7 @@ function checkInvocation(metadata, { session = false } = {}) {
   return summary;
 }
 
-const FEEDS = ["politics", "worldnews", "europe", "news", "technology", "science", "health", "energy", "sports", "business", "Economics"];
+const FEEDS = require("../services/posts/subreddits.json");
 
 function checkBatchInvocation(metadata) {
   assert.ok(!metadata.FunctionError, "Browser scraper batch invocation failed; inspect its CloudWatch logs");
@@ -80,7 +81,8 @@ function checkBatchInvocation(metadata) {
   return { feedResults: FEEDS.map((feed) => feeds.get(feed)), sessionMode: payload.sessionMode, sessionGeneration: payload.sessionGeneration };
 }
 
-async function verifyFeeds({ allFeeds = false, subreddit = "politics", session = true, authenticate = false, renewSession = false, invoke, emit = console.log } = {}) {
+async function verifyFeeds({ allFeeds = false, subreddit = "politics", session = true, authenticate = false, renewSession = false, invoke, emit = console.log,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
   assert.ok(FEEDS.includes(subreddit), "Select a configured subreddit for browser verification");
   assert.ok(!(allFeeds && authenticate), "All-feed verification uses one shared session; authenticate is only available for a single bootstrap");
   assert.ok(!allFeeds || session, "All-feed verification requires session reuse");
@@ -97,6 +99,8 @@ async function verifyFeeds({ allFeeds = false, subreddit = "politics", session =
     if (renewSession) assert.equal(batch.sessionMode, "renewed", "Requested session renewal did not create a renewed session");
     invocations.push(batch);
     for (const { subreddit, ...result } of batch.feedResults) addResult(subreddit, result);
+    emit(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE_WAITING", seconds: 300 }));
+    await sleep(300000);
     const repeated = checkInvocation(await invoke({ subreddit: "politics", session: true }), { session: true });
     assert.equal(repeated.sessionMode, "reused", "Repeated politics invocation did not reuse the shared session");
     assert.equal(repeated.sessionGeneration, batch.sessionGeneration, "Repeated politics invocation changed the shared session generation");
@@ -324,19 +328,34 @@ function invokeLive(event) {
   return result;
 }
 
+function selectVerificationMode(env, configuration) {
+  if (env.F5_PROBE_DIAGNOSTICS === "true") return "diagnostics";
+  if (env.F5_PROBE_DEPLOYMENT === "true") {
+    assert.ok(configuration?.functions && typeof configuration.functions === "object" && !Array.isArray(configuration.functions), "Deployment verification requires valid service configuration");
+    return Object.values(configuration.functions).some((fn) => Array.isArray(fn?.events) && fn.events.some((event) => event?.schedule?.enabled === true)) ? "scheduled" : "batch";
+  }
+  return env.F5_PROBE_SCHEDULED === "true" ? "scheduled" : "manual";
+}
+
+async function runVerification({ env = process.env, configuration, invoke = invokeLive, readEvents = readScheduledEvents,
+  readRuntime = readRuntimeEvents, emit = console.log, sleep } = {}) {
+  if (env.F5_PROBE_DEPLOYMENT === "true" && env.F5_PROBE_DIAGNOSTICS !== "true" && configuration === undefined) {
+    const yaml = require("../services/scraper/node_modules/js-yaml");
+    configuration = yaml.load(readFileSync(path.join(__dirname, "../services/scraper/serverless.yml"), "utf8"));
+  }
+  const mode = selectVerificationMode(env, configuration);
+  if (mode === "diagnostics") return verifySessionDiagnostics({ invoke, publicKey: env.F5_PROBE_DIAGNOSTICS_KEY, readRuntimeEvents: readRuntime, emit });
+  if (mode === "scheduled") return verifyScheduled({ readEvents, emit, sleep });
+  return verifyFeeds({ allFeeds: mode === "batch" || env.F5_PROBE_ALL_FEEDS === "true", subreddit: env.F5_PROBE_SUBREDDIT || "politics",
+    session: mode === "batch" || env.F5_PROBE_SESSION !== "false", authenticate: mode !== "batch" && env.F5_PROBE_AUTHENTICATE === "true",
+    renewSession: mode !== "batch" && env.F5_PROBE_RENEW_SESSION === "true", invoke, emit, sleep });
+}
+
 if (require.main === module) {
-  const verification = process.env.F5_PROBE_DIAGNOSTICS === "true"
-    ? verifySessionDiagnostics({ invoke: invokeLive, publicKey: process.env.F5_PROBE_DIAGNOSTICS_KEY, readRuntimeEvents })
-    : process.env.F5_PROBE_SCHEDULED === "true"
-    ? verifyScheduled({ readEvents: readScheduledEvents })
-    : verifyFeeds({ allFeeds: process.env.F5_PROBE_ALL_FEEDS === "true", subreddit: process.env.F5_PROBE_SUBREDDIT || "politics",
-      session: process.env.F5_PROBE_SESSION !== "false", authenticate: process.env.F5_PROBE_AUTHENTICATE === "true",
-      renewSession: process.env.F5_PROBE_RENEW_SESSION === "true", invoke: invokeLive,
-    });
-  verification.catch((error) => {
+  runVerification().catch((error) => {
     console.error(error instanceof assert.AssertionError ? error.message : "Unable to verify the browser scraper invocation");
     process.exitCode = 1;
   });
 }
 
-module.exports = { checkInvocation, checkBatchInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, summarizeRuntimeEvents, FEEDS };
+module.exports = { checkInvocation, checkBatchInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, summarizeRuntimeEvents, selectVerificationMode, runVerification, FEEDS };

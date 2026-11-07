@@ -11,7 +11,7 @@ from unittest.mock import patch
 import smoke
 from invisible_playwright import InvisiblePlaywright
 
-FEED = "https://www.reddit.com/r/politics/rising/"
+FEED = "https://www.reddit.com/r/" + json.loads(smoke.SUBREDDITS.read_text())[0] + "/rising/"
 STORAGE_KEY = "f5_offline_session_check"
 STORAGE_VALUE = "offline-fixture-storage"
 COOKIE_VALUE = "offline-fixture-cookie-not-an-account"
@@ -81,6 +81,8 @@ def check_navigation_http(browser):
 
 def check_batch_runtime(saved, directory):
     feeds = json.loads(smoke.SUBREDDITS.read_text())
+    assert len(feeds) >= 3, "Partial batch fixture needs a valid prefix and an unread suffix"
+    failure_index = len(feeds) // 2
     for failure_status in (None, 403, 429):
         stats = {"launches": 0, "pages": 0, "requests": [], "checks": []}
         source = Path(directory) / "batch-input.json"
@@ -127,7 +129,7 @@ def check_batch_runtime(saved, directory):
                     assert feed in feeds, "Batch requested an unconfigured feed"
                     stats["requests"].append(feed)
                     index = feeds.index(feed)
-                    if failure_status is not None and index == 2:
+                    if failure_status is not None and index == failure_index:
                         route.fulfill(status=failure_status, headers={"content-type": "text/html", "content-length": "0"}, body="")
                         return
                     name = feed.lower() + "0"
@@ -137,25 +139,25 @@ def check_batch_runtime(saved, directory):
                       created-timestamp="2026-11-06T00:00:00Z" score="12" comment-count="2" domain="example.com"
                       content-href="https://example.com/story" permalink="/r/{feed}/comments/{name}/story/">Offline fixture</shreddit-post>"""
                     headers = {"content-type": "text/html"}
-                    if index == 1:
+                    if index == 0:
                         headers["set-cookie"] = "reddit_session=offline-rotated-session; Domain=.reddit.com; Path=/; Secure; HttpOnly; SameSite=Lax"
                     route.fulfill(status=200, headers=headers, body=html)
                 page.route("https://www.reddit.com/**", fulfill)
                 return PageProxy(page)
 
-        config = SimpleNamespace(subreddit="politics", limit=1, all_feeds=True, authenticate=False,
+        config = SimpleNamespace(subreddit=feeds[0], limit=1, all_feeds=True, authenticate=False,
                                  session_input=source, session_output=output, image_priority_map=None, batch_budget_seconds=90)
         messages = []
         with patch.object(smoke, "log", side_effect=messages.append):
             result = smoke.run_all_feeds(config, browser_factory=BrowserFactory)
-        expected = len(feeds) if failure_status is None else 2
+        expected = len(feeds) if failure_status is None else failure_index
         assert result["status"] == "accessible", "Offline batch did not preserve accessible results"
         assert [item["subreddit"] for item in result["feeds"]] == feeds[:expected], "Offline batch prefix did not match"
         assert stats["launches"] == 1 and stats["pages"] == 1, "Offline batch opened more than one browser or page"
         assert len(stats["checks"]) == expected, "Offline batch did not retain state on every feed"
         assert stats["requests"] == feeds[:expected + (failure_status is not None)], "Offline batch read after a rejection"
         if failure_status is not None:
-            assert result["batchFailure"]["subreddit"] == feeds[2], "Offline batch failure identified the wrong feed"
+            assert result["batchFailure"]["subreddit"] == feeds[failure_index], "Offline batch failure identified the wrong feed"
             assert result["batchFailure"]["httpStatus"] == failure_status, "Offline batch failure lost HTTP status"
         final = smoke.read_session(output)
         assert any(cookie["name"] == "reddit_session" and cookie["value"] == "offline-rotated-session" for cookie in final["cookies"]), "Offline batch did not export final cookies"

@@ -400,11 +400,21 @@ test("failed queries can be retried and are never cached", async () => {
 
 test("normalizes configured subreddit spelling and keeps the cache origin-independent", async () => {
   const context = createHandler();
-  const event = { pathParameters: { subreddit: "economics" } };
+  const event = { pathParameters: { subreddit: "NEWS" } };
   const first = await context.handler(allowedEvent(event));
   const second = await context.handler(allowedEvent({ ...event, headers: { origin: "https://www.f5.news" } }));
   assert.equal(first.statusCode, 200);
   assert.equal(second.headers["Access-Control-Allow-Origin"], "https://www.f5.news");
-  assert.equal(getFindCall(context.postModel).args[0].sub, "Economics");
+  assert.equal(getFindCall(context.postModel).args[0].sub, "news");
   assert.equal(context.connectCount, 1);
+});
+
+test("rejects retired feeds before opening a database connection", async () => {
+  const context = createHandler();
+  for (const subreddit of ["europe", "technology", "science", "health", "energy", "sports", "business", "Economics"]) {
+    const response = await context.handler(allowedEvent({ pathParameters: { subreddit } }));
+    assert.equal(response.statusCode, 400);
+  }
+  assert.equal(context.connectCount, 0);
+  assert.equal(context.postModel.calls.length, 0);
 });
