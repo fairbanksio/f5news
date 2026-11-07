@@ -63,7 +63,7 @@ jobs:
       with:
         aws-region: us-east-1
         role-to-assume: arn:aws:iam::633025216388:role/GithubActions-Fairbanksio-F5oclock
-        role-duration-seconds: 1200 # Optional duration, 20 minutes in this case
+        role-duration-seconds: 3600 # Includes scheduled-run verification.
 
     # Install Nodejs
     - name: Use Node.js 24.x
@@ -93,9 +93,6 @@ jobs:
       name: "Scraper Service - Deploy"
       working-directory: 'services/scraper'
 
-    - name: "Scraper Service - Verify Live Extraction"
-      run: node scripts/check-browser-deployment.cjs
-
     # Deploy Subreddits Service
     - run: npm ci
       name: "Subreddits Service - Install dependencies"
@@ -110,6 +107,11 @@ jobs:
         SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
       name: "Subreddits Service - Deploy"
       working-directory: 'services/subreddits'
+
+    - name: "Scraper Service - Verify Live Extraction"
+      env:
+        F5_PROBE_DEPLOYMENT: "true"
+      run: node scripts/check-browser-deployment.cjs
 
   webapp:
     name: 'Web App'

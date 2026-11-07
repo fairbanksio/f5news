@@ -2,16 +2,8 @@ const { createCorsHeaders, isAllowedOrigin } = require("./cors");
 
 const configuredSubreddits = [
   "politics",
-  "worldnews",
-  "europe",
   "news",
-  "technology",
-  "science",
-  "health",
-  "energy",
-  "sports",
-  "business",
-  "Economics",
+  "worldnews",
 ];
 
 const getRequestOrigin = (event = {}) => {
