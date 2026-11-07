@@ -221,9 +221,12 @@ CI workflow: `.github/workflows/deploy.yml`
 
 Main branch deploy flow:
 
-1. Apply Terraform from `infrastructure/`
-2. Deploy serverless services from `services/`
-3. Deploy `webui/`
+1. Select components changed since the last successful automatic deployment
+2. Apply Terraform when infrastructure changes
+3. Deploy selected services from `services/`
+4. Deploy `webui/` when frontend or shared inputs change
+
+Infrastructure changes fan out to all consumers. Deployment logic changes or unavailable history use a full rollout. Manual workflow scopes support full recovery or a selected component; see `README.md`.
 
 CI uses:
 

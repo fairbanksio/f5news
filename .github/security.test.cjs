@@ -9,8 +9,17 @@ const readYaml = file => yaml.load(fs.readFileSync(path.join(root, file), 'utf8'
 
 test('production jobs require main and preserve existing deployment authentication', () => {
   const workflow = readYaml('.github/workflows/deploy.yml');
-  for (const job of Object.values(workflow.jobs)) {
-    assert.equal(job.if, "github.ref == 'refs/heads/main'");
+  const main = "github.ref == 'refs/heads/main'";
+  const completed = name => `(needs.${name}.result == 'success' || needs.${name}.result == 'skipped')`;
+  const conditions = {
+    changes: main,
+    infrastructure: `${main} && needs.changes.outputs.infrastructure == 'true'`,
+    services: `always() && !cancelled() && ${main} && needs.changes.result == 'success' && ${completed('infrastructure')} && needs.changes.outputs.services == 'true'`,
+    webapp: `always() && !cancelled() && ${main} && needs.changes.result == 'success' && ${completed('infrastructure')} && ${completed('services')} && needs.changes.outputs.webui == 'true'`,
+  };
+  assert.deepEqual(Object.keys(workflow.jobs).sort(), Object.keys(conditions).sort());
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    assert.equal(job.if.trim().replace(/\s+/g, ' '), conditions[name]);
     assert.equal(job.environment, undefined);
     assert.equal(job.env?.SERVERLESS_ACCESS_KEY, undefined);
     for (const step of job.steps) {
