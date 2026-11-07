@@ -1406,7 +1406,7 @@ test("session diagnostics read metadata without running a scrape or writing post
   assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 0);
 });
 
-test("image detail priorities query recent small link images without the article cooldown", async () => {
+test("image detail priorities query recent missing or small link images without the article cooldown", async () => {
   const calls = {};
   const small = "https://external-preview.redd.it/story.jpg?width=140";
   const rows = [
@@ -1417,6 +1417,11 @@ test("image detail priorities query recent small link images without the article
     { commentLink: "https://evil.example/r/politics/comments/abc/story/", thumbnail: small },
     { commentLink: "/r/politics/comments/bad-id/story/", thumbnail: small },
     { commentLink: "/r/politics/comments/large/story/", thumbnail: "https://preview.redd.it/photo.jpg?width=1080" },
+    { commentLink: "/r/politics/comments/missing/story/" },
+    { commentLink: "/r/politics/comments/nullimage/story/", thumbnail: null },
+    { commentLink: "/r/politics/comments/empty/story/", thumbnail: "" },
+    { commentLink: "/r/politics/comments/placeholder/story/", thumbnail: "default" },
+    { commentLink: "/r/politics/comments/unusable/story/", thumbnail: "ftp://cdn.example/image.jpg" },
   ];
   const query = {
     sort(value) { calls.sort = value; return this; },
@@ -1428,12 +1433,17 @@ test("image detail priorities query recent small link images without the article
   const ids = await findImagePriorityIds({ find: (filter) => { calls.filter = filter; return query; } }, "POLITICS", {
     now: () => new Date("2026-11-06T20:00:00Z"), logger: createLogger(),
   });
-  assert.deepEqual(ids, ["t3_abc", "t3_def"]);
+  assert.deepEqual(ids, ["t3_abc", "t3_def", "t3_missing", "t3_nullimage", "t3_empty", "t3_placeholder", "t3_unusable"]);
   assert.equal(calls.filter.sub, "politics");
   assert.deepEqual(calls.filter.created_utc, { $gt: Date.parse("2026-11-06T12:00:00Z") / 1000 });
   for (const field of ["is_self", "is_video", "is_gallery"]) assert.deepEqual(calls.filter[field], { $ne: true });
   assert.deepEqual(calls.filter.post_hint, { $nin: ["image", "rich:video"] });
   assert.equal(calls.filter.thumbnailQualityCheckedAt, undefined);
+  assert.ok(calls.filter.$or.some((clause) => clause.thumbnail === null));
+  assert.ok(calls.filter.$or.some((clause) => clause.thumbnail === ""));
+  assert.ok(calls.filter.$or.some((clause) => clause.thumbnail?.$exists === false));
+  assert.ok(calls.filter.$or.some((clause) => clause.thumbnail?.$not?.$regex === "^https?://"));
+  assert.ok(calls.filter.$or.some((clause) => typeof clause.thumbnail?.$regex === "string"));
   assert.ok(new RegExp(calls.filter.url.$regex, "i").test("https://publisher.example/story"));
   assert.ok(!new RegExp(calls.filter.url.$regex, "i").test("https://www.reddit.com/r/politics/"));
   assert.deepEqual(calls.sort, { upvoteCount: -1 });
@@ -1478,7 +1488,7 @@ test("normal scrapes pass validated stored image priorities to the browser", asy
   let options;
   const handler = createFetchPosts({
     scrapePostsImpl: async (value) => { options = value; return []; },
-    newPostModel: { find: async (filter) => filter.thumbnail ? [{ commentLink: "/r/politics/comments/abc/story/", thumbnail: "https://preview.redd.it/photo.jpg?width=140" }] : [] },
+    newPostModel: { find: async (filter) => filter.url?.$regex ? [{ commentLink: "/r/politics/comments/abc/story/", thumbnail: "https://preview.redd.it/photo.jpg?width=140" }] : [] },
     mongooseClient: { connect: async () => {} }, logger: createLogger(),
   });
   await handler({ subreddit: "politics" });

@@ -605,6 +605,18 @@ test("image diagnostics are emitted only inside the encrypted envelope", async (
   for (const field of ["imageDiagnostics", "latestTerminal", "imageDependencyFailures", "private-title", "private.example"]) assert.ok(!lines.join().includes(field));
 });
 
+test("image diagnostics retain exhausted fallback failures without copying publisher data", () => {
+  const summary = summarizeRuntimeEvents(["POST_IMAGE_RESOLUTION_DEGRADED", "POST_IMAGE_BACKFILL_DEGRADED"].map(eventType => ({
+    message: JSON.stringify({ eventType, subreddit: FEEDS[0], outcome: "degraded", title: "private-title",
+      imageResolutionFailures: [{ reason: "http_status", status: 403, url: "https://private.example/image", errorMessage: "private-error" }] }),
+  }))).imageDiagnostics;
+  assert.equal(summary.feeds[0].failureEventCounts.POST_IMAGE_RESOLUTION_DEGRADED, 1);
+  assert.equal(summary.feeds[0].failureEventCounts.POST_IMAGE_BACKFILL_DEGRADED, 1);
+  assert.equal(summary.failureReasonCounts.http_status, 2);
+  assert.equal(summary.failureHttpStatusCounts[403], 2);
+  assert.ok(!JSON.stringify(summary).includes("private"));
+});
+
 test("session diagnostics encrypt runtime aggregates and never print private resource telemetry", async () => {
   let readCount = 0;
   let invokeCount = 0;
