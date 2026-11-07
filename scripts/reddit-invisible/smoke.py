@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 # Preserve HTTP error responses so status diagnostics can distinguish denials.
 BROWSER_EXTRA_PREFS = {"browser.http.blank_page_with_error_response.enabled": True}
+MAX_BATCH_OPTIONAL_DETAILS = 1
 ROOT = Path(__file__).resolve().parent
 SUBREDDITS = Path(os.environ.get("F5_SUBREDDITS_FILE", str(ROOT / "../../services/posts/subreddits.json")))
 READER = Path(os.environ.get("F5_BROWSER_READER", str(ROOT / "../reddit-stagehand/browser-reader.js")))
@@ -592,10 +593,22 @@ def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_bud
         if post["attributes"].get("post-type") not in ("link", "crosspost"):
             continue
         try:
-            image = urlsplit(post.get("thumbnail") or "")
-            widths = parse_qs(image.query).get("width", [])
-            if image.scheme not in ("http", "https") or len(widths) != 1 or not widths[0].isdigit() or not 0 < int(widths[0]) <= 320:
+            try:
+                image = urlsplit(post.get("thumbnail") or "")
+                usable = image.scheme in ("http", "https") and bool(image.hostname) and not image.username and not image.password
+            except ValueError:
+                image = None
+                usable = False
+            widths = parse_qs(image.query).get("width", []) if image else []
+            small = len(widths) == 1 and widths[0].isdigit() and 0 < int(widths[0]) <= 320
+            if usable and not small:
                 continue
+            if not usable:
+                destination = urlsplit(post["attributes"].get("content-href") or "")
+                host = destination.hostname or ""
+                if (destination.scheme not in ("http", "https") or not host or destination.username or destination.password
+                        or host == "reddit.com" or host.endswith(".reddit.com") or host == "redd.it" or host.endswith(".redd.it")):
+                    continue
             score = post["attributes"].get("score", "")
             candidates.append((int(score) if re.fullmatch(r"-?\d{1,20}", score) else 0, index))
         except (TypeError, ValueError):
@@ -785,8 +798,8 @@ def run_all_feeds(config, browser_factory=None):
     launch_options = {"headless": True, "extra_prefs": BROWSER_EXTRA_PREFS}
     if session or authenticate:
         launch_options["seed"] = seed
-    priorities = allocate_image_priorities(feeds, getattr(config, "image_priority_map", None))
-    optional_budget = {"remaining": 4, "seconds": 25, "disabled": bool(authenticate)}
+    priorities = allocate_image_priorities(feeds, getattr(config, "image_priority_map", None), maximum=MAX_BATCH_OPTIONAL_DETAILS)
+    optional_budget = {"remaining": MAX_BATCH_OPTIONAL_DETAILS, "seconds": 25, "disabled": bool(authenticate)}
     completed = []
     failure = None
     interrupted = False

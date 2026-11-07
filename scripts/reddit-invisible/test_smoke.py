@@ -886,6 +886,38 @@ class LinkPreviewTests(unittest.TestCase):
         self.assertEqual(posts[0]["thumbnail"], "https://external-preview.redd.it/image0.jpg?width=140&s=small")
         self.assertLessEqual(events[0][1]["timeout"], 5000)
 
+    def test_missing_or_unusable_link_thumbnail_recovers_published_detail_preview(self):
+        for thumbnail in (None, "", "default", "ftp://cdn.example/image.jpg", "https://user:secret@cdn.example/image.jpg"):
+            posts = self.posts()
+            posts[0]["thumbnail"] = thumbnail
+            page, events = self.page(posts)
+            with patch.object(smoke, "state", return_value="feed"):
+                result = smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=["t3_item0"])
+            self.assertEqual(result[0]["thumbnail"], "https://external-preview.redd.it/item0.jpg?width=1080&s=published")
+            self.assertEqual(result[0]["attributes"], posts[0]["attributes"])
+            self.assertEqual(len(events), 1)
+
+    def test_missing_preview_still_keeps_valid_core_listing(self):
+        posts = self.posts()
+        posts[0].pop("thumbnail")
+        page, events = self.page(posts)
+        page.evaluate_read = lambda *_args: posts
+        with patch.object(smoke, "state", return_value="feed"):
+            result = smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=["t3_item0"])
+        self.assertEqual(result, posts)
+        self.assertNotIn("preview", result[0])
+        smoke.validate_core(result[0])
+        self.assertEqual(len(events), 1)
+
+    def test_missing_internal_or_invalid_destination_does_not_request_details(self):
+        for destination in ("https://www.reddit.com/r/news/comments/item0/story/", "/r/news/comments/item0/story/", "javascript:alert(1)", "https://user:secret@publisher.example/story"):
+            posts = self.posts()
+            posts[0]["thumbnail"] = None
+            posts[0]["attributes"]["content-href"] = destination
+            page, events = self.page(posts)
+            self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
+            self.assertEqual(events, [])
+
     def test_top_four_small_link_images_are_prioritized_without_reordering_posts(self):
         posts = self.posts(6)
         page, events = self.page(posts)
@@ -1151,6 +1183,22 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(result[feeds[0]], ["t3_a", "t3_b"])
         self.assertEqual(result[feeds[1]], ["t3_d", "t3_e"])
         self.assertEqual(sum(map(len, result.values())), 4)
+
+    def test_initial_batch_detail_cap_is_one_while_single_mode_keeps_four(self):
+        self.assertEqual(smoke.MAX_BATCH_OPTIONAL_DETAILS, 1)
+        with tempfile.TemporaryDirectory() as directory:
+            feeds = json.loads(smoke.SUBREDDITS.read_text())
+            mapping = {feed: ["t3_" + feed + "0"] for feed in feeds}
+            config, stats, fixture, browser = self.setup_batch(directory, image_priority_map=mapping)
+            allocated = []
+            def optional(_page, _reader, posts, _subreddit, **kwargs):
+                allocated.extend(kwargs["priority_ids"])
+                self.assertEqual(kwargs["budget"]["remaining"], 1)
+                return posts
+            with patch.object(smoke.time, "time", return_value=0), patch.object(smoke, "enrich_link_previews", side_effect=optional):
+                result = self.execute(config, stats, fixture, browser)
+            self.assertEqual(len(result["feeds"]), len(feeds))
+            self.assertEqual(allocated, [mapping[feeds[0]][0]])
 
     def test_batch_cli_map_and_budget_validation(self):
         feeds = json.loads(smoke.SUBREDDITS.read_text())
