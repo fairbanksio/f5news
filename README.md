@@ -14,6 +14,29 @@ Trending news site built with AWS Lambdas that monitor web trends, storing data 
     <a href="https://f5.news">F5.news</a>
 </span>
 
+### Deployments
+
+Main-branch deployments select components from changes since the last successful automatic deployment. Required pull-request checks still run before release.
+
+| Changed Area | Deploys |
+| --- | --- |
+| `webui/` | Web UI |
+| An individual service | That service |
+| Shared feed catalog | All services and Web UI |
+| Browser runtime inputs | Scraper and live verification |
+| `infrastructure/` | Full stack |
+| Documentation and unit test files | Nothing |
+
+Deployment logic changes, unknown runtime inputs, or unavailable deployment history trigger a full rollout. Failed or cancelled prerequisites block dependent deployments.
+
+The Deploy workflow also accepts manual scopes: `full`, `changed`, `webui`, `posts`, `subreddits`, `scraper`, and `infrastructure`. The default is `full` for recovery. For example, deploy only the frontend with:
+
+```sh
+gh workflow run deploy.yml --ref main -f scope=webui
+```
+
+Manual runs leave the automatic deployment baseline unchanged.
+
 ### Local API Origins
 
 Local services allow HTTP `localhost` and `127.0.0.1` origins on ports 3000 and 5173 when `IS_OFFLINE=true`. The subreddit service enables offline mode with `npm start`; Serverless Offline enables it for posts. Production Lambda ignores these local allowances and keeps its HTTPS domain allowlist.
