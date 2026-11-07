@@ -872,7 +872,7 @@ class LinkPreviewTests(unittest.TestCase):
             name = url.split("/comments/")[1].split("/")[0]
             source = next(post for post in posts if post["attributes"]["id"] == "t3_" + name)
             details[:] = [{**source, "attributes": {**source["attributes"], "score": "9999"},
-                          "preview": {"images": [{"source": {"url": f"https://external-preview.redd.it/{name}.jpg?width=1080&s=published"}}]}}]
+                          "preview": {"images": [{"source": {"url": f"https://external-preview.redd.it/{name}.jpg?width=1080&s=published", "width": 1080}}]}}]
         return types.SimpleNamespace(goto=goto, evaluate_read=lambda *_args: details), events
 
     def test_optional_detail_preview_preserves_listing_core_and_image_signature(self):
@@ -917,6 +917,32 @@ class LinkPreviewTests(unittest.TestCase):
             page, events = self.page(posts)
             self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
             self.assertEqual(events, [])
+
+    def test_tiny_or_unknown_detail_images_never_replace_missing_article_preview(self):
+        for width in (None, 0, 64, 320, True, "1080", float("inf")):
+            posts = self.posts()
+            posts[0]["thumbnail"] = None
+            page, _events = self.page(posts)
+            source = {"url": "https://i.redd.it/communityicon.png"}
+            if width is not None:
+                source["width"] = width
+            detail = {**posts[0], "preview": {"images": [{"source": source}]}}
+            page.evaluate_read = lambda *_args: [detail]
+            with patch.object(smoke, "state", return_value="feed"):
+                result = smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=["t3_item0"])
+            self.assertEqual(result, posts)
+            self.assertNotIn("preview", result[0])
+
+    def test_large_measured_original_detail_image_can_fill_missing_preview(self):
+        posts = self.posts()
+        posts[0]["thumbnail"] = None
+        page, _events = self.page(posts)
+        detail = {**posts[0], "preview": {"images": [{"source": {"url": "https://i.redd.it/articlephoto.jpg", "width": 800}}]}}
+        page.evaluate_read = lambda *_args: [detail]
+        with patch.object(smoke, "state", return_value="feed"):
+            result = smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=["t3_item0"])
+        self.assertEqual(result[0]["thumbnail"], "https://i.redd.it/articlephoto.jpg")
+        self.assertEqual(result[0]["attributes"], posts[0]["attributes"])
 
     def test_top_four_small_link_images_are_prioritized_without_reordering_posts(self):
         posts = self.posts(6)
