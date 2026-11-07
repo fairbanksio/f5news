@@ -137,15 +137,61 @@ function summarizeRuntimeEvents(events) {
   const reasons = ["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception",
     "navigation_network_error", "navigation_http_rejected", "navigation_rate_limited", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"];
   summary.sessionReasonCounts = Object.fromEntries(reasons.map((reason) => [reason, 0]));
+  const imageReasons = ["unsafe_url", "request_timeout", "empty_response", "redirect_missing_location", "http_status",
+    "non_html_response", "body_read_error", "body_read_timeout", "empty_html", "no_meta_image", "fetch_error", "too_many_redirects"];
+  const imageEventTypes = ["POST_IMAGE_RESOLUTION_ERROR", "POST_IMAGE_RESOLUTION_MISSING", "POST_IMAGE_BACKFILL_ERROR", "POST_IMAGE_BACKFILL_MISSING", "POST_IMAGE_UPDATE_ERROR"];
+  const imageCounters = ["imageAttempts", "imageResolved", "imageMissing", "imageErrors", "imageDependencyFailures", "imageUpdateErrors", "backfillQueryErrors"];
+  const emptyReasons = () => Object.fromEntries(imageReasons.map((reason) => [reason, 0]));
+  summary.imageDiagnostics = {
+    failureReasonCounts: emptyReasons(), failureHttpStatusCounts: {},
+    feeds: FEEDS.map((subreddit) => ({ subreddit, completedCount: 0, failedCount: 0, degradedCount: 0,
+      ...Object.fromEntries(imageCounters.map((field) => [field, 0])), optionalImagesDeferredCount: 0, sessionRenewalDeferredCount: 0,
+      failureEventCounts: Object.fromEntries(imageEventTypes.map((field) => [field, 0])),
+      failureReasonCounts: emptyReasons(), failureHttpStatusCounts: {}, latestTerminal: null })),
+  };
+  const add = (target, field, value) => {
+    if (Number.isSafeInteger(value) && value >= 0) target[field] = Math.min(Number.MAX_SAFE_INTEGER, (target[field] || 0) + value);
+  };
   const number = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER ? value : undefined;
   const maximum = (field, value) => { const valid = number(value); if (valid !== undefined) summary[field] = Math.max(summary[field], valid); };
   const counter = (value) => typeof value === "string" && /^\d+$/.test(value) ? number(Number(value)) : number(value);
   for (const event of events) {
-    const message = typeof event.message === "string" ? event.message.slice(0, 65536) : "";
+    const message = typeof event?.message === "string" ? event.message.slice(0, 65536) : "";
     const report = message.match(/\bREPORT\s+RequestId:[^\n]*?Memory Size:\s*(\d+)\s*MB\s+Max Memory Used:\s*(\d+)\s*MB/);
     if (report) { summary.reportCount += 1; maximum("memorySizeMB", Number(report[1])); maximum("maxMemoryUsedMB", Number(report[2])); }
     const records = logRecords({ LogResult: Buffer.from(message).toString("base64") });
     for (let record of records) {
+      const imageFeed = summary.imageDiagnostics.feeds.find((feed) => feed.subreddit === record.subreddit);
+      if (imageFeed && ["SCRAPER_JOB_COMPLETED", "SCRAPER_JOB_FAILED"].includes(record.eventType)) {
+        add(imageFeed, record.eventType === "SCRAPER_JOB_COMPLETED" ? "completedCount" : "failedCount", 1);
+        if (record.outcome === "degraded") add(imageFeed, "degradedCount", 1);
+        for (const field of imageCounters) add(imageFeed, field, record[field]);
+        if (record.optionalImagesDeferred === true) add(imageFeed, "optionalImagesDeferredCount", 1);
+        if (record.sessionRenewalDeferred === true) add(imageFeed, "sessionRenewalDeferredCount", 1);
+        if (Number.isSafeInteger(event.timestamp) && event.timestamp >= 0 && event.timestamp <= 8640000000000000 &&
+            (!imageFeed.latestTerminal || event.timestamp >= imageFeed.latestTerminal.timestamp)) {
+          imageFeed.latestTerminal = { timestamp: event.timestamp,
+            outcome: ["success", "degraded", "failed"].includes(record.outcome) ? record.outcome : "unknown",
+            optionalImagesDeferred: record.optionalImagesDeferred === true, sessionRenewalDeferred: record.sessionRenewalDeferred === true };
+          for (const field of imageCounters) {
+            if (Number.isSafeInteger(record[field]) && record[field] >= 0) imageFeed.latestTerminal[field] = record[field];
+          }
+        }
+      }
+      if (imageFeed && imageEventTypes.includes(record.eventType)) {
+        add(imageFeed.failureEventCounts, record.eventType, 1);
+        for (const failure of Array.isArray(record.imageResolutionFailures) ? record.imageResolutionFailures.slice(0, 3) : []) {
+          if (!failure || typeof failure !== "object" || Array.isArray(failure)) continue;
+          if (imageReasons.includes(failure.reason)) {
+            add(imageFeed.failureReasonCounts, failure.reason, 1);
+            add(summary.imageDiagnostics.failureReasonCounts, failure.reason, 1);
+          }
+          if (Number.isInteger(failure.status) && failure.status >= 100 && failure.status <= 599) {
+            add(imageFeed.failureHttpStatusCounts, failure.status, 1);
+            add(summary.imageDiagnostics.failureHttpStatusCounts, failure.status, 1);
+          }
+        }
+      }
       if (record.eventType === "BROWSER_PROGRESS" && typeof record.message === "string" && record.message.length <= 65536 && record.message.startsWith("{")) {
         try {
           const navigation = JSON.parse(record.message);
@@ -304,7 +350,7 @@ function readScheduledEvents(startTime) {
 }
 
 function readRuntimeEvents() {
-  return readLogEvents(Date.now() - 3600000, '?REPORT ?"platform.report" ?"Resource counters:" ?SCRAPER_JOB_FAILED ?BROWSER_NAVIGATION_HTTP');
+  return readLogEvents(Date.now() - 3600000, '?REPORT ?"platform.report" ?"Resource counters:" ?SCRAPER_JOB_FAILED ?SCRAPER_JOB_COMPLETED ?BROWSER_NAVIGATION_HTTP ?POST_IMAGE_RESOLUTION_ERROR ?POST_IMAGE_RESOLUTION_MISSING ?POST_IMAGE_BACKFILL_ERROR ?POST_IMAGE_BACKFILL_MISSING ?POST_IMAGE_UPDATE_ERROR');
 }
 
 function invokeLive(event) {
