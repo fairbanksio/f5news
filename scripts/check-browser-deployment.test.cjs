@@ -515,6 +515,96 @@ test("runtime diagnostics discard unknown fields, invalid numbers, malformed cou
   assert.throws(() => summarizeRuntimeEvents(new Array(20001)));
 });
 
+const imageDiagnosticEvents = () => {
+  const event = (timestamp, record) => ({ timestamp, message: JSON.stringify(record) });
+  return [
+    event(200, { eventType: "SCRAPER_JOB_COMPLETED", subreddit: "politics", outcome: "degraded",
+      imageAttempts: 5, imageResolved: 4, imageMissing: 1, imageErrors: 2, imageDependencyFailures: 3,
+      imageUpdateErrors: 0, backfillQueryErrors: 1, optionalImagesDeferred: true,
+      title: "private-title", url: "https://private.example/story", sessionGeneration: "private-generation" }),
+    event(100, { eventType: "SCRAPER_JOB_COMPLETED", subreddit: "politics", outcome: "success",
+      imageAttempts: 2, imageResolved: 2, imageMissing: 0, sessionRenewalDeferred: true }),
+    event(300, { eventType: "SCRAPER_JOB_FAILED", subreddit: "news", outcome: "failed", imageErrors: 1,
+      errorMessage: "private-provider-message", domain: "private.example" }),
+    event(201, { eventType: "POST_IMAGE_RESOLUTION_MISSING", subreddit: "politics", title: "private-title", postUrl: "https://private.example/story",
+      imageResolutionFailures: [{ reason: "http_status", status: 403, url: "https://private.example", server: "private-server" },
+        { reason: "no_meta_image", status: 200 }, { reason: "request_timeout" }] }),
+    event(301, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit: "news", errorMessage: "private-database-message",
+      imageResolutionFailures: [{ reason: "fetch_error", status: 429, domain: "private.example" }] }),
+    event(400, { eventType: "BROWSER_NAVIGATION_HTTP", status: 429, retryAfterSeconds: 60 }),
+    event(500, { eventType: "SCRAPER_JOB_COMPLETED", subreddit: "science", outcome: "degraded", imageAttempts: 999 }),
+  ];
+};
+
+test("encrypted image diagnostics separate publisher failures, Reddit responses, totals, and latest feed results", () => {
+  const summary = summarizeRuntimeEvents(imageDiagnosticEvents());
+  const images = summary.imageDiagnostics;
+  assert.deepEqual(images.feeds.map((entry) => entry.subreddit), FEEDS);
+  const politics = images.feeds.find((entry) => entry.subreddit === "politics");
+  assert.equal(politics.completedCount, 2);
+  assert.equal(politics.degradedCount, 1);
+  assert.equal(politics.imageAttempts, 7);
+  assert.equal(politics.imageResolved, 6);
+  assert.equal(politics.imageMissing, 1);
+  assert.equal(politics.imageDependencyFailures, 3);
+  assert.equal(politics.backfillQueryErrors, 1);
+  assert.equal(politics.optionalImagesDeferredCount, 1);
+  assert.equal(politics.sessionRenewalDeferredCount, 1);
+  assert.deepEqual(politics.latestTerminal, { timestamp: 200, outcome: "degraded", optionalImagesDeferred: true, sessionRenewalDeferred: false,
+    imageAttempts: 5, imageResolved: 4, imageMissing: 1, imageErrors: 2, imageDependencyFailures: 3, imageUpdateErrors: 0, backfillQueryErrors: 1 });
+  assert.equal(images.feeds.find((entry) => entry.subreddit === "news").failedCount, 1);
+  assert.equal(images.failureReasonCounts.http_status, 1);
+  assert.equal(images.failureReasonCounts.no_meta_image, 1);
+  assert.equal(images.failureReasonCounts.request_timeout, 1);
+  assert.equal(images.failureReasonCounts.fetch_error, 1);
+  assert.deepEqual(images.failureHttpStatusCounts, { 200: 1, 403: 1, 429: 1 });
+  assert.deepEqual(summary.navigationHttpStatusCounts, { 429: 1 });
+  assert.equal(JSON.stringify(summary).includes("private"), false);
+  assert.equal(JSON.stringify(images).includes("science"), false);
+});
+
+test("image diagnostic boundaries discard malformed counters and private reasons without copying arbitrary fields", () => {
+  const record = (value, timestamp = 10) => ({ timestamp, message: JSON.stringify(value) });
+  const summary = summarizeRuntimeEvents([null, {},
+    record({ eventType: "SCRAPER_JOB_COMPLETED", subreddit: "politics", outcome: "private-outcome", imageAttempts: "private-value",
+      imageResolved: -1, imageMissing: 0.5, imageErrors: true, imageDependencyFailures: Number.MAX_SAFE_INTEGER + 1,
+      optionalImagesDeferred: "true", sessionRenewalDeferred: 1, privateField: "private-value" }),
+    record({ eventType: "SCRAPER_JOB_COMPLETED", subreddit: "politics", outcome: "success", imageAttempts: 999 }, "private-timestamp"),
+    record({ eventType: "POST_IMAGE_RESOLUTION_ERROR", subreddit: "politics", imageResolutionFailures: [null,
+      { reason: "private-reason", status: "403", url: "https://private.example" }, { reason: "__proto__", status: 600 },
+      { reason: "http_status", status: 403 }] }),
+    record({ eventType: "POST_IMAGE_UPDATE_ERROR", subreddit: "politics", imageResolutionFailures: "private-array" }),
+    record({ eventType: "private-event", subreddit: "politics", imageResolutionFailures: [{ reason: "http_status", status: 403 }] }),
+    record({ eventType: "SCRAPER_JOB_COMPLETED", subreddit: "private-feed", imageAttempts: 999 }),
+  ]);
+  const politics = summary.imageDiagnostics.feeds[0];
+  assert.equal(politics.imageAttempts, 999);
+  for (const field of ["imageResolved", "imageMissing", "imageErrors", "imageDependencyFailures", "optionalImagesDeferredCount", "sessionRenewalDeferredCount"]) assert.equal(politics[field], 0);
+  assert.equal(politics.latestTerminal.timestamp, 10);
+  assert.equal(politics.latestTerminal.outcome, "unknown");
+  assert.ok(!Object.hasOwn(politics.latestTerminal, "imageAttempts"));
+  assert.equal(politics.failureEventCounts.POST_IMAGE_UPDATE_ERROR, 1);
+  assert.ok(Object.values(politics.failureReasonCounts).every((count) => count === 0));
+  assert.deepEqual(politics.failureHttpStatusCounts, {});
+  assert.equal(JSON.stringify(summary).includes("private"), false);
+});
+
+test("image counters remain safe integers even when malformed input would overflow accumulated totals", () => {
+  const message = JSON.stringify({ eventType: "SCRAPER_JOB_COMPLETED", subreddit: "politics", imageAttempts: Number.MAX_SAFE_INTEGER });
+  const summary = summarizeRuntimeEvents([{ message }, { message }]);
+  assert.equal(summary.imageDiagnostics.feeds[0].imageAttempts, Number.MAX_SAFE_INTEGER);
+});
+
+test("image diagnostics are emitted only inside the encrypted envelope", async () => {
+  const lines = [];
+  const envelope = await verifySessionDiagnostics({ publicKey: diagnosticPublicKey, invoke: async () => diagnosticsResponse(),
+    readRuntimeEvents: async () => imageDiagnosticEvents(), emit: (line) => lines.push(line) });
+  const decoded = decryptDiagnostics(envelope);
+  assert.equal(decoded.runtimeDiagnostics.imageDiagnostics.failureHttpStatusCounts[403], 1);
+  assert.equal(decoded.runtimeDiagnostics.imageDiagnostics.feeds[0].latestTerminal.timestamp, 200);
+  for (const field of ["imageDiagnostics", "latestTerminal", "imageDependencyFailures", "private-title", "private.example"]) assert.ok(!lines.join().includes(field));
+});
+
 test("session diagnostics encrypt runtime aggregates and never print private resource telemetry", async () => {
   let readCount = 0;
   let invokeCount = 0;
