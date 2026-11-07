@@ -1,9 +1,10 @@
 import React from 'react';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { render } from '../test-utils';
 import { LoadingContext } from '../Contexts/LoadingContext';
 import { RefreshIntervalContext } from '../Contexts/RefreshIntervalContext';
-import { SubredditContext } from '../Contexts/SubredditContext';
+import { SubredditContext, SubredditProvider } from '../Contexts/SubredditContext';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ViewModeContext } from '../Contexts/ViewModeContext';
 import Nav, { getRefreshIntervalMenuValue } from './Navbar';
 
@@ -117,4 +118,31 @@ test('supports keyboard navigation and Escape in the subreddit menu', async () =
   fireEvent.keyDown(menu, { key: 'Escape', code: 'Escape' });
   await waitFor(() => expect(trigger).toHaveAttribute('aria-expanded', 'false'));
   expect(setSubreddit).not.toHaveBeenCalled();
+});
+
+
+test('the live feed selector excludes retired cached feeds and updates after an open-session refresh', async () => {
+  localStorage.setItem('subredditList', 'politics,news,worldnews,science,technology,Economics');
+  window.REACT_APP_API = 'https://api.f5.test';
+  const originalFetch = global.fetch;
+  global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: ['politics', 'news', 'worldnews'] }) });
+  try {
+    render(
+      <MemoryRouter initialEntries={['/r/worldnews']}>
+        <Routes><Route path='/r/:subredditPath' element={
+          <SubredditProvider><Nav /></SubredditProvider>
+        } /></Routes>
+      </MemoryRouter>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'r/worldnews' }));
+    await screen.findByRole('menuitem', { name: 'worldnews' });
+    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(['news', 'politics', 'worldnews']);
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(['news', 'politics', 'worldnews']);
+    expect(screen.getByRole('button', { name: 'r/worldnews' })).toBeInTheDocument();
+  } finally {
+    global.fetch = originalFetch;
+    delete window.REACT_APP_API;
+  }
 });

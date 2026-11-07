@@ -106,14 +106,73 @@ test("picture sources and original links retain published image URLs", () => {
   } finally { delete globalThis.document; dom.window.close(); }
 });
 
-test("unusable srcset entries preserve the thumbnail without inventing a full preview", () => {
+test("unusable srcset entries preserve the listing thumbnail without inventing a detail preview", () => {
   const thumbnail = "https://external-preview.redd.it/media123.jpg?width=140&s=published";
   const dom = new JSDOM(`<shreddit-post post-type="link"><a slot="thumbnail"><img src="${thumbnail}"
     srcset="javascript:alert(1) 1080w, https://user:secret@preview.redd.it/media123.jpg 1280w"></a></shreddit-post>`);
   globalThis.document = dom.window.document;
   try {
+    assert.equal(readRenderedPosts()[0].thumbnail, thumbnail);
     const [post] = readRenderedPosts({ detail: true });
-    assert.equal(post.thumbnail, thumbnail);
+    assert.equal(post.thumbnail, null);
     assert.equal(post.preview, undefined);
+  } finally { delete globalThis.document; dom.window.close(); }
+});
+
+test("a tiny original community image cannot outrank an advertised full article preview", () => {
+  const full = "https://external-preview.redd.it/article.jpg?width=1080&s=published";
+  const dom = new JSDOM(`<shreddit-post post-type="link">
+    <img src="https://i.redd.it/communityicon.png" width="64" height="64">
+    <img src="https://external-preview.redd.it/article.jpg?width=640&s=medium" srcset="${full} 1080w">
+  </shreddit-post>`);
+  globalThis.document = dom.window.document;
+  try {
+    const [post] = readRenderedPosts({ detail: true });
+    assert.equal(post.thumbnail, full);
+    assert.equal(post.preview.images[0].source.url, full);
+    assert.equal(post.preview.images[0].source.width, 1080);
+    assert.equal(post.images.length, 1);
+  } finally { delete globalThis.document; dom.window.close(); }
+});
+
+test("tiny or unknown original images are not article detail previews", () => {
+  for (const naturalWidth of [0, 64]) {
+    const dom = new JSDOM('<shreddit-post post-type="link"><img src="https://i.redd.it/communityicon.png"></shreddit-post>');
+    globalThis.document = dom.window.document;
+    const image = document.querySelector('img');
+    Object.defineProperty(image, 'naturalWidth', { value: naturalWidth });
+    if (naturalWidth) image.setAttribute('width', '640');
+    try {
+      const [post] = readRenderedPosts({ detail: true });
+      assert.equal(post.thumbnail, null);
+      assert.equal(post.preview, undefined);
+      assert.deepEqual(post.images, []);
+    } finally { delete globalThis.document; dom.window.close(); }
+  }
+});
+
+test("large measured or declared originals can be article previews while small core media remain valid", () => {
+  const dom = new JSDOM(`<shreddit-post post-type="link"><img src="https://i.redd.it/photo.jpg" width="800"></shreddit-post>
+    <shreddit-post post-type="image" content-href="https://i.redd.it/smallart.png"><img src="https://i.redd.it/smallart.png" width="64"></shreddit-post>
+    <shreddit-post post-type="gallery"><img src="https://i.redd.it/galleryart.png" data-media-id="galleryart" width="64"></shreddit-post>`);
+  globalThis.document = dom.window.document;
+  try {
+    const [article, image, gallery] = readRenderedPosts({ detail: true });
+    assert.equal(article.preview.images[0].source.width, 800);
+    assert.equal(image.images[0].url, 'https://i.redd.it/smallart.png');
+    assert.equal(gallery.images[0].url, 'https://i.redd.it/galleryart.png');
+    assert.equal(gallery.mediaComplete, true);
+  } finally { delete globalThis.document; dom.window.close(); }
+});
+
+test("a small signed URL cannot become a full preview through a contradictory srcset descriptor", () => {
+  const thumbnail = "https://external-preview.redd.it/article.jpg?width=140&s=published";
+  const dom = new JSDOM(`<shreddit-post post-type="link"><img src="${thumbnail}" srcset="${thumbnail} 1080w" width="1080"></shreddit-post>`);
+  globalThis.document = dom.window.document;
+  try {
+    const [post] = readRenderedPosts({ detail: true });
+    assert.equal(post.thumbnail, null);
+    assert.equal(post.preview, undefined);
+    assert.deepEqual(post.images, []);
   } finally { delete globalThis.document; dom.window.close(); }
 });

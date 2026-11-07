@@ -1,4 +1,6 @@
 import placeholderSrc from '../assets/placeholder.png?inline';
+import axiosLogoSrc from '../assets/axios-logo.png';
+import reutersLogoSrc from '../assets/reuters-logo.png';
 import {
   Badge,
   Box,
@@ -18,22 +20,60 @@ import { ExternalLinkIcon } from './LegacyIcons';
 import { timeAgoShort } from '../Util/FormattedTime'
 import { FaVideo, FaLink, FaImage, FaImages, FaComment, FaRedditAlien } from 'react-icons/fa'
 import {ModalContext} from '../Contexts/ModalContext'
-import {useContext} from 'react'
+import {useContext, useState} from 'react'
 import { SubredditContext } from '../Contexts/SubredditContext';
 import { ViewModeContext } from '../Contexts/ViewModeContext';
 import { trackPostSelection } from '../analytics';
 import { getVideoUrl } from '../media';
 
 const getThumbnailSrc = (thumbnail) => {
-  if (
-    typeof thumbnail !== 'string' ||
-    thumbnail.trim() === '' ||
-    ['default', 'self', 'spoiler', 'nsfw'].includes(thumbnail)
-  ) {
-    return placeholderSrc;
+  try {
+    const url = new URL(thumbnail);
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null;
+  } catch {
+    return null;
   }
+};
 
-  return thumbnail;
+const getPublisherFallback = post => {
+  let hostname;
+  try {
+    hostname = new URL(post.url).hostname;
+  } catch {
+    hostname = String(post.domain || '').toLowerCase();
+  }
+  if (hostname === 'axios.com' || hostname.endsWith('.axios.com')) return { src: axiosLogoSrc, label: 'Axios' };
+  if (hostname === 'reuters.com' || hostname.endsWith('.reuters.com')) return { src: reutersLogoSrc, label: 'Reuters' };
+  return null;
+};
+
+const PostThumbnail = ({ post, height }) => {
+  const publisherFallback = getPublisherFallback(post);
+  const sources = [...new Set([getThumbnailSrc(post.thumbnail), publisherFallback?.src, placeholderSrc].filter(Boolean))];
+  const [sourceIndex, setSourceIndex] = useState(0);
+  const source = sources[sourceIndex];
+  const isLogo = source === publisherFallback?.src;
+  const advanceSource = () => setSourceIndex(Math.min(sourceIndex + 1, sources.length - 1));
+
+  return (
+    <Image
+      src={source}
+      alt={isLogo ? publisherFallback.label : undefined}
+      w='100%'
+      h={height}
+      objectFit={isLogo ? 'contain' : 'cover'}
+      bg={isLogo ? '#fff' : undefined}
+      p={isLogo ? 6 : 0}
+      position='relative'
+      onLoad={event => {
+        if (!isLogo && source !== placeholderSrc &&
+            (event.currentTarget.naturalWidth < 128 || event.currentTarget.naturalHeight < 64)) {
+          advanceSource();
+        }
+      }}
+      onError={advanceSource}
+    />
+  );
 };
 
 const cleanTitle = title => (title || '').replace(/amp;/g, '');
@@ -284,13 +324,10 @@ export const PostCard = ({post, elId}) => {
         _hover={{ textDecoration: 'none' }}
         onClick={() => trackSelection('reddit_comments')}
       >
-        <Image
-          src={getThumbnailSrc(post.thumbnail)}
-          w='100%'
-          h={imageHeight}
-          objectFit='cover'
-          position='relative'
-          onError={event => { event.currentTarget.onerror = null; event.currentTarget.src = placeholderSrc; }}
+        <PostThumbnail
+          key={JSON.stringify([post.url, post.domain, post.thumbnail])}
+          post={post}
+          height={imageHeight}
         />
 
         <Tooltip placement='left' label={media.label}>
