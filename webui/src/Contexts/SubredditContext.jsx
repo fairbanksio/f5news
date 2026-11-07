@@ -18,6 +18,7 @@ export const SubredditProvider = props => {
     localStorage.getItem('subredditList')?.split(',') || ['politics']
   );
   const apiEndpoint = normalizeApiEndpoint(getRuntimeConfigValue('REACT_APP_API'));
+  const [authoritativeList, setAuthoritativeList] = useState(null);
 
   const setSubreddit = nextSubreddit => {
     navigate('/r/' + nextSubreddit, { replace: true });
@@ -41,9 +42,16 @@ export const SubredditProvider = props => {
       })
       .then(json => {
         if (controller.signal.aborted) return;
-        setSubredditList([...json.data].sort((a, b) =>
+        if (!Array.isArray(json.data) || !json.data.length ||
+            json.data.some(name => typeof name !== 'string' || !/^[a-zA-Z0-9_]{2,21}$/.test(name)) ||
+            new Set(json.data.map(name => name.toLowerCase())).size !== json.data.length) {
+          throw new Error('Invalid subreddit list.');
+        }
+        const subreddits = [...json.data].sort((a, b) =>
           a.toLowerCase().localeCompare(b.toLowerCase())
-        ));
+        );
+        setSubredditList(subreddits);
+        setAuthoritativeList({ endpoint: apiEndpoint, subreddits });
       })
       .catch(error => {
         if (controller.signal.aborted) return;
@@ -54,6 +62,14 @@ export const SubredditProvider = props => {
       });
     return () => controller.abort();
   }, [apiEndpoint]);
+
+  useEffect(() => {
+    if (!authoritativeList || authoritativeList.endpoint !== apiEndpoint) return;
+    const subreddits = authoritativeList.subreddits;
+    const canonical = subreddits.find(name => name.toLowerCase() === subreddit.toLowerCase());
+    const destination = canonical || subreddits.find(name => name.toLowerCase() === 'politics') || subreddits[0];
+    if (subredditPath !== destination) navigate('/r/' + destination, { replace: true });
+  }, [authoritativeList, apiEndpoint, subreddit, subredditPath, navigate]);
 
   return (
     <SubredditContext.Provider value={{ subreddit, subredditList, setSubreddit, setSubredditList }}>

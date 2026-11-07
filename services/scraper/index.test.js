@@ -99,8 +99,8 @@ test("allFeeds extracts once, persists every core feed before optional images, a
   assert.equal(calls[0].timeoutMs <= 160000, true);
   assert.equal(calls[0].renewSession, false);
   assert.deepEqual(calls[0].imagePriorityIdsBySubreddit, Object.fromEntries(batchSubreddits.map((name) => [name, []])));
-  assert.equal(writes.filter(([, , options]) => options.upsert).length, 11);
-  assert.equal(images.every(({ coreWrites }) => coreWrites === 11), true);
+  assert.equal(writes.filter(([, , options]) => options.upsert).length, batchSubreddits.length);
+  assert.equal(images.every(({ coreWrites }) => coreWrites === batchSubreddits.length), true);
   assert.equal(writes.every(([, , options]) => options.timeoutMS <= 10000 && options.maxTimeMS <= 5000), true);
   assert.deepEqual(Object.keys(result).sort(), ["feedResults", "sessionGeneration", "sessionMode"]);
   assert.deepEqual(result.feedResults.map(({ subreddit }) => subreddit), batchSubreddits);
@@ -110,7 +110,7 @@ test("allFeeds extracts once, persists every core feed before optional images, a
     assert.equal(feed.sessionGeneration, "batch-generation");
   }
   const terminals = parseStructuredLogs(logger).filter(({ eventType }) => /^SCRAPER_JOB_/.test(eventType));
-  assert.equal(terminals.length, 11);
+  assert.equal(terminals.length, batchSubreddits.length);
   assert.equal(terminals.every(({ trigger, eventType }) => trigger === "schedule" && eventType === "SCRAPER_JOB_COMPLETED"), true);
 });
 
@@ -119,18 +119,18 @@ test("allFeeds saves a valid prefix after 429 and fails every unattempted feed w
   let imageCalls = 0;
   const { handler, writes, logger } = batchHarness({ imageSourceImpl: async () => { imageCalls += 1; return ""; }, scrapeBatchImpl: async () => {
     calls += 1;
-    const value = batchResult(batchSubreddits.slice(0, 2));
+    const value = batchResult(batchSubreddits.slice(0, 1));
     value.feeds.forEach(({ children }) => { children[0].data.thumbnail = "https://external-preview.redd.it/story.jpg?width=140"; });
-    return { ...value, batchFailure: { subreddit: batchSubreddits[2], status: "network_error", httpStatus: 429, sessionReason: "navigation_rate_limited" } };
+    return { ...value, batchFailure: { subreddit: batchSubreddits[1], status: "network_error", httpStatus: 429, sessionReason: "navigation_rate_limited" } };
   } });
-  await assert.rejects(handler({ allFeeds: true }), /9 feeds incomplete; stopped: navigation_rate_limited, HTTP 429/);
+  await assert.rejects(handler({ allFeeds: true }), /2 feeds incomplete; stopped: navigation_rate_limited, HTTP 429/);
   assert.equal(calls, 1);
-  assert.equal(writes.filter(([, , options]) => options.upsert).length, 2);
-  assert.equal(writes.filter(([, update]) => update.$set.thumbnail).length, 2);
+  assert.equal(writes.filter(([, , options]) => options.upsert).length, 1);
+  assert.equal(writes.filter(([, update]) => update.$set.thumbnail).length, 1);
   assert.equal(imageCalls, 0);
-  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 2);
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 1);
   const failures = parseStructuredLogs(logger, "SCRAPER_JOB_FAILED");
-  assert.equal(failures.length, 9);
+  assert.equal(failures.length, 2);
   assert.equal(failures[0].sourceStatus, "source_failed");
   assert.equal(failures[0].httpStatus, 429);
   assert.equal(failures[1].sourceStatus, "not_attempted");
@@ -141,7 +141,7 @@ test("allFeeds retains the current listing when its optional preview is rate lim
     ...batchResult(batchSubreddits.slice(0, 1)),
     batchFailure: { subreddit: batchSubreddits[0], stage: "optional_preview", status: "network_error", httpStatus: 429, sessionReason: "navigation_rate_limited" },
   }) });
-  await assert.rejects(handler({ allFeeds: true }), /10 feeds incomplete/);
+  await assert.rejects(handler({ allFeeds: true }), /2 feeds incomplete/);
   assert.equal(writes.filter(([, , options]) => options.upsert).length, 1);
   const [completed] = parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED");
   assert.equal(completed.outcome, "degraded");
@@ -154,15 +154,15 @@ test("allFeeds isolates malformed completed feed metadata", async () => {
   value.feeds[2].children = [null];
   const { handler, writes, logger } = batchHarness({ scrapeBatchImpl: async () => value });
   await assert.rejects(handler({ allFeeds: true }), /1 feeds incomplete/);
-  assert.equal(writes.filter(([, , options]) => options.upsert).length, 10);
+  assert.equal(writes.filter(([, , options]) => options.upsert).length, batchSubreddits.length - 1);
   assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_FAILED")[0].sourceStatus, "metadata_invalid");
 });
 
-test("allFeeds emits eleven failed terminals if collection fails before its first feed", async () => {
+test("allFeeds emits a failed terminal for every configured feed if collection fails before its first feed", async () => {
   const { handler, logger, writes } = batchHarness({ scrapeBatchImpl: async () => { throw new Error("Browser unavailable"); } });
-  await assert.rejects(handler({ allFeeds: true }), /11 feeds incomplete/);
+  await assert.rejects(handler({ allFeeds: true }), /3 feeds incomplete/);
   assert.equal(writes.length, 0);
-  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_FAILED").length, 11);
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_FAILED").length, batchSubreddits.length);
   assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 0);
 });
 
@@ -184,9 +184,9 @@ test("allFeeds preserves published listing thumbnails when the optional deadline
       imageSourceImpl: async () => { throw new Error("Optional network work must be deferred"); },
     });
     const result = await handler({ allFeeds: true }, { getRemainingTimeInMillis: () => 240000 });
-    assert.equal(writes.filter(([, , options]) => options.upsert).length, 11);
+    assert.equal(writes.filter(([, , options]) => options.upsert).length, batchSubreddits.length);
     const thumbnails = writes.filter(([, update]) => update.$set.thumbnail);
-    assert.equal(thumbnails.length, 11);
+    assert.equal(thumbnails.length, batchSubreddits.length);
     assert.equal(thumbnails.every(([query]) => Array.isArray(query.$or)), true);
     assert.equal(result.feedResults.every(({ outcome }) => outcome === "degraded"), true);
   } finally { Date.now = originalNow; }
@@ -240,8 +240,8 @@ test("allFeeds drains writes and completes other feeds after one core write fail
   } });
   await assert.rejects(handler({ allFeeds: true }), /1 feeds incomplete/);
   assert.equal(active, 0);
-  assert.equal(successes, 10);
-  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 10);
+  assert.equal(successes, batchSubreddits.length - 1);
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, batchSubreddits.length - 1);
   const [failed] = parseStructuredLogs(logger, "SCRAPER_JOB_FAILED");
   assert.equal(failed.stage, "post_write");
   assert.equal(failed.savedCount, 0);
@@ -260,7 +260,7 @@ test("allFeeds omits unavailable priority entries and isolates source mapping fa
   const [failed] = parseStructuredLogs(logger, "SCRAPER_JOB_FAILED");
   assert.equal(failed.subreddit, batchSubreddits[0]);
   assert.equal(failed.sourceStatus, "metadata_invalid");
-  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 10);
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, batchSubreddits.length - 1);
 });
 
 test("fetchPosts stores subreddit posts with resolved thumbnails", async () => {
@@ -1058,12 +1058,12 @@ test("fetchPosts reserves Lambda time after browser extraction", async () => {
     newPostModel: { findOneAndUpdate: async () => {} },
   });
 
-  await handler({ subreddit: "science" }, {
+  await handler({ subreddit: "news" }, {
     getRemainingTimeInMillis: () => 65000,
   });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].subreddit, "science");
+  assert.equal(calls[0].subreddit, "news");
   assert.equal(calls[0].limit, 25);
   assert.equal(calls[0].timeoutMs, 45000);
   assert.equal(calls[0].logger, logger);

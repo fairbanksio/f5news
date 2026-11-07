@@ -244,7 +244,7 @@ test("one session runner and one browser produce every configured feed with norm
 });
 
 test("batch flags and explicit empty priorities reach Python as one JSON map", async () => {
-  const map = { politics: ["t3_abc"], Economics: [] };
+  const map = { politics: ["t3_abc"], [feeds.at(-1)]: [] };
   await runBrowser({ subreddit: "politics", allFeeds: true, imagePriorityIdsBySubreddit: map, limit: 25, timeoutMs: 5000, logger,
     spawnImpl: (_executable, args) => {
       assert.ok(args.includes("--all-feeds"));
@@ -297,18 +297,23 @@ test("batch accepts only an exact ordered prefix with a failure on the next feed
 });
 
 test("one feed's invalid metadata does not discard valid neighbors or invoke another browser", async () => {
-  const response = completeBatch();
-  response.feeds[1].posts = [batchRaw(feeds[1], "same"), batchRaw(feeds[1], "same")];
-  response.feeds[2].posts[0] = batchRaw(feeds[2]);
-  response.feeds[2].posts[0].attributes.score = "private-invalid-value";
-  response.feeds[3].posts[0] = { ...batchRaw(feeds[3]), attributes: { ...batchRaw(feeds[3]).attributes, "post-type": "video" }, mediaComplete: true, video: { dash_url: null } };
-  const messages = [];
-  let calls = 0;
-  const result = await createBrowserBatchSource({ runBrowserImpl: async () => { calls++; return response; } })({ session: false, logger: { log: (line) => messages.push(line) } });
-  assert.equal(calls, 1);
-  assert.deepEqual(result.failures, feeds.slice(1, 4).map((subreddit) => ({ subreddit, status: "metadata_invalid" })));
-  assert.deepEqual(result.feeds.map((entry) => entry.subreddit), feeds.filter((_name, index) => ![1, 2, 3].includes(index)));
-  assert.ok(!messages.join().includes("private-invalid-value"));
+  const invalidPosts = [
+    [batchRaw(feeds[1], "same"), batchRaw(feeds[1], "same")],
+    [batchRaw(feeds[1])],
+    [{ ...batchRaw(feeds[1]), attributes: { ...batchRaw(feeds[1]).attributes, "post-type": "video" }, mediaComplete: true, video: { dash_url: null } }],
+  ];
+  invalidPosts[1][0].attributes.score = "private-invalid-value";
+  for (const posts of invalidPosts) {
+    const response = completeBatch();
+    response.feeds[1].posts = posts;
+    const messages = [];
+    let calls = 0;
+    const result = await createBrowserBatchSource({ runBrowserImpl: async () => { calls++; return response; } })({ session: false, logger: { log: (line) => messages.push(line) } });
+    assert.equal(calls, 1);
+    assert.deepEqual(result.failures, [{ subreddit: feeds[1], status: "metadata_invalid" }]);
+    assert.deepEqual(result.feeds.map((entry) => entry.subreddit), feeds.filter((_name, index) => index !== 1));
+    assert.ok(!messages.join().includes("private-invalid-value"));
+  }
 });
 
 test("partial batch diagnostics retain only validated fields and the backoff persistence marker", async () => {

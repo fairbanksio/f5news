@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { checkInvocation, checkBatchInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, summarizeRuntimeEvents, FEEDS } = require("./check-browser-deployment.cjs");
+const { checkInvocation, checkBatchInvocation, failureSummary, verifyFeeds: verifyFeedsImpl, verifyScheduled, verifySessionDiagnostics, summarizeRuntimeEvents, selectVerificationMode, runVerification, FEEDS } = require("./check-browser-deployment.cjs");
+const verifyFeeds = (options) => verifyFeedsImpl({ sleep: async () => {}, ...options });
 const { generateKeyPairSync, privateDecrypt, createDecipheriv, constants } = require("node:crypto");
 const diagnosticKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const diagnosticPublicKey = diagnosticKeys.publicKey.export({ type: "spki", format: "der" }).toString("base64");
@@ -69,8 +70,12 @@ const batchResponse = (fields = {}, feedFields = {}) => ({ StatusCode: 200,
 test("all-feed verification reuses one batch then proves persisted reuse in one fresh invocation", async () => {
   const calls = [];
   const lines = [];
+  const delays = [];
   let active = 0;
-  const { summary } = await verifyFeeds({ allFeeds: true, emit: (line) => lines.push(JSON.parse(line)), invoke: async (event) => {
+  const { summary } = await verifyFeeds({ allFeeds: true, sleep: async (ms) => {
+    assert.deepEqual(calls, [{ allFeeds: true, session: true }]);
+    delays.push(ms);
+  }, emit: (line) => lines.push(JSON.parse(line)), invoke: async (event) => {
     active += 1;
     assert.equal(active, 1);
     calls.push(event);
@@ -79,11 +84,13 @@ test("all-feed verification reuses one batch then proves persisted reuse in one 
     return event.allFeeds ? batchResponse({ sessionMode: "reused" }, { sessionMode: "reused" }) : sharedResponse();
   } });
   assert.deepEqual(calls, [{ allFeeds: true, session: true }, { subreddit: "politics", session: true }]);
-  assert.equal(new Set(FEEDS).size, 11);
-  assert.deepEqual(summary, { eventType: "BROWSER_LIVE_PROBE_COMPLETED", feedCount: 11, invocationCount: 2,
-    savedCount: 300, renewalRequested: false, initialGeneration: "generation-1", sessionGeneration: "generation-1", generationCount: 1, renewedCount: 0, reusedCount: 2 });
+  assert.deepEqual(delays, [300000]);
+  assert.deepEqual(lines.find((entry) => entry.eventType === "BROWSER_LIVE_PROBE_WAITING"), { eventType: "BROWSER_LIVE_PROBE_WAITING", seconds: 300 });
+  assert.deepEqual(FEEDS, ["politics", "news", "worldnews"]);
+  assert.deepEqual(summary, { eventType: "BROWSER_LIVE_PROBE_COMPLETED", feedCount: FEEDS.length, invocationCount: 2,
+    savedCount: (FEEDS.length + 1) * 25, renewalRequested: false, initialGeneration: "generation-1", sessionGeneration: "generation-1", generationCount: 1, renewedCount: 0, reusedCount: 2 });
   assert.equal(lines.at(-2).repeated, true);
-  assert.equal(lines.filter((entry) => entry.eventType === "BROWSER_LIVE_PROBE").length, 12);
+  assert.equal(lines.filter((entry) => entry.eventType === "BROWSER_LIVE_PROBE").length, FEEDS.length + 1);
 });
 
 test("default all-feed verification accepts a naturally renewed batch without requesting login", async () => {
@@ -227,8 +234,8 @@ test("scheduled verification reads all fresh feed completions and emits only saf
     return FEEDS.map((feed) => scheduledEvent(feed, 1001, { privateData: "private-marker" }));
   }, emit: (line) => lines.push(line) });
   assert.deepEqual(starts, [1000]);
-  assert.equal(summary.feedCount, 11);
-  assert.equal(summary.savedCount, 275);
+  assert.equal(summary.feedCount, FEEDS.length);
+  assert.equal(summary.savedCount, FEEDS.length * 25);
   assert.equal(lines.length, 1);
   assert.equal(lines[0].includes("private-marker"), false);
 });
@@ -244,7 +251,7 @@ test("scheduled verification ignores stale or manual runs and polls to a fresh s
     }, emit: () => {} });
   assert.equal(reads, 2);
   assert.equal(clock, 16000);
-  assert.equal(summary.feedCount, 11);
+  assert.equal(summary.feedCount, FEEDS.length);
 });
 
 test("scheduled verification allows a later completion to recover a failed feed", async () => {
@@ -257,7 +264,7 @@ test("scheduled verification allows a later completion to recover a failed feed"
         ? { eventType: "SCRAPER_JOB_FAILED", outcome: "failed", errorMessage: "private-error" } : {}));
     }, emit: () => {} });
   assert.equal(reads, 2);
-  assert.equal(summary.feedCount, 11);
+  assert.equal(summary.feedCount, FEEDS.length);
 });
 
 test("scheduled verification rejects missing feeds, missing session proof, and partial writes at its deadline", async () => {
@@ -284,18 +291,64 @@ test("scheduled verification requires every feed and rejects a newer failure aft
 });
 
 
-test("single-feed verification selects science with the shared session", async () => {
+test("single-feed verification selects news with the shared session", async () => {
   const calls = [];
-  await verifyFeeds({ subreddit: "science", emit: () => {}, invoke: async (event) => {
+  await verifyFeeds({ subreddit: "news", emit: () => {}, invoke: async (event) => {
     calls.push(event);
     return sharedResponse();
   } });
-  assert.deepEqual(calls, [{ subreddit: "science", session: true }]);
+  assert.deepEqual(calls, [{ subreddit: "news", session: true }]);
+});
+
+test("deployment mode chooses read-only scheduled verification whenever a schedule is enabled", async () => {
+  const configuration = { functions: { scrape: { events: [{ schedule: { enabled: false } }] }, another: { events: [{ schedule: { enabled: true } }] } } };
+  assert.equal(selectVerificationMode({ F5_PROBE_DEPLOYMENT: "true" }, configuration), "scheduled");
+  let reads = 0;
+  const result = await runVerification({ env: { F5_PROBE_DEPLOYMENT: "true", F5_PROBE_ALL_FEEDS: "true" }, configuration,
+    invoke: async () => assert.fail("Deployment must not overlap an enabled schedule with manual browser calls"),
+    readEvents: async (startTime) => { reads++; return FEEDS.map((feed) => scheduledEvent(feed, startTime + 1)); }, emit: () => {},
+  });
+  assert.equal(reads, 1);
+  assert.equal(result.eventType, "BROWSER_SCHEDULED_PROBE_COMPLETED");
+  assert.equal(result.feedCount, FEEDS.length);
+});
+
+test("deployment mode uses a paced batch when schedules are explicitly disabled", async () => {
+  const configuration = { functions: { scrape: { events: [{ schedule: { enabled: false } }] } } };
+  assert.equal(selectVerificationMode({ F5_PROBE_DEPLOYMENT: "true" }, configuration), "batch");
+  const calls = [];
+  const delays = [];
+  await runVerification({ env: { F5_PROBE_DEPLOYMENT: "true" }, configuration,
+    invoke: async (event) => { calls.push(event); return event.allFeeds ? batchResponse() : sharedResponse(); },
+    readEvents: async () => assert.fail("Disabled schedules require the batch probe"),
+    emit: () => {}, sleep: async (ms) => { assert.equal(calls.length, 1); delays.push(ms); },
+  });
+  assert.deepEqual(calls, [{ allFeeds: true, session: true }, { subreddit: "politics", session: true }]);
+  assert.deepEqual(delays, [300000]);
+});
+
+test("deployment verification fails closed on missing service configuration", () => {
+  for (const configuration of [undefined, {}, { functions: [] }]) {
+    assert.throws(() => selectVerificationMode({ F5_PROBE_DEPLOYMENT: "true" }, configuration), /valid service configuration/);
+  }
+  assert.equal(selectVerificationMode({ F5_PROBE_DIAGNOSTICS: "true", F5_PROBE_DEPLOYMENT: "true" }), "diagnostics");
+  assert.equal(selectVerificationMode({ F5_PROBE_SCHEDULED: "true" }), "scheduled");
+  assert.equal(selectVerificationMode({}), "manual");
+});
+
+test("diagnostics remain the highest priority and invoke no browser extraction", async () => {
+  let calls = 0;
+  const result = await runVerification({ env: { F5_PROBE_DIAGNOSTICS: "true", F5_PROBE_DEPLOYMENT: "true", F5_PROBE_DIAGNOSTICS_KEY: diagnosticPublicKey },
+    invoke: async (event) => { calls++; assert.deepEqual(event, { inspectSession: true }); return diagnosticsResponse(); },
+    readEvents: async () => assert.fail("Diagnostics must not start schedule verification"), readRuntime: async () => [], emit: () => {},
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.eventType, "BROWSER_SESSION_DIAGNOSTICS_ENCRYPTED");
 });
 
 test("invalid probe subreddits fail before invoking Lambda", async () => {
   let invocations = 0;
-  for (const subreddit of ["unknown", "Science", "science?token=private", "", null]) {
+  for (const subreddit of ["unknown", "science", "News", "news?token=private", "", null]) {
     await assert.rejects(verifyFeeds({ subreddit, emit: () => {}, invoke: async () => {
       invocations += 1;
       return sharedResponse();
@@ -410,7 +463,7 @@ test("batch summaries canonicalize feed order and omit unrelated payload fields"
   const lines = [];
   const { results } = await verifyFeeds({ allFeeds: true, emit: (line) => lines.push(line), invoke: async (event) => event.allFeeds
     ? batchResponse({ feedResults, privateData: "private-payload" }) : sharedResponse() });
-  assert.deepEqual(results.slice(0, 11).map((feed) => feed.subreddit), FEEDS);
+  assert.deepEqual(results.slice(0, FEEDS.length).map((feed) => feed.subreddit), FEEDS);
   assert.equal(lines.join("\n").includes("private"), false);
 });
 
