@@ -1,5 +1,7 @@
 import React from 'react';
 import placeholderSrc from '../assets/placeholder.png?inline';
+import axiosLogoSrc from '../assets/axios-logo.png';
+import reutersLogoSrc from '../assets/reuters-logo.png';
 import { fireEvent, screen } from '@testing-library/react';
 import { render } from '../test-utils';
 import { ModalContext } from '../Contexts/ModalContext';
@@ -229,6 +231,72 @@ test('keeps external actions safe and replaces broken thumbnails', () => {
   });
   const image = screen.getByRole('img');
   fireEvent.error(image);
+  expect(image).toHaveAttribute('src', placeholderSrc);
+});
+
+describe.each([
+  ['Axios', 'axios.com', axiosLogoSrc],
+  ['Reuters', 'reuters.com', reutersLogoSrc],
+])('%s image fallback', (label, domain, logo) => {
+  const publisherPost = { ...post, domain, url: `https://www.${domain}/story` };
+
+  test.each([null, '', 'default', 'image', 'not-a-url'])('uses the logo for an unusable thumbnail: %s', thumbnail => {
+    render(<PostCard post={{ ...publisherPost, thumbnail }} elId={0} />);
+    const image = screen.getByRole('img', { name: label });
+    expect(image).toHaveAttribute('src', logo);
+    expect(window.getComputedStyle(image).objectFit).toBe('contain');
+    expect(window.getComputedStyle(image).backgroundColor).toBe('rgb(255, 255, 255)');
+  });
+
+  test('prefers a valid article image and falls back when it fails to load', () => {
+    render(<PostCard post={publisherPost} elId={0} />);
+    const image = screen.getByRole('img');
+    expect(image).toHaveAttribute('src', post.thumbnail);
+    expect(window.getComputedStyle(image).objectFit).toBe('cover');
+    fireEvent.error(image);
+    expect(image).toHaveAttribute('src', logo);
+    expect(image).toHaveAccessibleName(label);
+    expect(window.getComputedStyle(image).backgroundColor).toBe('rgb(255, 255, 255)');
+    fireEvent.error(image);
+    expect(image).toHaveAttribute('src', placeholderSrc);
+    fireEvent.error(image);
+    expect(image).toHaveAttribute('src', placeholderSrc);
+  });
+
+  test('replaces tiny decorative images while keeping full-size article images', () => {
+    const { rerender } = render(<PostCard post={publisherPost} elId={0} />);
+    const image = screen.getByRole('img');
+    Object.defineProperties(image, { naturalWidth: { value: 1200, configurable: true }, naturalHeight: { value: 630, configurable: true } });
+    fireEvent.load(image);
+    expect(image).toHaveAttribute('src', post.thumbnail);
+    Object.defineProperties(image, { naturalWidth: { value: 64, configurable: true }, naturalHeight: { value: 64, configurable: true } });
+    fireEvent.load(image);
+    expect(image).toHaveAttribute('src', logo);
+    rerender(<PostCard post={{ ...publisherPost, thumbnail: null }} elId={0} />);
+    expect(screen.getByRole('img')).toHaveAttribute('src', logo);
+  });
+});
+
+test('tries a newly available article image after showing a publisher logo', () => {
+  const initialPost = { ...post, domain: 'axios.com', url: 'https://axios.com/story', thumbnail: null };
+  const { rerender } = render(<PostCard post={initialPost} elId={0} />);
+  expect(screen.getByRole('img')).toHaveAttribute('src', axiosLogoSrc);
+  rerender(<PostCard post={{ ...initialPost, thumbnail: post.thumbnail }} elId={0} />);
+  expect(screen.getByRole('img')).toHaveAttribute('src', post.thumbnail);
+});
+
+test('does not brand other publishers or lookalike domains', () => {
+  const { rerender } = render(<PostCard post={{ ...post, thumbnail: null }} elId={0} />);
+  expect(screen.getByRole('img')).toHaveAttribute('src', placeholderSrc);
+  rerender(<PostCard post={{ ...post, domain: 'axios.com', url: 'https://axios.com.example.org/story', thumbnail: null }} elId={0} />);
+  expect(screen.getByRole('img')).toHaveAttribute('src', placeholderSrc);
+});
+
+test('uses the generic placeholder for tiny images from other publishers', () => {
+  renderPostCard(vi.fn());
+  const image = screen.getByRole('img');
+  Object.defineProperties(image, { naturalWidth: { value: 64 }, naturalHeight: { value: 64 } });
+  fireEvent.load(image);
   expect(image).toHaveAttribute('src', placeholderSrc);
 });
 

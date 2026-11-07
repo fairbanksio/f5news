@@ -15,8 +15,8 @@ const Consumer = () => {
       <span data-testid='route'>{location.pathname}</span>
       <span data-testid='navigation-type'>{navigationType}</span>
       <span data-testid='subreddit-list'>{subredditList.join('|')}</span>
-      <button onClick={() => setSubreddit('science')}>Choose Science</button>
-      <button onClick={() => navigate('/r/technology')}>Visit Technology</button>
+      <button onClick={() => setSubreddit('news')}>Choose News</button>
+      <button onClick={() => navigate('/r/news')}>Visit News</button>
       <button onClick={() => navigate('/r/worldnews')}>Visit World News</button>
     </div>
   );
@@ -78,32 +78,32 @@ describe('SubredditProvider', () => {
   test('loads and alphabetizes subreddits from the API', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ data: ['WorldNews', 'apple', 'Technology'] }),
+      json: async () => ({ data: ['WorldNews', 'news', 'politics'] }),
     });
 
     await renderProvider();
 
     await waitFor(() => {
-      expect(screen.getByTestId('subreddit-list')).toHaveTextContent('apple|Technology|WorldNews');
+      expect(screen.getByTestId('subreddit-list')).toHaveTextContent('news|politics|worldnews');
     });
 
-    expect(global.fetch).toHaveBeenCalledWith('https://api.f5.test/subreddits', { signal: expect.any(AbortSignal) });
-    expect(localStorage.getItem('subredditList')).toBe('apple,Technology,WorldNews');
-    expect(screen.getByTestId('route')).toHaveTextContent('/r/apple');
+    expect(global.fetch).toHaveBeenCalledWith('https://api.f5.test/subreddits', { signal: expect.any(AbortSignal), cache: 'no-store' });
+    expect(localStorage.getItem('subredditList')).toBe('news,politics,worldnews');
+    expect(screen.getByTestId('route')).toHaveTextContent('/r/politics');
   });
 
   test('keeps the route and stored preference in sync when changing subreddit', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ data: ['politics', 'science'] }),
+      json: async () => ({ data: ['politics', 'news'] }),
     });
 
     await renderProvider();
 
-    fireEvent.click(screen.getByRole('button', { name: /choose science/i }));
+    fireEvent.click(screen.getByRole('button', { name: /choose news/i }));
 
-    expect(screen.getByTestId('subreddit')).toHaveTextContent('science');
-    expect(localStorage.getItem('subreddit')).toBe('science');
+    expect(screen.getByTestId('subreddit')).toHaveTextContent('news');
+    expect(localStorage.getItem('subreddit')).toBe('news');
   });
 
   test('logs context on subreddit fetch failure', async () => {
@@ -140,30 +140,30 @@ test.each([undefined, null, '', '   '])('treats empty API configuration as unava
 
 
 test('keeps the loaded list when selecting a subreddit', async () => {
-  global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: ['politics', 'science'] }) });
+  global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: ['politics', 'news'] }) });
   await renderProvider();
-  await waitFor(() => expect(screen.getByTestId('subreddit-list')).toHaveTextContent('politics|science'));
-  fireEvent.click(screen.getByRole('button', { name: 'Choose Science' }));
-  expect(screen.getByTestId('subreddit')).toHaveTextContent('science');
-  expect(screen.getByTestId('subreddit-list')).toHaveTextContent('politics|science');
+  await waitFor(() => expect(screen.getByTestId('subreddit-list')).toHaveTextContent('news|politics'));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose News' }));
+  expect(screen.getByTestId('subreddit')).toHaveTextContent('news');
+  expect(screen.getByTestId('subreddit-list')).toHaveTextContent('news|politics');
 });
 
 test('keeps a new selection when the list arrives late', async () => {
   let resolve;
   global.fetch = vi.fn(() => new Promise(done => { resolve = done; }));
   await renderProvider();
-  fireEvent.click(screen.getByRole('button', { name: 'Choose Science' }));
-  await act(async () => resolve({ ok: true, json: async () => ({ data: ['politics', 'science'] }) }));
-  expect(screen.getByTestId('subreddit')).toHaveTextContent('science');
-  expect(screen.getByTestId('subreddit-list')).toHaveTextContent('politics|science');
+  fireEvent.click(screen.getByRole('button', { name: 'Choose News' }));
+  await act(async () => resolve({ ok: true, json: async () => ({ data: ['politics', 'news'] }) }));
+  expect(screen.getByTestId('subreddit')).toHaveTextContent('news');
+  expect(screen.getByTestId('subreddit-list')).toHaveTextContent('news|politics');
 });
 
 test('tracks client-side route navigation without a menu selection', async () => {
-  global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: ['politics', 'technology'] }) });
+  global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: ['politics', 'news'] }) });
   await renderProvider();
-  fireEvent.click(screen.getByRole('button', { name: 'Visit Technology' }));
-  expect(screen.getByTestId('subreddit')).toHaveTextContent('technology');
-  expect(localStorage.getItem('subreddit')).toBe('technology');
+  fireEvent.click(screen.getByRole('button', { name: 'Visit News' }));
+  expect(screen.getByTestId('subreddit')).toHaveTextContent('news');
+  expect(localStorage.getItem('subreddit')).toBe('news');
 });
 
 
@@ -225,7 +225,7 @@ test.each([[], ['politics', null], ['politics', 'POLITICS'], 'politics', ['../ne
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data }) });
     await renderProvider({ route: '/r/science' });
     expect(screen.getByTestId('route')).toHaveTextContent('/r/science');
-    expect(localStorage.getItem('subredditList')).toBe('politics,science');
+    expect(localStorage.getItem('subredditList')).toBe('news,politics,worldnews');
   }
 );
 
@@ -237,4 +237,55 @@ test('redirects a stale saved selection to an active fallback when politics is a
   expect(screen.getByTestId('route')).toHaveTextContent('/r/news');
   expect(screen.getByTestId('navigation-type')).toHaveTextContent('REPLACE');
   expect(localStorage.getItem('subreddit')).toBe('news');
+});
+
+test('never exposes retired cached feeds before a refresh or after a refresh failure', async () => {
+  localStorage.setItem('subredditList', 'politics,news,worldnews,science,technology,Economics');
+  let fail;
+  global.fetch = vi.fn(() => new Promise((_resolve, reject) => { fail = reject; }));
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  await renderProvider({ route: '/r/science' });
+  expect(screen.getByTestId('subreddit-list')).toHaveTextContent('news|politics|worldnews');
+  expect(screen.getByTestId('route')).toHaveTextContent('/r/science');
+  await act(async () => fail(new Error('Unavailable')));
+  expect(screen.getByTestId('subreddit-list')).toHaveTextContent('news|politics|worldnews');
+  expect(screen.getByTestId('route')).toHaveTextContent('/r/science');
+});
+
+test('filters old API catalogs and refreshes an open session on focus without changing a valid selection', async () => {
+  global.fetch = vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ data: ['politics', 'news', 'worldnews', 'science', 'technology'] }) })
+    .mockResolvedValue(activeFeedsResponse());
+  await renderProvider({ route: '/r/worldnews' });
+  expect(screen.getByTestId('subreddit-list')).toHaveTextContent('news|politics|worldnews');
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(global.fetch).toHaveBeenLastCalledWith('https://api.f5.test/subreddits', { signal: expect.any(AbortSignal), cache: 'no-store' });
+  expect(screen.getByTestId('route')).toHaveTextContent('/r/worldnews');
+  expect(localStorage.getItem('subreddit')).toBe('worldnews');
+});
+
+test('refreshes the catalog periodically while the session remains open', async () => {
+  vi.useFakeTimers();
+  try {
+    global.fetch = vi.fn().mockResolvedValue(activeFeedsResponse());
+    await renderProvider({ route: '/r/news' });
+    await act(async () => vi.advanceTimersByTimeAsync(5 * 60 * 1000));
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('route')).toHaveTextContent('/r/news');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('coalesces resume events while a catalog refresh is pending', async () => {
+  let finish;
+  global.fetch = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+  await renderProvider({ route: '/r/worldnews' });
+  fireEvent.focus(window);
+  fireEvent(window, new Event('pageshow'));
+  fireEvent(document, new Event('visibilitychange'));
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  await act(async () => finish(activeFeedsResponse()));
+  expect(screen.getByTestId('route')).toHaveTextContent('/r/worldnews');
 });

@@ -652,7 +652,11 @@ def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_bud
             detail = next((item for item in details if item["attributes"].get("id") == post["attributes"]["id"]
                            and (item["attributes"].get("subreddit-name") or "").lower() == subreddit.lower()), None)
             preview = detail.get("preview") if detail else None
-            url = preview["images"][0]["source"]["url"] if isinstance(preview, dict) else None
+            source = preview["images"][0]["source"] if isinstance(preview, dict) else {}
+            url = source.get("url")
+            width = source.get("width")
+            if type(width) not in (int, float) or not math.isfinite(width) or width <= 320:
+                continue
             parsed = urlsplit(url or "")
             if parsed.scheme not in ("http", "https") or parsed.hostname not in ("i.redd.it", "preview.redd.it", "external-preview.redd.it") or parsed.username or parsed.password:
                 continue
