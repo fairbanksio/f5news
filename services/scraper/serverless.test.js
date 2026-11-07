@@ -4,29 +4,16 @@ const path = require("path");
 const test = require("node:test");
 const yaml = require("js-yaml");
 
-const getScheduledSubreddits = () => {
-  const serverlessConfig = yaml.load(
-    fs.readFileSync(path.join(__dirname, "serverless.yml"), "utf8"),
-  );
-
-  return serverlessConfig.functions.fetchPosts.events
-    .filter((event) => event.schedule)
-    .map((event) => event.schedule.input.subreddit);
-};
-
-test("fetchPosts is scheduled for the supported news subreddits", () => {
-  assert.deepEqual(getScheduledSubreddits(), [
-    "politics",
-    "worldnews",
-    "europe",
-    "news",
-    "technology",
-    "science",
-    "health",
-    "energy",
-    "sports",
-    "business",
-    "Economics",
+test("one scheduled batch covers the supported news feeds", () => {
+  const config = yaml.load(fs.readFileSync(path.join(__dirname, "serverless.yml"), "utf8"));
+  const schedules = config.functions.fetchPosts.events.filter((event) => event.schedule?.input.allFeeds === true);
+  assert.equal(schedules.length, 1);
+  assert.equal(schedules[0].schedule.rate, "rate(5 minutes)");
+  assert.equal(schedules[0].schedule.input.allFeeds, true);
+  assert.equal(schedules[0].schedule.input.subreddit, undefined);
+  assert.deepEqual(require("../posts/subreddits.json"), [
+    "politics", "worldnews", "europe", "news", "technology", "science",
+    "health", "energy", "sports", "business", "Economics",
   ]);
 });
 
@@ -41,7 +28,7 @@ test("browser scraper uses an ARM64 image without Reddit API client credentials"
   assert.equal(config.functions.fetchPosts.handler, undefined);
   assert.equal(config.provider.runtime, undefined);
   assert.ok(config.functions.fetchPosts.timeout < 300);
-  assert.ok(config.functions.fetchPosts.memorySize >= 2048);
+  assert.ok(config.functions.fetchPosts.memorySize >= 4096);
   assert.equal(config.provider.environment.REDDIT_CLIENT_ID, undefined);
   assert.equal(config.provider.environment.REDDIT_SECRET_KEY, undefined);
   assert.deepEqual(Object.keys(config.provider.environment), ["MONGO_CONNECTION_STRING", "REDDIT_USERNAME", "REDDIT_PASSWORD", "F5_REDDIT_SESSION_BUCKET", "F5_REDDIT_SESSION_ENABLED"]);
@@ -52,13 +39,17 @@ test("scheduled feeds reuse the shared session without independent login attempt
   assert.equal(config.provider.environment.F5_REDDIT_SESSION_BUCKET, "${env:F5_REDDIT_SESSION_BUCKET, ssm:/f5_reddit_session_bucket}");
   assert.equal(config.provider.environment.F5_REDDIT_SESSION_ENABLED, "true");
   const schedules = config.functions.fetchPosts.events.map((event) => event.schedule);
-  assert.equal(schedules.length, 11);
+  assert.equal(schedules.length, 2);
   for (const schedule of schedules) {
     assert.equal(schedule.enabled, false);
     assert.equal(schedule.input.session, true);
     assert.equal(schedule.input.scheduled, true);
     assert.equal(schedule.input.authenticate, undefined);
   }
+  const renewal = schedules.find((schedule) => schedule.input.renewSession === true);
+  assert.equal(renewal.rate, "rate(12 hours)");
+  assert.equal(renewal.input.subreddit, "politics");
+  assert.equal(renewal.input.allFeeds, undefined);
   assert.deepEqual(config.provider.iam.role.statements, [{
     Sid: "SharedRedditSessionObjects",
     Effect: "Allow",

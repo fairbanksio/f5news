@@ -61,48 +61,64 @@ function checkInvocation(metadata, { session = false } = {}) {
 
 const FEEDS = ["politics", "worldnews", "europe", "news", "technology", "science", "health", "energy", "sports", "business", "Economics"];
 
+function checkBatchInvocation(metadata) {
+  assert.ok(!metadata.FunctionError, "Browser scraper batch invocation failed; inspect its CloudWatch logs");
+  assert.equal(metadata.StatusCode, 200, "Lambda batch invocation did not succeed");
+  const payload = metadata.BatchResult;
+  assert.ok(payload && typeof payload === "object" && !Array.isArray(payload), "Browser scraper did not return a batch result");
+  assert.ok(Array.isArray(payload.feedResults) && payload.feedResults.length === FEEDS.length, "Browser scraper batch did not return every configured feed");
+  assert.ok(["reused", "renewed"].includes(payload.sessionMode), "Browser scraper batch did not report session reuse or renewal");
+  assert.match(payload.sessionGeneration || "", /^[A-Za-z0-9_-]{1,128}$/, "Browser scraper batch did not report a safe session generation");
+  const feeds = new Map();
+  for (const record of payload.feedResults) {
+    assert.ok(record && FEEDS.includes(record.subreddit) && !feeds.has(record.subreddit), "Browser scraper batch returned an unexpected or duplicate feed");
+    const result = checkInvocation({ StatusCode: 200, LogResult: Buffer.from(JSON.stringify({ eventType: "SCRAPER_JOB_COMPLETED", outcome: record.outcome, fetchedCount: record.fetchedCount, savedCount: record.savedCount, sessionMode: record.sessionMode, sessionGeneration: record.sessionGeneration })).toString("base64") }, { session: true });
+    assert.equal(result.sessionGeneration, payload.sessionGeneration, "Browser scraper batch changed session generation between feeds");
+    assert.equal(result.sessionMode, payload.sessionMode, "Browser scraper batch changed session mode between feeds");
+    feeds.set(record.subreddit, { subreddit: record.subreddit, ...result });
+  }
+  return { feedResults: FEEDS.map((feed) => feeds.get(feed)), sessionMode: payload.sessionMode, sessionGeneration: payload.sessionGeneration };
+}
+
 async function verifyFeeds({ allFeeds = false, subreddit = "politics", session = true, authenticate = false, renewSession = false, invoke, emit = console.log } = {}) {
   assert.ok(FEEDS.includes(subreddit), "Select a configured subreddit for browser verification");
   assert.ok(!(allFeeds && authenticate), "All-feed verification uses one shared session; authenticate is only available for a single bootstrap");
   assert.ok(!allFeeds || session, "All-feed verification requires session reuse");
   assert.ok(!renewSession || (session && !authenticate), "Session renewal requires shared-session verification without bootstrap authentication");
-  const events = (allFeeds ? [...FEEDS, "politics"] : [subreddit]).map((subreddit, index) => ({
-    subreddit,
-    ...(authenticate ? { authenticate: true, session: false } : { session }),
-    ...(renewSession && index === 0 ? { renewSession: true } : {}),
-  }));
   const results = [];
-  for (const event of events) {
-    const result = checkInvocation(await invoke(event), { session: session && !authenticate });
-    if (renewSession && results.length === 0) {
-      assert.equal(result.sessionMode, "renewed", "Requested session renewal did not create a renewed session");
-    }
-    if (allFeeds && results.length) {
-      const previous = results.at(-1);
-      const changed = result.sessionGeneration !== previous.sessionGeneration;
-      if (result.sessionMode === "renewed") {
-        assert.ok(!results.some((entry) => entry.sessionMode === "renewed"), "Feed verification renewed the session more than once");
-        assert.ok(changed, "Session renewal did not report a new generation");
-        assert.ok(!results.some((entry) => entry.sessionGeneration === result.sessionGeneration), "Session renewal returned an earlier generation");
-      } else {
-        assert.ok(!changed, "Feed verification changed session generation without a reported renewal");
-      }
-    }
-    const entry = { eventType: "BROWSER_LIVE_PROBE", subreddit: event.subreddit, repeated: results.length === FEEDS.length, ...result };
+  const invocations = [];
+  const addResult = (subreddit, result, repeated = false) => {
+    const entry = { eventType: "BROWSER_LIVE_PROBE", subreddit, repeated, ...result };
     results.push(entry);
     emit(JSON.stringify(entry));
-  }
+  };
   if (allFeeds) {
-    assert.equal(results.at(-1).sessionMode, "reused", "Repeated politics invocation did not reuse the shared session");
+    const batch = checkBatchInvocation(await invoke({ allFeeds: true, session: true, ...(renewSession ? { renewSession: true } : {}) }));
+    if (renewSession) assert.equal(batch.sessionMode, "renewed", "Requested session renewal did not create a renewed session");
+    invocations.push(batch);
+    for (const { subreddit, ...result } of batch.feedResults) addResult(subreddit, result);
+    const repeated = checkInvocation(await invoke({ subreddit: "politics", session: true }), { session: true });
+    assert.equal(repeated.sessionMode, "reused", "Repeated politics invocation did not reuse the shared session");
+    assert.equal(repeated.sessionGeneration, batch.sessionGeneration, "Repeated politics invocation changed the shared session generation");
+    invocations.push(repeated);
+    addResult("politics", repeated, true);
+  } else {
+    const result = checkInvocation(await invoke({ subreddit,
+      ...(authenticate ? { authenticate: true, session: false } : { session }),
+      ...(renewSession ? { renewSession: true } : {}),
+    }), { session: session && !authenticate });
+    if (renewSession) assert.equal(result.sessionMode, "renewed", "Requested session renewal did not create a renewed session");
+    invocations.push(result);
+    addResult(subreddit, result);
   }
   const summary = { eventType: "BROWSER_LIVE_PROBE_COMPLETED", feedCount: allFeeds ? FEEDS.length : 1,
-    invocationCount: results.length, savedCount: results.reduce((sum, result) => sum + result.savedCount, 0),
+    invocationCount: invocations.length, savedCount: results.reduce((sum, result) => sum + result.savedCount, 0),
     renewalRequested: renewSession,
-    ...(session && !authenticate ? { initialGeneration: results[0].sessionGeneration,
-      sessionGeneration: results.at(-1).sessionGeneration,
-      generationCount: new Set(results.map((result) => result.sessionGeneration)).size,
-      renewedCount: results.filter((result) => result.sessionMode === "renewed").length,
-      reusedCount: results.filter((result) => result.sessionMode === "reused").length } : {}),
+    ...(session && !authenticate ? { initialGeneration: invocations[0].sessionGeneration,
+      sessionGeneration: invocations.at(-1).sessionGeneration,
+      generationCount: new Set(invocations.map((result) => result.sessionGeneration)).size,
+      renewedCount: invocations.filter((result) => result.sessionMode === "renewed").length,
+      reusedCount: invocations.filter((result) => result.sessionMode === "reused").length } : {}),
   };
   emit(JSON.stringify(summary));
   return { results, summary };
@@ -199,6 +215,10 @@ async function verifySessionDiagnostics({ invoke, publicKey, readRuntimeEvents, 
     "sessionRootAccountCookieCount", "otherExpiredCookieCount", "unknownCookieAttributeCount", "originCount", "stateBytes"]) {
     assert.ok(Number.isSafeInteger(record[field]) && record[field] >= 0, `Session diagnostics missing count field: ${field}`);
     summary[field] = record[field];
+  }
+  if (Object.hasOwn(record, "readBackoffSeconds")) {
+    assert.ok(Number.isInteger(record.readBackoffSeconds) && record.readBackoffSeconds >= 0 && record.readBackoffSeconds <= 86400, "Session diagnostics reported invalid read backoff seconds");
+    summary.readBackoffSeconds = record.readBackoffSeconds;
   }
   if (readRuntimeEvents) summary.runtimeDiagnostics = summarizeRuntimeEvents(await readRuntimeEvents());
   const secretKey = randomBytes(32);
@@ -300,6 +320,7 @@ function invokeLive(event) {
     console.error(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE_FAILED", subreddit: event.subreddit,
       ...failureSummary({ ...result, LogResult: Buffer.from(logText).toString("base64") }, error) }));
   }
+  if (event.allFeeds && !result.FunctionError) result.BatchResult = JSON.parse(readFileSync(payloadFile, "utf8"));
   return result;
 }
 
@@ -318,4 +339,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { checkInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, summarizeRuntimeEvents, FEEDS };
+module.exports = { checkInvocation, checkBatchInvocation, failureSummary, verifyFeeds, verifyScheduled, verifySessionDiagnostics, summarizeRuntimeEvents, FEEDS };
