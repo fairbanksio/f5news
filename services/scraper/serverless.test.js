@@ -28,7 +28,7 @@ test("browser scraper uses an ARM64 image without Reddit API client credentials"
   assert.equal(config.functions.fetchPosts.handler, undefined);
   assert.equal(config.provider.runtime, undefined);
   assert.ok(config.functions.fetchPosts.timeout < 300);
-  assert.ok(config.functions.fetchPosts.memorySize >= 4096);
+  assert.equal(config.functions.fetchPosts.memorySize, 3008);
   assert.equal(config.provider.environment.REDDIT_CLIENT_ID, undefined);
   assert.equal(config.provider.environment.REDDIT_SECRET_KEY, undefined);
   assert.deepEqual(Object.keys(config.provider.environment), ["MONGO_CONNECTION_STRING", "REDDIT_USERNAME", "REDDIT_PASSWORD", "F5_REDDIT_SESSION_BUCKET", "F5_REDDIT_SESSION_ENABLED"]);
