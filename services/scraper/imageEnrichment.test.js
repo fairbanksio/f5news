@@ -12,7 +12,7 @@ const child = (subreddit, overrides = {}) => ({ kind: "t3", data: {
 } });
 const identity = (post) => JSON.stringify([post.title, post.author, post.created_utc]);
 
-const harness = ({ children = feeds.map((feed) => child(feed)), stored = [], resolve = async () => "" } = {}) => {
+const harness = ({ children = feeds.map((feed) => child(feed)), stored = [], resolve = async () => "", beforeThumbnailWrite = () => {} } = {}) => {
   const records = stored.map((post) => ({ ...post }));
   const logs = [];
   const calls = [];
@@ -40,8 +40,11 @@ const harness = ({ children = feeds.map((feed) => child(feed)), stored = [], res
         writes.push({ filter, update, options });
         let post = records.find((entry) => filter._id ? entry._id === filter._id : identity(entry) === identity(filter));
         if (!post && !options.upsert) return null;
+        if (update.$set.thumbnail) beforeThumbnailWrite(post);
         if (filter.$or && post && hasUsableThumbnail(post.thumbnail) && !isSmallRedditThumbnail(post.thumbnail)) return null;
-        if (Object.hasOwn(filter, "thumbnail") && post?.thumbnail !== filter.thumbnail) return null;
+        if (Object.hasOwn(filter, "thumbnail")) {
+          if (filter.thumbnail?.$exists === false ? post?.thumbnail !== undefined : post?.thumbnail !== filter.thumbnail) return null;
+        }
         const previous = post ? { ...post } : null;
         if (!post) { post = { _id: `row-${records.length}` }; records.push(post); }
         Object.assign(post, update.$set);
@@ -149,4 +152,36 @@ test("backfill fallback diagnostics stay bounded and preserve missing and error 
   assert.equal(metrics.dependencyFailures, 1);
   assert.equal(metrics.missing, 0);
   assert.equal(metrics.errors, 0);
+});
+
+
+test("known-width listing updates never downgrade stored images and still accept larger previews", async () => {
+  for (const batch of [false, true]) {
+    for (const [priorWidth, nextWidth] of [[1080, 640], [1080, 500], [640, 1080]]) {
+      const previous = `https://preview.redd.it/story.jpg?width=${priorWidth}`;
+      const candidate = `https://preview.redd.it/story.jpg?width=${nextWidth}`;
+      const children = feeds.map((feed) => child(feed, { preview: { images: [{ source: { url: candidate } }] } }));
+      const fixture = harness({ children, stored: children.map((entry) => storedRow(entry, previous)),
+        resolve: async () => assert.fail("Known listing previews do not need publisher work") });
+      await fixture.handler(batch ? { allFeeds: true } : { subreddit: feeds[0] });
+      const checked = batch ? fixture.records : fixture.records.filter((row) => row.sub === feeds[0]);
+      assert.ok(checked.every((row) => row.thumbnail === (nextWidth > priorWidth ? candidate : previous)));
+      assert.equal(fixture.calls.length, 0);
+    }
+  }
+});
+
+
+test("concurrent upgrades survive intermediate-width batch core and optional writes", async () => {
+  const previous = "https://preview.redd.it/story.jpg?width=640";
+  const candidate = "https://preview.redd.it/story.jpg?width=800";
+  const upgraded = "https://preview.redd.it/story.jpg?width=1080";
+  const children = feeds.map((feed) => child(feed, { preview: { images: [{ source: { url: candidate } }] } }));
+  const fixture = harness({ children, stored: children.map((entry) => storedRow(entry, previous)),
+    beforeThumbnailWrite: (post) => { post.thumbnail = upgraded; },
+    resolve: async () => assert.fail("Published previews need no publisher work"),
+  });
+  await fixture.handler({ allFeeds: true });
+  assert.ok(fixture.records.every((row) => row.thumbnail === upgraded));
+  assert.ok(fixture.writes.filter((write) => write.update.$set.thumbnail).every((write) => write.filter.thumbnail === previous));
 });

@@ -234,7 +234,7 @@ const findImagePriorityIds = async (newPostModel, subreddit, { now = () => new D
   }
 };
 
-const updatePostThumbnail = (newPostModel, data, thumbnail, { qualityCheckedAt, deadline } = {}) => {
+const updatePostThumbnail = (newPostModel, data, thumbnail, { qualityCheckedAt, deadline, expectedThumbnail, hasExpectedThumbnail = false } = {}) => {
   const postKey = data._id ? { _id: data._id } : createPostKey(data);
   const fields = {};
   if (qualityCheckedAt) {
@@ -242,6 +242,13 @@ const updatePostThumbnail = (newPostModel, data, thumbnail, { qualityCheckedAt, 
     fields.thumbnailQualityCheckedAt = qualityCheckedAt;
   }
   if (thumbnail) {
+    const candidateWidth = imageUrlWidth(thumbnail);
+    const storedWidth = imageUrlWidth(expectedThumbnail);
+    if (hasExpectedThumbnail && candidateWidth && storedWidth && candidateWidth < storedWidth) return null;
+    if (hasExpectedThumbnail && candidateWidth && !isSmallRedditThumbnail(thumbnail)) {
+      // A concurrent image change must survive this snapshot's optional write.
+      postKey.thumbnail = expectedThumbnail === undefined ? { $exists: false } : expectedThumbnail;
+    }
     fields.thumbnail = thumbnail;
     if (isSmallRedditThumbnail(thumbnail)) {
       // A low-resolution fallback must not replace a better image from another run.
@@ -269,6 +276,9 @@ const resolvePostImage = async (post, subreddit, operation, metrics, imageSource
   const storedThumbnail = job?.storedThumbnails?.get(imageWorkKey(post));
   const sourceThumbnail = redditImageSource(post);
   if (hasUsableThumbnail(storedThumbnail) && !isSmallRedditThumbnail(storedThumbnail)) {
+    const storedWidth = imageUrlWidth(storedThumbnail);
+    const candidateWidth = imageUrlWidth(sourceThumbnail);
+    if (storedWidth && candidateWidth && candidateWidth < storedWidth) return "";
     return hasUsableThumbnail(sourceThumbnail) && !isSmallRedditThumbnail(sourceThumbnail) && sourceThumbnail !== storedThumbnail ? sourceThumbnail : "";
   }
   if (hasUsableThumbnail(storedThumbnail) && (!hasUsableThumbnail(sourceThumbnail) || isSmallRedditThumbnail(sourceThumbnail))) post = { ...post, thumbnail: storedThumbnail };
@@ -308,7 +318,17 @@ const resolvePostImage = async (post, subreddit, operation, metrics, imageSource
 
 const saveOptionalThumbnail = async (newPostModel, post, thumbnail, subreddit, operation, metrics, logger, secrets = [], options = {}) => {
   try {
-    await updatePostThumbnail(newPostModel, post, thumbnail, options);
+    const identity = imageWorkKey(post);
+    const expectations = options.job?.thumbnailExpectations;
+    const written = await updatePostThumbnail(newPostModel, post, thumbnail, {
+      ...options,
+      ...(expectations?.has(identity) ? { hasExpectedThumbnail: true, expectedThumbnail: expectations.get(identity) } : {}),
+    });
+    if (written && thumbnail && options.job) {
+      expectations?.set(identity, thumbnail);
+      options.job.storedThumbnails ||= new Map();
+      options.job.storedThumbnails.set(identity, thumbnail);
+    }
   } catch (error) {
     metrics.updateErrors += 1;
     logStructured(logger, {
@@ -392,6 +412,8 @@ const insertNewPosts = (
 
       const postKey = createPostKey(value.data);
       const storedPost = await newPostModel.findOneAndUpdate(postKey, postUpdate, persistenceOptions({ upsert: true }, deadline));
+      job.thumbnailExpectations ||= new Map();
+      job.thumbnailExpectations.set(imageWorkKey(value.data), storedPost?.thumbnail);
       if (hasUsableThumbnail(storedPost?.thumbnail)) {
         job.storedThumbnails ||= new Map();
         job.storedThumbnails.set(imageWorkKey(value.data), storedPost.thumbnail);
@@ -399,11 +421,11 @@ const insertNewPosts = (
       job.savedCount = (job.savedCount || 0) + 1;
       if (coreOnly) {
         const thumbnail = redditImageSource(value.data);
-        if (hasUsableThumbnail(thumbnail)) await saveOptionalThumbnail(newPostModel, value.data, thumbnail, subreddit, "scrape", imageMetrics, logger, redactionValues, { deadline });
+        if (hasUsableThumbnail(thumbnail)) await saveOptionalThumbnail(newPostModel, value.data, thumbnail, subreddit, "scrape", imageMetrics, logger, redactionValues, { deadline, job });
         return null;
       }
       const thumbnail = await resolvePostImage(value.data, subreddit, "scrape", imageMetrics, imageSourceImpl, logger, redactionValues, { job });
-      if (thumbnail) await saveOptionalThumbnail(newPostModel, value.data, thumbnail, subreddit, "scrape", imageMetrics, logger, redactionValues);
+      if (thumbnail) await saveOptionalThumbnail(newPostModel, value.data, thumbnail, subreddit, "scrape", imageMetrics, logger, redactionValues, { job });
       return null;
     }
   );
@@ -466,7 +488,7 @@ const persistBatchImages = async (feed, dependencies, deadline) => {
   try {
     await mapWithConcurrency(feed.children, IMAGE_SOURCE_CONCURRENCY, async ({ data }) => {
       const thumbnail = await resolvePostImage(data, feed.subreddit, "scrape", metrics, imageSourceImpl, logger, redactionValues, { deadline, job: feed.job });
-      if (thumbnail) await saveOptionalThumbnail(newPostModel, data, thumbnail, feed.subreddit, "scrape", metrics, logger, redactionValues, { deadline });
+      if (thumbnail) await saveOptionalThumbnail(newPostModel, data, thumbnail, feed.subreddit, "scrape", metrics, logger, redactionValues, { deadline, job: feed.job });
     });
   } finally {
     feed.job.scrapeImages = metrics;

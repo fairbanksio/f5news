@@ -1184,6 +1184,33 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(result[feeds[1]], ["t3_d", "t3_e"])
         self.assertEqual(sum(map(len, result.values())), 4)
 
+    def test_persistent_missing_candidates_each_get_a_turn_across_feed_cycles(self):
+        feeds = json.loads(smoke.SUBREDDITS.read_text())
+        mapping = {feed: ["t3_" + feed + str(index) for index in range(3)] for feed in feeds}
+        seen = {feed: [] for feed in feeds}
+        # Leave every ID pending, including the first unrecoverable image.
+        for bucket in range(len(feeds) * 3):
+            with patch.object(smoke.time, "time", return_value=bucket * 300):
+                allocated = smoke.allocate_image_priorities(feeds, mapping, maximum=1)
+            selected = [(feed, item) for feed, ids in allocated.items() for item in ids]
+            self.assertEqual(len(selected), 1)
+            feed = feeds[bucket % len(feeds)]
+            self.assertEqual(selected, [(feed, mapping[feed][bucket // len(feeds)])])
+            seen[feed].append(selected[0][1])
+        self.assertEqual(seen, mapping)
+
+    def test_rotated_priorities_keep_caps_empty_inputs_and_duplicate_guards(self):
+        feeds = json.loads(smoke.SUBREDDITS.read_text())
+        mapping = {feeds[0]: ["t3_a", "t3_a", "t3_b"], feeds[1]: ["t3_a", "t3_c"], feeds[2]: []}
+        with patch.object(smoke.time, "time", return_value=len(feeds) * 300):
+            allocated = smoke.allocate_image_priorities(feeds, mapping, maximum=10)
+        selected = [item for ids in allocated.values() for item in ids]
+        self.assertEqual(set(selected), {"t3_a", "t3_b", "t3_c"})
+        self.assertEqual(len(selected), 3)
+        self.assertEqual(allocated[feeds[0]], ["t3_b", "t3_a"])
+        self.assertEqual(smoke.allocate_image_priorities(feeds, mapping, maximum=0), {feed: [] for feed in feeds})
+        self.assertEqual(smoke.allocate_image_priorities([], mapping), {})
+
     def test_initial_batch_detail_cap_is_one_while_single_mode_keeps_four(self):
         self.assertEqual(smoke.MAX_BATCH_OPTIONAL_DETAILS, 1)
         with tempfile.TemporaryDirectory() as directory:
