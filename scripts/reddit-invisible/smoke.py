@@ -700,18 +700,25 @@ def pause_with_deadline(deadline, seconds=1):
 
 def allocate_image_priorities(feeds, priorities, maximum=4):
     allocated = {feed: [] for feed in feeds}
-    if not priorities:
+    if not priorities or not feeds or maximum <= 0:
         return allocated
-    start = int(time.time() // 300) % len(feeds)
+    bucket = int(time.time() // 300)
+    start = bucket % len(feeds)
     order = feeds[start:] + feeds[:start]
+    candidates = {}
+    for feed in feeds:
+        ids = list(dict.fromkeys(priorities.get(feed, [])))
+        offset = (bucket // len(feeds)) % len(ids) if ids else 0
+        candidates[feed] = ids[offset:] + ids[:offset]
+    selected = set()
     remaining = maximum
     while remaining:
         added = False
         for feed in order:
-            ids = priorities.get(feed, [])
-            offset = len(allocated[feed])
-            if offset < len(ids):
-                allocated[feed].append(ids[offset])
+            candidate = next((item for item in candidates[feed] if item not in selected), None)
+            if candidate is not None:
+                allocated[feed].append(candidate)
+                selected.add(candidate)
                 remaining -= 1
                 added = True
                 if not remaining:
