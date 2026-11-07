@@ -139,7 +139,7 @@ function summarizeRuntimeEvents(events) {
   summary.sessionReasonCounts = Object.fromEntries(reasons.map((reason) => [reason, 0]));
   const imageReasons = ["unsafe_url", "request_timeout", "empty_response", "redirect_missing_location", "http_status",
     "non_html_response", "body_read_error", "body_read_timeout", "empty_html", "no_meta_image", "fetch_error", "too_many_redirects"];
-  const imageEventTypes = ["POST_IMAGE_RESOLUTION_ERROR", "POST_IMAGE_RESOLUTION_MISSING", "POST_IMAGE_BACKFILL_ERROR", "POST_IMAGE_BACKFILL_MISSING", "POST_IMAGE_UPDATE_ERROR"];
+  const imageEventTypes = ["POST_IMAGE_RESOLUTION_ERROR", "POST_IMAGE_RESOLUTION_MISSING", "POST_IMAGE_RESOLUTION_DEGRADED", "POST_IMAGE_BACKFILL_ERROR", "POST_IMAGE_BACKFILL_MISSING", "POST_IMAGE_BACKFILL_DEGRADED", "POST_IMAGE_UPDATE_ERROR"];
   const imageCounters = ["imageAttempts", "imageResolved", "imageMissing", "imageErrors", "imageDependencyFailures", "imageUpdateErrors", "backfillQueryErrors"];
   const emptyReasons = () => Object.fromEntries(imageReasons.map((reason) => [reason, 0]));
   summary.imageDiagnostics = {
@@ -350,7 +350,7 @@ function readScheduledEvents(startTime) {
 }
 
 function readRuntimeEvents() {
-  return readLogEvents(Date.now() - 3600000, '?REPORT ?"platform.report" ?"Resource counters:" ?SCRAPER_JOB_FAILED ?SCRAPER_JOB_COMPLETED ?BROWSER_NAVIGATION_HTTP ?POST_IMAGE_RESOLUTION_ERROR ?POST_IMAGE_RESOLUTION_MISSING ?POST_IMAGE_BACKFILL_ERROR ?POST_IMAGE_BACKFILL_MISSING ?POST_IMAGE_UPDATE_ERROR');
+  return readLogEvents(Date.now() - 3600000, '?REPORT ?"platform.report" ?"Resource counters:" ?SCRAPER_JOB_FAILED ?SCRAPER_JOB_COMPLETED ?BROWSER_NAVIGATION_HTTP ?POST_IMAGE_RESOLUTION_ERROR ?POST_IMAGE_RESOLUTION_MISSING ?POST_IMAGE_RESOLUTION_DEGRADED ?POST_IMAGE_BACKFILL_ERROR ?POST_IMAGE_BACKFILL_MISSING ?POST_IMAGE_BACKFILL_DEGRADED ?POST_IMAGE_UPDATE_ERROR');
 }
 
 function invokeLive(event) {

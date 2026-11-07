@@ -241,7 +241,10 @@ const parseAttributes = (tag) => {
 const toAbsoluteImageUrl = (imageUrl, pageUrl) => {
   try {
     const parsed = new URL(imageUrl, pageUrl);
-    if (!["http:", "https:"].includes(parsed.protocol)) {
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password ||
+        hostname === "localhost" || hostname.endsWith(".localhost") ||
+        (net.isIP(hostname) && !isPublicAddress(hostname))) {
       return "";
     }
     return parsed.toString();
@@ -250,33 +253,107 @@ const toAbsoluteImageUrl = (imageUrl, pageUrl) => {
   }
 };
 
+const articleSchemaImages = (html) => {
+  const images = [];
+  const scripts = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+  let match;
+  while ((match = scripts.exec(html)) !== null) {
+    if (parseAttributes(match[1]).type?.toLowerCase() !== "application/ld+json") continue;
+    let value;
+    try { value = JSON.parse(match[2]); } catch { continue; }
+    const nodes = Array.isArray(value) ? value.slice(0, 256) : [value];
+    for (let index = 0; index < nodes.length && index < 256; index += 1) {
+      const node = nodes[index];
+      if (!node || typeof node !== "object" || Array.isArray(node)) continue;
+      if (Array.isArray(node["@graph"])) nodes.push(...node["@graph"].slice(0, Math.max(0, 256 - nodes.length)));
+      const types = Array.isArray(node["@type"]) ? node["@type"] : [node["@type"]];
+      if (!types.some(type => ["Article", "NewsArticle", "BlogPosting"].includes(type))) continue;
+      for (const image of Array.isArray(node.image) ? node.image : [node.image]) {
+        if (typeof image === "string") images.push(image);
+        else if (image && typeof image === "object") {
+          if (typeof image.url === "string") images.push(image.url);
+          if (typeof image.contentUrl === "string") images.push(image.contentUrl);
+        }
+      }
+    }
+  }
+  return images;
+};
+
+const contentImageLinks = (html, pageUrl) => {
+  const images = [];
+  const stack = [];
+  const voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+  const excludedTags = new Set(["header", "footer", "nav", "template", "noscript"]);
+  const decorative = /(?:^|[^a-z])(?:header|footer|navigation|logo|icon|avatar|badge|sprite|related|ads?|advertisement)(?:[^a-z]|$)/i;
+  const tags = /<(\/?)([a-z][a-z0-9:-]*)\b[^>]*>/gi;
+  // Script text and comments are not article markup.
+  const markup = html.replace(/<!--[\s\S]*?(?:-->|$)|<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
+  const normalizeLabel = value => decodeHtml(value.replace(/<[^>]*>/g, " ")).normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+  const headings = [...markup.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1\s*>/gi)].map(match => normalizeLabel(match[1]));
+  const primaryHeading = headings.length === 1 ? headings[0] : "";
+  let match;
+  while ((match = tags.exec(markup)) !== null) {
+    const tag = match[2].toLowerCase();
+    if (match[1]) {
+      const index = stack.findLastIndex(entry => entry.tag === tag);
+      if (index !== -1) stack.length = index;
+      continue;
+    }
+    const attributes = parseAttributes(match[0]);
+    const excluded = excludedTags.has(tag) || (!["html", "body"].includes(tag) && decorative.test([attributes.id, attributes.class, attributes.alt, attributes.src, attributes.href].join(" ")));
+    const hasSemanticMain = stack.some(entry => entry.main);
+    if (tag === "img" && !excluded && /^\d+$/.test(attributes.width || "") && Number(attributes.width) >= 300 &&
+        /^\d+$/.test(attributes.height || "") && Number(attributes.height) >= 150 &&
+        attributes.src && toAbsoluteImageUrl(attributes.src, pageUrl) &&
+        (hasSemanticMain || stack.some(entry => entry.legacyMain)) && !stack.some(entry => entry.excluded)) {
+      const anchor = stack.findLast(entry => entry.tag === "a");
+      const image = anchor?.href && toAbsoluteImageUrl(anchor.href, pageUrl);
+      const inSidebar = stack.some(entry => entry.sidebar);
+      const identifiesArticle = primaryHeading && anchor && [anchor.label, anchor.title].some(label => label && normalizeLabel(label) === primaryHeading);
+      if (((hasSemanticMain && !inSidebar) || identifiesArticle) && image && /\.(?:jpe?g|png|webp|gif|avif)$/i.test(new URL(image).pathname)) images.push(image);
+    }
+    if (!voidTags.has(tag) && !/\/\s*>$/.test(match[0])) {
+      if (stack.length >= 256) return images;
+      stack.push({ tag, excluded, href: attributes.href, label: attributes["aria-label"], title: attributes.title,
+        main: tag === "main" || tag === "article" || attributes.role === "main", legacyMain: attributes.id === "main",
+        sidebar: tag === "aside" || /(?:^|[^a-z])sidebar(?:[^a-z]|$)/i.test([attributes.id, attributes.class].join(" ")) });
+    }
+  }
+  return images;
+};
+
 const extractMetaImage = (html, pageUrl) => {
+  if (typeof html !== "string") return "";
+  const boundedHtml = Buffer.from(html).subarray(0, DEFAULT_MAX_BYTES).toString("utf8");
   const candidates = [];
   const metaPattern = /<meta\b[^>]*>/gi;
   let match;
-
-  while ((match = metaPattern.exec(html)) !== null) {
+  while ((match = metaPattern.exec(boundedHtml)) !== null) {
     const attributes = parseAttributes(match[0]);
     const key = (attributes.property || attributes.name || "").toLowerCase();
-
-    if (
-      [
-        "og:image",
-        "og:image:secure_url",
-        "twitter:image",
-        "twitter:image:src",
-      ].includes(key) &&
-      attributes.content
-    ) {
+    if (["og:image", "og:image:secure_url", "twitter:image", "twitter:image:src"].includes(key) && attributes.content) {
       candidates.push({ key, content: attributes.content });
     }
   }
-
-  const preferred =
-    candidates.find((candidate) => candidate.key.startsWith("og:image")) ||
-    candidates[0];
-
-  return preferred ? toAbsoluteImageUrl(preferred.content, pageUrl) : "";
+  const preferred = [...candidates.filter(candidate => candidate.key.startsWith("og:image")),
+    ...candidates.filter(candidate => candidate.key.startsWith("twitter:image"))];
+  for (const candidate of preferred) {
+    const image = toAbsoluteImageUrl(candidate.content, pageUrl);
+    if (image) return image;
+  }
+  const links = /<link\b[^>]*>/gi;
+  while ((match = links.exec(boundedHtml)) !== null) {
+    const attributes = parseAttributes(match[0]);
+    if (!(attributes.rel || "").toLowerCase().split(/\s+/).includes("image_src") || !attributes.href) continue;
+    const image = toAbsoluteImageUrl(attributes.href, pageUrl);
+    if (image) return image;
+  }
+  for (const candidate of articleSchemaImages(boundedHtml)) {
+    const image = toAbsoluteImageUrl(candidate, pageUrl);
+    if (image) return image;
+  }
+  return contentImageLinks(boundedHtml, pageUrl)[0] || "";
 };
 
 const mapWithConcurrency = async (items, concurrency, mapper) => {
@@ -788,7 +865,7 @@ const imageSource = async (data, options = {}) => {
   }
 
   const articleUrl = data.url_overridden_by_dest || data.url;
-  if (!articleUrl) {
+  if (!articleUrl || !isExternalLinkPost(data)) {
     return redditImage || data.thumbnail || "";
   }
 

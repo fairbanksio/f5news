@@ -1104,3 +1104,107 @@ test("image probing has one hard deadline and no retries", async () => {
   }), null);
   assert.equal(calls, 1);
 });
+
+
+test("publisher metadata skips unsafe candidates and preserves valid Open Graph priority", () => {
+  const page = "https://publisher.example/story";
+  for (const unsafe of ["data:image/png;base64,abc", "javascript:alert(1)", "http://127.0.0.1/private.jpg", "http://[::1]/private.jpg", "http://localhost/private.jpg", "https://user:secret@cdn.example/private.jpg"]) {
+    assert.equal(extractMetaImage(`<meta property="og:image" content="${unsafe}">
+      <meta name="twitter:image" content="/twitter.jpg"><meta property="og:image" content="/valid.jpg">`, page),
+    "https://publisher.example/valid.jpg");
+  }
+  assert.equal(extractMetaImage('<meta property="og:image" content="data:bad"><meta name="twitter:image" content="/twitter.jpg"><link rel="image_src" href="/linked.jpg">', page), "https://publisher.example/twitter.jpg");
+});
+
+test("publisher image metadata falls back to an explicit image source link", () => {
+  assert.equal(extractMetaImage('<link REL="alternate image_src" href="/published.jpg?x=1&amp;y=2">', "https://publisher.example/story"),
+    "https://publisher.example/published.jpg?x=1&y=2");
+});
+
+test("publisher JSON-LD uses article image fields without selecting publisher logos", () => {
+  const html = `<script type="application/ld+json">not json</script>
+    <script type="application/ld+json">${JSON.stringify({ "@graph": [
+    { "@type": "Organization", image: "/logo.jpg" },
+    { "@type": ["NewsArticle"], publisher: { logo: "/another-logo.jpg" }, image: [{ url: "data:bad" }, { "@type": "ImageObject", contentUrl: "/article.jpg" }] },
+  ] })}</script>`;
+  assert.equal(extractMetaImage(html, "https://publisher.example/story"), "https://publisher.example/article.jpg");
+  assert.equal(extractMetaImage(`<link rel="image_src" href="/declared.jpg">${html}`, "https://publisher.example/story"), "https://publisher.example/declared.jpg");
+});
+
+test("publisher fallback uses the published full-size image anchor inside main content", () => {
+  const html = `<header><a href="/masthead.jpg"><img width="900" height="200" src="/masthead-small.jpg"></a></header>
+    <main><header><a href="/header.jpg"><img width="600" height="300" src="/header-small.jpg"></a></header>
+      <aside><a href="/sidebar.jpg"><img width="300" height="176" src="/sidebar-small.jpg"></a></aside>
+      <a href="/brand-logo.jpg"><img width="300" height="176" src="/brand-small.jpg" alt="Publisher logo"></a>
+      <article><a href="https://media.publisher.example/poster.jpg"><img width=300 height=176 src="https://media.publisher.example/poster-300x176.jpg"></a></article>
+    </main><footer><a href="/footer.jpg"><img width="600" height="300" src="/footer-small.jpg"></a></footer>`;
+  assert.equal(extractMetaImage(html, "https://publisher.example/story"), "https://media.publisher.example/poster.jpg");
+});
+
+test("publisher content fallback rejects arbitrary images, unsafe links, and undersized decorations", () => {
+  const page = "https://publisher.example/story";
+  for (const html of [
+    '<a href="/outside.jpg"><img width="300" height="176" src="/small.jpg"></a>',
+    '<main><img width="1200" height="800" src="/unlinked.jpg"></main>',
+    '<article><a href="/other-story"><img width="300" height="176" src="/small.jpg"></a></article>',
+    '<main><a href="/photo.jpg"><img width="299" height="176" src="/small.jpg"></a></main>',
+    '<main><a href="/photo.jpg"><img width="300" height="149" src="/small.jpg"></a></main>',
+    '<main><a href="http://127.0.0.1/private.jpg"><img width="300" height="176" src="/small.jpg"></a></main>',
+    '<script>const html = `<main><a href="/fake.jpg"><img width="300" height="176" src="/small.jpg"></a></main>`;</script>',
+  ]) assert.equal(extractMetaImage(html, page), "");
+});
+
+test("publisher content fallback stays within the existing HTML byte limit", () => {
+  const image = '<main><a href="/photo.jpg"><img width="300" height="176" src="/small.jpg"></a></main>';
+  assert.equal(extractMetaImage(" ".repeat(512 * 1024) + image, "https://publisher.example/story"), "");
+});
+
+test("publisher fallback does not add a request beyond the article fetch", async () => {
+  let requests = 0;
+  const result = await fetchArticleImage("https://publisher.example/story", {
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    fetchImpl: async () => {
+      requests += 1;
+      return { ok: true, status: 200, headers: createHeaders({ "content-type": "text/html" }),
+        body: Readable.from(['<main><a href="/poster.jpg"><img width="300" height="176" src="/poster-300x176.jpg"></a></main>']) };
+    },
+  });
+  assert.equal(result, "https://publisher.example/poster.jpg");
+  assert.equal(requests, 1);
+});
+
+test("missing self, video, gallery, and internal Reddit images never fetch publisher pages", async () => {
+  for (const data of [
+    { is_self: true, url: "https://publisher.example/story" },
+    { is_video: true, url: "https://publisher.example/story" },
+    { is_gallery: true, gallery_data: { items: [{ media_id: "missing" }] }, url: "https://publisher.example/story" },
+    { url: "https://www.reddit.com/r/news/comments/abc/story/" },
+    { url: "https://i.redd.it/photo.jpg" },
+  ]) {
+    assert.equal(await imageSource({ ...data, thumbnail: "default" }, {
+      fetchArticleImageImpl: async () => { throw new Error("Unexpected publisher fetch"); },
+      onArticleImageFailure: () => assert.fail("Nonexternal posts must not attempt publisher fallback"),
+    }), "default");
+  }
+});
+
+
+test("a main sidebar image must explicitly identify the primary article heading", () => {
+  const article = '<h1>Primary Article</h1><aside class="article-sidebar"><a aria-label=" primary   ARTICLE " href="/poster.jpg"><img width="300" height="176" src="/poster-300x176.jpg"></a></aside>';
+  assert.equal(extractMetaImage(`<main>${article}</main>`, "https://publisher.example/story"), "https://publisher.example/poster.jpg");
+  assert.equal(extractMetaImage(`<main>${article.replace('aria-label=" primary   ARTICLE "', 'title="Primary Article"')}</main>`, "https://publisher.example/story"), "https://publisher.example/poster.jpg");
+  for (const html of [
+    article.replace('aria-label=" primary   ARTICLE "', 'aria-label="Other Story"'),
+    article.replace('aria-label=" primary   ARTICLE "', ''),
+    `<h1>Second Heading</h1>${article}`,
+    `<header>${article}</header>`,
+    `<div class="related">${article}</div>`,
+  ]) assert.equal(extractMetaImage(`<main>${html}</main>`, "https://publisher.example/story"), "");
+});
+
+
+test("a legacy main container requires its image anchor to identify the article heading", () => {
+  const html = '<html class="html_logo_center"><body><div id="main"><div class="single-content-section"><h1 class="entry-title">Primary Article</h1></div><aside class="single-rewards-sidebar"><a class="rewards-poster-link" aria-label="Primary Article" href="/poster.jpg"><img width="300" height="176" src="/poster-300x176.jpg"></a></aside></div></body></html>';
+  assert.equal(extractMetaImage(html, "https://publisher.example/story"), "https://publisher.example/poster.jpg");
+  assert.equal(extractMetaImage(html.replace('aria-label="Primary Article"', ''), "https://publisher.example/story"), "");
+});

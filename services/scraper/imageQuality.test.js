@@ -128,3 +128,16 @@ test("a concurrent better image also survives the backfill repair write", async 
   });
   assert.equal(stored.thumbnail, large);
 });
+
+
+test("a concurrent sharp upgrade survives an intermediate-width optional fallback", async () => {
+  const stored = record();
+  const intermediate = "https://external-preview.redd.it/story.jpg?width=640&s=fallback";
+  const handler = createFetchPosts({
+    scrapePostsImpl: async () => [{ data: record() }],
+    imageSourceImpl: async () => { stored.thumbnail = large; return intermediate; },
+    mongooseClient: { connect: async () => {} }, newPostModel: model([stored]), logger, now: () => now,
+  });
+  await handler({ subreddit: "politics" });
+  assert.equal(stored.thumbnail, large);
+});
