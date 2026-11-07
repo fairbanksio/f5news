@@ -39,7 +39,7 @@ functions:
   fetchPosts:
     name: ${self:service}-${sls:stage}-fetchPosts-browser
     timeout: 240
-    memorySize: 4096
+    memorySize: 3008
     ephemeralStorageSize: 1024
     image: scraper
     logRetentionInDays: 7

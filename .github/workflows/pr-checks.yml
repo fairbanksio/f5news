@@ -140,7 +140,7 @@ jobs:
 
       - name: Check Read-Only Browser Startup
         run: |
-          docker run --rm --network none --read-only --pids-limit 1024 --memory 4g \
+          docker run --rm --network none --read-only --pids-limit 1024 --memory 3008m \
             --tmpfs /tmp:rw,size=1g f5-scraper:test python -c '
           import os, subprocess, sys
           assert os.getuid() != 0
@@ -156,7 +156,7 @@ jobs:
 
       - name: Check Offline Browser Session Roundtrip
         run: |
-          docker run --rm --network none --read-only --pids-limit 1024 --memory 4g \
+          docker run --rm --network none --read-only --pids-limit 1024 --memory 3008m \
             --tmpfs /tmp:rw,size=1g f5-scraper:test \
             python /app/scripts/reddit-invisible/check_session_runtime.py
 
