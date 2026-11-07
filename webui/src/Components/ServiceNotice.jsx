@@ -24,7 +24,14 @@ const ServiceNotice = () => {
     >
       <Alert.Indicator color='inherit' />
       <Alert.Description textAlign='left' fontSize='sm' lineHeight='1.6'>
-        Reddit is aggressively prohibiting access to their API. We are working on ways to mitigate this, but there may be interruptions in the meantime.
+        Reddit is aggressively{' '}
+        <a
+          href='https://www.reddit.com/r/redditdev/comments/1vgbm9c/our_plans_for_the_future_of_reddits_public_data/'
+          style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+        >
+          restricting access
+        </a>{' '}
+        to their API. We are working on ways to mitigate this, but there may be interruptions in the meantime.
       </Alert.Description>
     </Alert.Root>
   );
