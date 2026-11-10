@@ -835,19 +835,6 @@ const redditImageSource = (data) => {
   return "";
 };
 
-const shouldPreferArticleImage = (data, options) => {
-  if (options.preferArticleImage !== true || data.is_video || data.is_gallery || data.is_self || data.rpan_video ||
-      (data.post_hint && data.post_hint !== "link") || data.preview?.images?.[0]?.source?.url ||
-      !hasUsableThumbnail(data.thumbnail)) return false;
-  try {
-    if (!isSmallRedditThumbnail(data.thumbnail)) return false;
-    const article = new URL(data.url_overridden_by_dest || data.url);
-    return ["http:", "https:"].includes(article.protocol) && !/(^|\.)(reddit\.com|redd\.it)$/.test(article.hostname);
-  } catch {
-    return false;
-  }
-};
-
 const isExternalLinkPost = (data) => {
   if (data.is_video || data.is_gallery || data.is_self || data.rpan_video || (data.post_hint && data.post_hint !== "link")) return false;
   try {
@@ -860,7 +847,8 @@ const isExternalLinkPost = (data) => {
 
 const imageSource = async (data, options = {}) => {
   const redditImage = redditImageSource(data);
-  if (redditImage && !shouldPreferArticleImage(data, options)) {
+  const tryPublisher = options.preferArticleImage === true && isSmallRedditThumbnail(redditImage);
+  if (redditImage && !tryPublisher) {
     return redditImage;
   }
 

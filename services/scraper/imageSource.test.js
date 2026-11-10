@@ -981,6 +981,23 @@ test("article preference preserves the small thumbnail after empty results or er
   assert.equal(failures[0].reason, "fetch_error");
 });
 
+test("article preference tries the publisher when Reddit only supplies a small preview", async () => {
+  const thumbnail = "https://external-preview.redd.it/story.jpg?width=140";
+  const photo = "https://publisher.example/full.jpg";
+  const article = "https://publisher.example/story";
+  const result = await imageSource({
+    preview: { images: [{ source: { url: thumbnail, width: 140 } }] },
+    url: article,
+  }, {
+    preferArticleImage: true,
+    fetchArticleImageImpl: async url => {
+      assert.equal(url, article);
+      return photo;
+    },
+  });
+  assert.equal(result, photo);
+});
+
 test("article preference keeps full previews and media behavior", async () => {
   const data = { thumbnail: "https://external-preview.redd.it/story.jpg?width=140", url: "https://publisher.example/story" };
   const options = { preferArticleImage: true, fetchArticleImageImpl: async () => { throw new Error("Unexpected article fetch"); } };
