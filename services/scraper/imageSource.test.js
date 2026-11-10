@@ -115,6 +115,17 @@ test("isSafeHttpUrl rejects private DNS results", async () => {
   );
 });
 
+test("publisher DNS permits public 192.0 addresses and rejects reserved blocks", async () => {
+  const url = "https://publisher.example/story";
+  const check = (...addresses) => isSafeHttpUrl(url, {
+    resolveHostname: async () => addresses.map(address => ({ address, family: 4 })),
+  });
+  assert.equal(await check("192.0.78.235", "192.0.78.132"), true);
+  assert.equal(await check("192.0.0.8"), false);
+  assert.equal(await check("192.0.2.1"), false);
+  assert.equal(await check("192.0.78.235", "192.0.0.8"), false);
+});
+
 test("fetchArticleImage extracts twitter image from fetched article HTML", async () => {
   const image = await fetchArticleImage("https://publisher.example/story", {
     resolveHostname: async () => [{ address: "93.184.216.34" }],
