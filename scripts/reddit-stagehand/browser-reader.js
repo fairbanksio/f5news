@@ -11,19 +11,23 @@ export function readRenderedPosts({ detail = false } = {}) {
   };
   const larger = (left, right) => !left || (right && (Number(right.original) > Number(left.original) ||
     (right.original === left.original && right.width > left.width))) ? right : left;
-  const imageSource = (image, minimumWidth = 0) => {
+  const wider = (left, right) => !left || (right && right.width > left.width) ? right : left;
+  const imageSource = (image, articleDetail = false) => {
     if (!image) return null;
     let best = null;
+    const displayedUrl = httpImage(image.currentSrc || image.getAttribute("src"))?.href;
     const add = (value, advertisedWidth = 0) => {
       const url = httpImage(value);
-      if (!url) return;
+      if (!url || (articleDetail && !redditImage(url.href))) return;
       const queryWidth = Number(url.searchParams.get("width"));
       const naturalWidth = Number(image.naturalWidth);
       const declaredWidth = Number(image.getAttribute("width"));
       const measuredWidth = naturalWidth > 0 && Number.isFinite(naturalWidth) ? naturalWidth : declaredWidth > 0 && Number.isFinite(declaredWidth) ? declaredWidth : 0;
-      const width = queryWidth > 0 && Number.isFinite(queryWidth) ? queryWidth : advertisedWidth || measuredWidth;
-      if (minimumWidth && width <= minimumWidth) return;
-      best = larger(best, { url: url.href, original: url.hostname === "i.redd.it", width });
+      const fallbackWidth = !articleDetail || url.href === displayedUrl ? measuredWidth : 0;
+      const width = queryWidth > 0 && Number.isFinite(queryWidth) ? queryWidth : advertisedWidth || fallbackWidth;
+      if (articleDetail && width <= 320) return;
+      const preferImage = articleDetail ? wider : larger;
+      best = preferImage(best, { url: url.href, original: url.hostname === "i.redd.it", width });
     };
     add(image.getAttribute("src"));
     add(image.currentSrc);
@@ -46,8 +50,7 @@ export function readRenderedPosts({ detail = false } = {}) {
     const attrs = Object.fromEntries(attributes.map((name) => [name, post.getAttribute(name)]));
     const player = post.querySelector("shreddit-player");
     const detailLink = detail && ["link", "crosspost"].includes(attrs["post-type"]);
-    const minimumWidth = detailLink ? 320 : 0;
-    const imageNodes = [...post.querySelectorAll("img")].map(image => ({ image, source: imageSource(image, minimumWidth) }))
+    const imageNodes = [...post.querySelectorAll("img")].map(image => ({ image, source: imageSource(image, detailLink) }))
       .filter(({ source }) => source && redditImage(source.url));
     const byId = new Map();
     for (const { image, source } of imageNodes) {
@@ -66,7 +69,8 @@ export function readRenderedPosts({ detail = false } = {}) {
         images.unshift({ id, url });
       }
     }
-    const bestImage = imageNodes.reduce((best, { source }) => larger(best, source), imageSource(post.querySelector('[slot="thumbnail"] img'), minimumWidth));
+    const preferImage = detailLink ? wider : larger;
+    const bestImage = imageNodes.reduce((best, { source }) => preferImage(best, source), imageSource(post.querySelector('[slot="thumbnail"] img'), detailLink));
     const thumbnail = bestImage?.url || (detailLink ? null : player?.getAttribute("poster") || images[0]?.url || null);
     const preview = detailLink && bestImage?.width > 320
       ? { images: [{ source: { url: bestImage.url, width: bestImage.width } }] } : null;
