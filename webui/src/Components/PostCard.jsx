@@ -47,12 +47,13 @@ const getPublisherFallback = post => {
   return null;
 };
 
-const PostThumbnail = ({ post, height }) => {
+const PostThumbnail = ({ post, height, isArticle }) => {
   const publisherFallback = getPublisherFallback(post);
   const sources = [...new Set([getThumbnailSrc(post.thumbnail), publisherFallback?.src, placeholderSrc].filter(Boolean))];
   const [sourceIndex, setSourceIndex] = useState(0);
   const source = sources[sourceIndex];
   const isLogo = source === publisherFallback?.src;
+  const minimumWidth = isArticle ? 321 : 128;
   const advanceSource = () => setSourceIndex(Math.min(sourceIndex + 1, sources.length - 1));
 
   return (
@@ -67,7 +68,7 @@ const PostThumbnail = ({ post, height }) => {
       position='relative'
       onLoad={event => {
         if (!isLogo && source !== placeholderSrc &&
-            (event.currentTarget.naturalWidth < 128 || event.currentTarget.naturalHeight < 64)) {
+            (event.currentTarget.naturalWidth < minimumWidth || event.currentTarget.naturalHeight < 64)) {
           advanceSource();
         }
       }}
@@ -328,6 +329,7 @@ export const PostCard = ({post, elId}) => {
           key={JSON.stringify([post.url, post.domain, post.thumbnail])}
           post={post}
           height={imageHeight}
+          isArticle={media.label === 'Article'}
         />
 
         <Tooltip placement='left' label={media.label}>

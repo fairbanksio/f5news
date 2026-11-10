@@ -238,7 +238,7 @@ describe.each([
   ['Axios', 'axios.com', axiosLogoSrc],
   ['Reuters', 'reuters.com', reutersLogoSrc],
 ])('%s image fallback', (label, domain, logo) => {
-  const publisherPost = { ...post, domain, url: `https://www.${domain}/story` };
+  const publisherPost = { ...post, domain, url: `https://www.${domain}/story`, post_hint: 'link' };
 
   test.each([null, '', 'default', 'image', 'not-a-url'])('uses the logo for an unusable thumbnail: %s', thumbnail => {
     render(<PostCard post={{ ...publisherPost, thumbnail }} elId={0} />);
@@ -263,13 +263,13 @@ describe.each([
     expect(image).toHaveAttribute('src', placeholderSrc);
   });
 
-  test('replaces tiny decorative images while keeping full-size article images', () => {
+  test('replaces small thumbnails while keeping full-size article images', () => {
     const { rerender } = render(<PostCard post={publisherPost} elId={0} />);
     const image = screen.getByRole('img');
     Object.defineProperties(image, { naturalWidth: { value: 1200, configurable: true }, naturalHeight: { value: 630, configurable: true } });
     fireEvent.load(image);
     expect(image).toHaveAttribute('src', post.thumbnail);
-    Object.defineProperties(image, { naturalWidth: { value: 64, configurable: true }, naturalHeight: { value: 64, configurable: true } });
+    Object.defineProperties(image, { naturalWidth: { value: 140, configurable: true }, naturalHeight: { value: 78, configurable: true } });
     fireEvent.load(image);
     expect(image).toHaveAttribute('src', logo);
     rerender(<PostCard post={{ ...publisherPost, thumbnail: null }} elId={0} />);
@@ -298,6 +298,19 @@ test('uses the generic placeholder for tiny images from other publishers', () =>
   Object.defineProperties(image, { naturalWidth: { value: 64 }, naturalHeight: { value: 64 } });
   fireEvent.load(image);
   expect(image).toHaveAttribute('src', placeholderSrc);
+});
+
+test.each([
+  ['link', 140, placeholderSrc],
+  ['link', 320, placeholderSrc],
+  ['link', 321, post.thumbnail],
+  ['image', 140, post.thumbnail],
+])('chooses the right card image for a %s post with a %ipx thumbnail', (postHint, width, expected) => {
+  render(<PostCard post={{ ...post, post_hint: postHint }} elId={0} />);
+  const image = screen.getByRole('img');
+  Object.defineProperties(image, { naturalWidth: { value: width }, naturalHeight: { value: 78 } });
+  fireEvent.load(image);
+  expect(image).toHaveAttribute('src', expected);
 });
 
 test('preserves video previews after the Chakra migration', () => {
