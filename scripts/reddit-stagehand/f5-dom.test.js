@@ -151,6 +151,20 @@ test("tiny or unknown original images are not article detail previews", () => {
   }
 });
 
+test("article details use the widest Reddit candidate without borrowing image dimensions", () => {
+  const full = "https://external-preview.redd.it/article.jpg?width=1080&s=published";
+  const dom = new JSDOM(`<shreddit-post post-type="link">
+    <a href="https://i.redd.it/unmeasured.png"><img src="https://publisher.example/article.jpg" width="1200"
+      srcset="${full} 1080w"></a>
+    <img src="https://i.redd.it/smaller.jpg" width="640">
+  </shreddit-post>`);
+  globalThis.document = dom.window.document;
+  try {
+    const [post] = readRenderedPosts({ detail: true });
+    assert.deepEqual(post.preview.images[0].source, { url: full, width: 1080 });
+  } finally { delete globalThis.document; dom.window.close(); }
+});
+
 test("large measured or declared originals can be article previews while small core media remain valid", () => {
   const dom = new JSDOM(`<shreddit-post post-type="link"><img src="https://i.redd.it/photo.jpg" width="800"></shreddit-post>
     <shreddit-post post-type="image" content-href="https://i.redd.it/smallart.png"><img src="https://i.redd.it/smallart.png" width="64"></shreddit-post>
