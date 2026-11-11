@@ -332,6 +332,10 @@ test("optional-preview rate limiting preserves the current feed and its finite s
   const result = await scrape(response);
   assert.deepEqual(result.feeds.map((entry) => entry.subreddit), feeds.slice(0, 2));
   assert.deepEqual(result.batchFailure, response.batchFailure);
+  const challenge = { subreddit: feeds[1], stage: "optional_preview", status: "session_invalid", sessionReason: "feed_challenge" };
+  const challenged = await scrape({ ...response, batchFailure: challenge });
+  assert.deepEqual(challenged.feeds.map((entry) => entry.subreddit), feeds.slice(0, 2));
+  assert.deepEqual(challenged.batchFailure, challenge);
   const finalFeed = await scrape({ ...completeBatch(), batchFailure: { ...response.batchFailure, subreddit: feeds.at(-1), status: "session_invalid" } });
   assert.equal(finalFeed.feeds.length, feeds.length);
   for (const change of [{ subreddit: feeds[0] }, { subreddit: feeds[2] }, { stage: "private-stage" }, { httpStatus: 403 }, { sessionReason: "navigation_http_rejected" }, { status: "runtime_error" }, { stage: "feed" }]) {
@@ -343,6 +347,9 @@ test("a failure before the first completed batch feed retains ordinary failure b
   await assert.rejects(runBrowser({ allFeeds: true, limit: 25, timeoutMs: 5000, logger,
     spawnImpl: spawnCode('console.log(JSON.stringify({status:"session_invalid",sessionReason:"navigation_rate_limited",httpStatus:429,retryAfterSeconds:60}));process.exitCode=2'),
   }), (error) => error.sessionReason === "navigation_rate_limited" && error.httpStatus === 429 && error.retryAfterSeconds === 60);
+  await assert.rejects(runBrowser({ allFeeds: true, limit: 25, timeoutMs: 5000, logger,
+    spawnImpl: spawnCode('console.log(JSON.stringify({status:"session_invalid",sessionReason:"feed_challenge",httpStatus:403,retryAfterSeconds:120}));process.exitCode=2'),
+  }), (error) => error.sessionReason === "feed_challenge" && error.httpStatus === 403 && error.retryAfterSeconds === 120);
 });
 
 const batchVideo = (subreddit, id = "abc") => ({ ...batchRaw(subreddit, id),

@@ -498,6 +498,14 @@ const persistBatchImages = async (feed, dependencies, deadline) => {
   feed.job.backfillImages = await backfillMissingPostImages(feed.subreddit, { imageSourceImpl, logger, newPostModel, now, redactionValues, deadline, job: feed.job });
 };
 
+const scheduledReadBackoff = (error, event, context, logger) => {
+  const seconds = error.readBackoffSeconds;
+  if (event.scheduled !== true || !Number.isInteger(seconds) || seconds < 1 || seconds > 86400) return undefined;
+  logStructured(logger, { eventType: "SCRAPER_JOB_SKIPPED", reason: "reddit_read_backoff", trigger: "schedule",
+    readBackoffSeconds: seconds, requestId: context.awsRequestId || "", ...(event.subreddit ? { subreddit: event.subreddit } : {}) });
+  return { status: "read_backoff", readBackoffSeconds: seconds };
+};
+
 const fetchAllFeeds = async (dependencies, event, context) => {
   const { env, scrapeBatchImpl, mongooseClient, newPostModel, logger, now } = dependencies;
   const startedAt = Date.now();
@@ -583,6 +591,8 @@ const fetchAllFeeds = async (dependencies, event, context) => {
       feed.stage = "complete";
     });
   } catch (error) {
+    const skipped = scheduledReadBackoff(error, event, context, logger);
+    if (skipped) return skipped;
     batchProblem = true;
     sourceFailureFields = batchFailureFields(error);
     for (const feed of feeds) if (!feed.terminalError) {
@@ -626,6 +636,7 @@ const createFetchPosts = ({
     const redactionValues = [env.MONGO_CONNECTION_STRING, env.REDDIT_CLIENT_ID, env.REDDIT_SECRET_KEY, env.REDDIT_USERNAME, env.REDDIT_PASSWORD];
     let stage = "database_connect";
     let terminalError;
+    let skipped;
     try {
       await mongooseClient.connect();
       const imagePriorityIds = event.renewSession === true ? [] : await findImagePriorityIds(newPostModel, subreddit, { now, logger });
@@ -646,6 +657,8 @@ const createFetchPosts = ({
       job.backfillImages = await backfillMissingPostImages(subreddit, { imageSourceImpl, logger, newPostModel, now, redactionValues, job });
       stage = "complete";
     } catch (error) {
+      skipped = scheduledReadBackoff(error, event, context, logger);
+      if (skipped) return skipped;
       const safe = errorFields(error, redactionValues);
       terminalError = Object.assign(new Error(safe.errorMessage), { name: safe.errorName, code: safe.errorCode, status: safe.status });
       if (safe.stack) terminalError.stack = safe.stack;
@@ -653,7 +666,7 @@ const createFetchPosts = ({
     } finally {
       const imageCounts = [job.scrapeImages, job.backfillImages].filter(Boolean);
       const degraded = job.sessionRenewalDeferred === true || imageCounts.some((metrics) => metrics.missing || metrics.errors || metrics.dependencyFailures || metrics.updateErrors || metrics.queryErrors);
-      logStructured(logger, {
+      if (!skipped) logStructured(logger, {
         eventType: terminalError ? "SCRAPER_JOB_FAILED" : "SCRAPER_JOB_COMPLETED",
         subreddit, stage, trigger: event.scheduled === true ? "schedule" : "manual", outcome: terminalError ? "failed" : degraded ? "degraded" : "success",
         durationMs: Date.now() - startedAt, requestId: context.awsRequestId || "",
