@@ -45,7 +45,7 @@ functions:
     logRetentionInDays: 7
     events:
       - schedule:
-          rate: rate(5 minutes)
+          rate: rate(15 minutes)
           enabled: true
           input:
             allFeeds: true

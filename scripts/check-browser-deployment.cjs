@@ -285,7 +285,7 @@ async function verifySessionDiagnostics({ invoke, publicKey, readRuntimeEvents, 
 }
 
 async function verifyScheduled({ readEvents, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  emit = console.log, startTime = now(), timeoutMs = 720000, pollMs = 15000 } = {}) {
+  emit = console.log, startTime = now(), timeoutMs = 35 * 60 * 1000, pollMs = 15000 } = {}) {
   const deadline = now() + timeoutMs;
   const latest = new Map();
   while (true) {
