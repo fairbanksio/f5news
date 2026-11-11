@@ -1510,3 +1510,20 @@ test("deferred proactive renewal keeps successful collection visible as degraded
   assert.equal(terminal.sessionMode, "reused");
   assert.equal(terminal.sessionRenewalDeferred, true);
 });
+
+test("scheduled batches and renewals record a skip while Reddit reads are paused", async () => {
+  const logger = createLogger();
+  const paused = async () => { throw Object.assign(new Error("Session reads are cooling down"), { readBackoffSeconds: 120 }); };
+  const handler = createFetchPosts({
+    logger, mongooseClient: { connect: async () => {} },
+    scrapeBatchImpl: paused, scrapePostsImpl: paused,
+    newPostModel: { find: async () => [], findOneAndUpdate: async () => assert.fail("A skipped job must not save posts") },
+  });
+  for (const input of [{ allFeeds: true }, { subreddit: "politics", renewSession: true }]) {
+    assert.deepEqual(await handler({ ...input, scheduled: true }), { status: "read_backoff", readBackoffSeconds: 120 });
+  }
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_SKIPPED").length, 2);
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 0);
+  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_FAILED").length, 0);
+  await assert.rejects(handler({ subreddit: "politics" }), /cooling down/);
+});

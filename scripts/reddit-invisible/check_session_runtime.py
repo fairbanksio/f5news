@@ -46,7 +46,13 @@ def check_access_classification(page):
 
 
 def check_navigation_http(browser):
-    for status, expected in ((403, "navigation_http_rejected"), (429, "navigation_rate_limited"), (503, "navigation_network_error")):
+    fixtures = (
+        (403, False, "navigation_http_rejected"),
+        (403, True, "feed_challenge"),
+        (429, False, "navigation_rate_limited"),
+        (503, False, "navigation_network_error"),
+    )
+    for status, challenge, expected in fixtures:
         page = browser.new_page()
         requests = []
         def fulfill(route):
@@ -55,7 +61,7 @@ def check_navigation_http(browser):
             headers = {"content-type": "text/html", "content-length": "0", "set-cookie": "fixture=never-log-this-header; Secure; Path=/"}
             if status == 429:
                 headers["retry-after"] = "60"
-            elif status == 403:
+            if challenge:
                 headers["cf-mitigated"] = "challenge"
             route.fulfill(status=status, headers=headers, body="")
         page.route("https://www.reddit.com/**", fulfill)
@@ -74,7 +80,7 @@ def check_navigation_http(browser):
         events = [json.loads(message) for message in messages if message.startswith("{")]
         assert events == [{"eventType": "BROWSER_NAVIGATION_HTTP", "status": status,
                            "retryAfterSeconds": 60 if status == 429 else None, "contentLength": 0,
-                           "challenge": status == 403}] * attempts, "Offline HTTP event metadata did not match"
+                           "challenge": challenge}] * attempts, "Offline HTTP event metadata did not match"
         assert not any("never-log-this-header" in message or "https://" in message or "set-cookie" in message for message in messages)
         page.close()
 

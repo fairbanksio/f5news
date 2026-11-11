@@ -97,17 +97,8 @@ class SmokeTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             smoke.options(["--limit", "26"])
 
-    def test_visible_checkbox_is_clicked_once_then_feed_metadata_is_read(self):
+    def test_challenge_closes_browser_before_reading_posts(self):
         events = []
-        states = iter(["challenge", "feed"])
-        raw = sample_post()
-
-        class Checkbox:
-            def is_visible(self, **_kwargs):
-                return True
-
-            def click(self, **_kwargs):
-                events.append("click")
 
         class Page:
             def on(self, *_args):
@@ -116,11 +107,10 @@ class SmokeTests(unittest.TestCase):
             def goto(self, url, **_kwargs):
                 self.url = url
 
-            def frame_locator(self, _selector):
-                return types.SimpleNamespace(locator=lambda _anchor: Checkbox())
-
             def evaluate(self, expression, *_args):
-                return next(states) if "return 'challenge'" in expression else [raw]
+                if "return 'challenge'" not in expression:
+                    raise AssertionError("A challenged page must not be scraped")
+                return "challenge"
 
             evaluate_read = evaluate
 
@@ -143,9 +133,10 @@ class SmokeTests(unittest.TestCase):
         module = types.SimpleNamespace(InvisiblePlaywright=Browser)
         with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke.time, "sleep"):
             result = smoke.run(argparse.Namespace(subreddit="politics", limit=1))
-        self.assertEqual(result["status"], "accessible")
-        self.assertEqual(result["posts"], [raw])
-        self.assertEqual(events, ["click", "closed"])
+        self.assertEqual(result["status"], "challenge_required")
+        self.assertEqual(result["sessionReason"], "feed_challenge")
+        self.assertEqual(result["posts"], [])
+        self.assertEqual(events, ["closed"])
 
 
 class AuthenticationTests(unittest.TestCase):
@@ -649,7 +640,7 @@ class NavigationHTTPTests(unittest.TestCase):
         return page, events
 
     def test_explicit_empty_denial_or_rate_limit_has_one_get_and_safe_metadata(self):
-        for status, reason in ((401, "navigation_http_rejected"), (403, "navigation_http_rejected"), (429, "navigation_rate_limited")):
+        for status, reason in ((401, "feed_challenge"), (403, "feed_challenge"), (429, "navigation_rate_limited"), (503, "feed_challenge")):
             response = self.response(status, {"retry-after": "60", "content-length": "0", "cf-mitigated": "challenge", "set-cookie": "private-cookie-value"})
             page, events = self.page(response)
             messages = []
@@ -978,14 +969,20 @@ class LinkPreviewTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 smoke.options(["--image-priority-ids", value])
 
-    def test_optional_block_or_challenge_stops_reads_without_failing_batch(self):
+    def test_optional_block_or_challenge_stops_reads_and_preserves_posts(self):
         for access in ("blocked", "challenge"):
             posts = self.posts(3)
             page, events = self.page(posts)
             page.evaluate_read = lambda *_args: (_ for _ in ()).throw(AssertionError("Must stop before reading details"))
+            budget = {"remaining": 4, "seconds": 25}
             with patch.object(smoke, "state", return_value=access):
-                self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
+                self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics", budget=budget), posts)
             self.assertEqual(len(events), 1)
+            self.assertTrue(budget["disabled"])
+            if access == "challenge":
+                self.assertEqual(budget["failure"].code, "feed_challenge")
+            else:
+                self.assertNotIn("failure", budget)
 
     def test_unavailable_wrong_identity_or_unsafe_preview_keeps_listing_image(self):
         for error in ("navigation", "identity", "unsafe"):
