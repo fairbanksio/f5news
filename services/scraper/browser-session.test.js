@@ -284,26 +284,24 @@ test("access failures report only a finite status and never request renewal", as
 
 
 test("a transient access failure retries the same session without another login", async () => {
-  for (const status of ["session_blocked", "session_challenge"]) {
-    const generation = randomUUID();
-    const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
-    store.objects.set(generation, SECRET);
-    const calls = [];
-    const delays = [];
-    const runner = createSessionRunner({ store, now: () => NOW, pause: async (ms) => { delays.push(ms); } });
-    const result = await runner(options(), async (request) => {
-      calls.push(request);
-      if (calls.length === 1) throw new Error(`Browser extraction failed: ${status}`);
-      return { status: "accessible", posts: [] };
-    });
-    assert.equal(calls.length, 2);
-    assert.ok(calls.every((request) => request.authenticate === false));
-    assert.equal(calls[0].sessionInput, calls[1].sessionInput);
-    assert.deepEqual(delays, [2000]);
-    assert.equal(result.sessionGeneration, generation);
-    assert.equal(result.sessionMode, "reused");
-    assert.equal(store.attempts.length, 0);
-  }
+  const generation = randomUUID();
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
+  store.objects.set(generation, SECRET);
+  const calls = [];
+  const delays = [];
+  const runner = createSessionRunner({ store, now: () => NOW, pause: async (ms) => { delays.push(ms); } });
+  const result = await runner(options(), async (request) => {
+    calls.push(request);
+    if (calls.length === 1) throw new Error("Browser extraction failed: session_blocked");
+    return { status: "accessible", posts: [] };
+  });
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((request) => request.authenticate === false));
+  assert.equal(calls[0].sessionInput, calls[1].sessionInput);
+  assert.deepEqual(delays, [2000]);
+  assert.equal(result.sessionGeneration, generation);
+  assert.equal(result.sessionMode, "reused");
+  assert.equal(store.attempts.length, 0);
 });
 
 test("transport and restore failures retry reads twice without acquiring a password lease", async () => {
@@ -510,8 +508,53 @@ test("shared read backoff prevents saved-session reads, leases, and forced authe
     await assert.rejects(createSessionRunner({ store, now: () => NOW })({ ...options(), renewSession }, async () => assert.fail("Backoff must precede browser launch")),
       (error) => error.readBackoffSeconds === 120);
     assert.equal(store.attempts.length, 0);
-    assert.equal(store.readPauses.length, 0);
+    assert.deepEqual(store.readPauses, []);
   }
+});
+
+test("a challenge stops the current attempt and the next scheduled read resumes after expiry", async () => {
+  const generation = randomUUID();
+  let clock = NOW;
+  let expiry = NOW;
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
+  store.objects.set(generation, SECRET);
+  const current = store.current;
+  const pauseReads = store.pauseReads;
+  store.current = async () => ({ ...await current(), readBackoffSeconds: Math.max(0, (expiry - clock) / 1000) });
+  store.pauseReads = async (seconds) => { expiry = Math.max(expiry, clock + seconds * 1000); await pauseReads(seconds); };
+  const run = createSessionRunner({ store, now: () => clock, pause: async () => assert.fail("Challenge must not retry immediately") });
+  let calls = 0;
+  const browser = async ({ authenticate }) => {
+    assert.equal(authenticate, false);
+    if (++calls <= 2) throw Object.assign(new Error("Browser extraction failed: session_challenge"), { sessionReason: "feed_challenge" });
+    return { status: "accessible", posts: [] };
+  };
+  await assert.rejects(run(options(), browser), { sessionReason: "feed_challenge" });
+  clock += 300000;
+  await assert.rejects(run(options(), browser), { readBackoffSeconds: 300 });
+  await assert.rejects(run({ ...options(), renewSession: true }, browser), { readBackoffSeconds: 300 });
+  assert.equal(calls, 1);
+  clock = expiry;
+  await assert.rejects(run(options(), browser), { sessionReason: "feed_challenge" });
+  clock = expiry;
+  const resumed = await run(options(), browser);
+  assert.equal(resumed.sessionGeneration, generation);
+  assert.equal(calls, 3);
+  assert.deepEqual(store.readPauses, [600, 600]);
+  assert.equal(store.attempts.length, 0);
+});
+
+test("a challenge during renewal pauses reads and leaves the saved session in place", async () => {
+  const generation = randomUUID();
+  const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
+  const run = createSessionRunner({ store, now: () => NOW });
+  await assert.rejects(run({ ...options(), renewSession: true }, async ({ authenticate }) => {
+    assert.equal(authenticate, true);
+    throw new Error("Browser extraction failed: auth_challenge");
+  }), /auth_challenge/);
+  assert.deepEqual(store.readPauses, [600]);
+  assert.equal((await store.current()).activeGeneration, generation);
+  assert.equal(store.releases.length, 1);
 });
 
 test("a rejected saved-session read pauses all reads once and never requests a login", async () => {
@@ -644,7 +687,7 @@ test("aged partial batch failures retain the prefix without proactive authentica
     });
     assert.equal(calls, 1);
     assert.equal(store.attempts.length, 0);
-    assert.equal(store.readPauses.length, 0);
+    assert.deepEqual(store.readPauses, failure.sessionReason === "feed_challenge" ? [600] : []);
     assert.deepEqual(result.feeds, partial.feeds);
     assert.deepEqual(result.batchFailure, partial.batchFailure);
     assert.equal(result.sessionMode, "reused");
@@ -735,7 +778,7 @@ test("batch and optional HTTP rate-limit signals share one backoff write", async
   const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
   store.objects.set(generation, SECRET);
   await createSessionRunner({ store, now: () => NOW })(options(), async () => ({ ...partialBatch(), navigationRateLimit: { httpStatus: 429, retryAfterSeconds: 60 } }));
-  assert.deepEqual(store.readPauses, [30]);
+  assert.deepEqual(store.readPauses, [60]);
 });
 
 test("optional rate-limit coordination failure retains valid posts with a clear marker", async () => {

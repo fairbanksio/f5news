@@ -7,6 +7,15 @@ const { S3Client, GetObjectCommand, PutObjectCommand } = require("@aws-sdk/clien
 const MAX_BYTES = 1024 * 1024;
 const SESSION_ID = "reddit";
 const readPauseSeconds = (value) => Number.isInteger(value) && value > 0 ? Math.min(value, 86400) : 600;
+const challengeStatuses = ["session_challenge", "auth_challenge", "challenge_required"];
+const readPauseFor = (failure) => {
+  if (failure?.httpStatus === 429 || failure?.sessionReason === "navigation_rate_limited" ||
+      failure?.sessionReason === "feed_challenge" || challengeStatuses.includes(failure?.status) ||
+      challengeStatuses.some((status) => failure?.message === `Browser extraction failed: ${status}`)) {
+    return readPauseSeconds(failure.retryAfterSeconds);
+  }
+  return 0;
+};
 const operationOptions = { maxTimeMS: 5000, timeoutMS: 10000 };
 const key = (generation) => {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(generation)) throw new Error("Invalid session generation");
@@ -118,8 +127,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
         throw Object.assign(new Error(`Session reads are cooling down (${seconds} seconds)`), { readBackoffSeconds: seconds });
       }
     };
-    const pauseLimitedReads = async (failure) => {
-      const seconds = readPauseSeconds(failure.retryAfterSeconds);
+    const pauseLimitedReads = async (seconds) => {
       try { await store.pauseReads(seconds); }
       catch {
         options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "read_backoff_failed", seconds, severity: "error" }));
@@ -132,13 +140,13 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
       let result;
       try { result = await runBrowser(request); }
       catch (error) {
-        if (error.sessionReason === "navigation_rate_limited" || error.httpStatus === 429) await pauseLimitedReads(error);
+        const seconds = readPauseFor(error);
+        if (seconds) await pauseLimitedReads(seconds);
         throw error;
       }
-      const rateLimit = result?.batchFailure?.httpStatus === 429 || result?.batchFailure?.sessionReason === "navigation_rate_limited"
-        ? result.batchFailure : result?.navigationRateLimit?.httpStatus === 429 ? result.navigationRateLimit : undefined;
-      if (rateLimit) {
-        try { await pauseLimitedReads(rateLimit); }
+      const seconds = Math.max(readPauseFor(result?.batchFailure), readPauseFor(result?.optionalFailure), readPauseFor(result?.navigationRateLimit));
+      if (seconds) {
+        try { await pauseLimitedReads(seconds); }
         catch { return { ...result, readBackoffFailed: true }; }
       }
       return result;
@@ -180,13 +188,13 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
                 const result = await browserAttempt({ ...options, authenticate: false, sessionInput: input, sessionOutput: undefined, timeoutMs: budget(options.allFeeds ? 150000 : 100000) });
                 const aged = now() - new Date(current.sessionCreatedAt).getTime() >= 12 * 60 * 60 * 1000;
                 if (result?.batchFailure) return reused(result, generation, aged ? "batch_incomplete" : undefined);
-                if (options.allFeeds || result?.navigationRateLimit?.httpStatus === 429 || !aged) return reused(result, generation);
+                if (options.allFeeds || readPauseFor(result?.navigationRateLimit) || readPauseFor(result?.optionalFailure) || !aged) return reused(result, generation);
                 validReuse = result;
                 break;
               } catch (error) {
-                const rejected = HTTP_REJECTIONS.includes(error.sessionReason);
+                const rejected = HTTP_REJECTIONS.includes(error.sessionReason) || Boolean(readPauseFor(error));
                 if (!renewableFailure(error) && !rejected) throw error;
-                lastReuseFailure = /^Browser extraction failed: (session_invalid|session_blocked|session_challenge|network_error)$/.exec(error.message)?.[1] || "runtime_error";
+                lastReuseFailure = /^Browser extraction failed: (session_invalid|session_blocked|session_challenge|challenge_required|auth_challenge|network_error)$/.exec(error.message)?.[1] || "runtime_error";
                 lastReuseReason = SESSION_REASONS.includes(error.sessionReason) ? error.sessionReason : undefined;
                 const fields = rejected ? rejectionFields(error) : {};
                 options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "reuse_failed", generation, status: lastReuseFailure, ...(lastReuseReason ? { reason: lastReuseReason } : {}), ...fields, attempt }));

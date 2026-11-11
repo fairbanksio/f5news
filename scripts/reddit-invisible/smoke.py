@@ -334,8 +334,11 @@ def navigate(page, url, wait_until="domcontentloaded", timeout=30000, now=time.m
 
     def reject_explicit_http():
         status = observed.get("status")
-        if status in (401, 403, 429):
-            code = "navigation_rate_limited" if status == 429 else "navigation_http_rejected"
+        if status in (401, 403, 429) or observed.get("challenge"):
+            if status == 429:
+                code = "navigation_rate_limited"
+            else:
+                code = "feed_challenge" if observed.get("challenge") else "navigation_http_rejected"
             raise SessionError("Browser navigation was rejected", code, status, observed.get("retryAfterSeconds"))
 
     try:
@@ -553,7 +556,9 @@ def enrich_gallery(page, reader, post, subreddit, deadline=None):
     last_report = started
     while time.monotonic() - started < 60 and before_deadline(deadline):
         current = state(page)
-        if current in ("blocked", "challenge"):
+        if current == "challenge":
+            raise SessionError("Gallery detail requires browser access: challenge", "feed_challenge")
+        if current == "blocked":
             raise RuntimeError("Gallery detail requires browser access: " + current)
         if current == "feed":
             break
@@ -645,6 +650,8 @@ def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_bud
                 log("Optional image details require browser access. Keeping listing images.")
                 if budget is not None:
                     budget["disabled"] = True
+                    if access == "challenge":
+                        budget["failure"] = SessionError("Optional preview requires a human check", "feed_challenge")
                 break
             if access != "feed" or time.monotonic() >= deadline:
                 continue
@@ -665,10 +672,10 @@ def enrich_link_previews(page, reader, posts, subreddit, max_details=4, time_bud
             log("Improved an optional link preview from the published image source.")
         except SessionError as error:
             log("Optional image details were unavailable. Keeping the listing image.")
-            if error.http_status in (401, 403, 429):
+            if error.http_status in (401, 403, 429) or error.code == "feed_challenge":
                 if budget is not None:
                     budget["disabled"] = True
-                    if error.http_status == 429:
+                    if error.http_status == 429 or error.code == "feed_challenge":
                         budget["failure"] = error
                 break
         except Exception:
@@ -915,7 +922,6 @@ def run(config):
         else:
             log("Loading the configured Reddit feed in a fresh browser session.")
             navigate(page, url, wait_until="domcontentloaded", timeout=30000)
-        clicked = False
         access_started = time.monotonic()
         last_report = access_started
         while time.monotonic() - access_started < 60:
@@ -929,15 +935,11 @@ def run(config):
                 return {"status": "blocked", "subreddit": config.subreddit, "posts": []}
             if current == "feed":
                 break
-            if current == "challenge" and not clicked:
-                checkbox = page.frame_locator('iframe[title="reCAPTCHA"]').locator("#recaptcha-anchor")
-                if checkbox.is_visible(timeout=3000):
-                    log("Clicking the visible checkbox once in the approved website workflow.")
-                    checkbox.click(timeout=5000)
-                    clicked = True
+            if current == "challenge":
+                return {"status": "challenge_required", "sessionReason": "feed_challenge", "subreddit": config.subreddit, "posts": []}
             time.sleep(1)
         else:
-            return {"status": "session_invalid" if session else "challenge_required" if state(page) == "challenge" else "loading_timeout", **({"sessionReason": "feed_timeout"} if session else {}), "subreddit": config.subreddit, "checkboxClicked": clicked, "posts": []}
+            return {"status": "session_invalid" if session else "loading_timeout", **({"sessionReason": "feed_timeout"} if session else {}), "subreddit": config.subreddit, "posts": []}
 
         if session_output:
             export_session(page, seed, session_output)
@@ -961,8 +963,14 @@ def run(config):
         for index, post in enumerate(selected):
             if post["attributes"]["post-type"] == "gallery":
                 selected[index] = enrich_gallery(page, reader, post, config.subreddit)
-        selected = enrich_link_previews(page, reader, selected, config.subreddit, priority_ids=getattr(config, "image_priority_ids", None))
-        return {"status": "accessible" if selected else "empty", "subreddit": config.subreddit, "checkboxClicked": clicked, "posts": selected, "durationSeconds": round(time.monotonic() - started, 2)}
+        optional_budget = {"remaining": 4, "seconds": 25}
+        selected = enrich_link_previews(page, reader, selected, config.subreddit,
+                                        priority_ids=getattr(config, "image_priority_ids", None), budget=optional_budget)
+        result = {"status": "accessible" if selected else "empty", "subreddit": config.subreddit,
+                  "posts": selected, "durationSeconds": round(time.monotonic() - started, 2)}
+        if optional_budget.get("failure"):
+            result["optionalFailure"] = optional_budget["failure"].diagnostics()
+        return result
 
 
 def main():
@@ -971,7 +979,7 @@ def main():
         with browser_lifecycle():
             result = run(config)
     except SessionError as error:
-        if error.code not in ("navigation_network_error", "navigation_http_rejected", "navigation_rate_limited"):
+        if error.code not in ("navigation_network_error", "navigation_http_rejected", "navigation_rate_limited", "feed_challenge"):
             detail = redact(str(error))
             log(f"Browser test failed ({type(error).__name__}): {detail[:1200]}")
             return 1

@@ -101,7 +101,7 @@ const runBrowser = ({ subreddit, allFeeds = false, imagePriorityIdsBySubreddit, 
     if (code !== 0 || result.status !== "accessible") {
       const error = new Error(`Browser extraction failed: ${FAILURE_STATUSES.includes(result.status) ? result.status : "runtime_error"}`);
       if (SESSION_REASONS.includes(result.sessionReason)) error.sessionReason = result.sessionReason;
-      if (["navigation_http_rejected", "navigation_rate_limited"].includes(error.sessionReason)) {
+      if (["navigation_http_rejected", "navigation_rate_limited", "feed_challenge"].includes(error.sessionReason)) {
         if ([401, 403, 429].includes(result.httpStatus)) error.httpStatus = result.httpStatus;
         if (Number.isInteger(result.retryAfterSeconds) && result.retryAfterSeconds >= 0 && result.retryAfterSeconds <= 86400) error.retryAfterSeconds = result.retryAfterSeconds;
       }
@@ -154,7 +154,8 @@ const createBrowserBatchSource = ({ runBrowserImpl = runBrowser, fetchImpl = glo
   if (result.batchFailure !== undefined) {
     const failure = result.batchFailure;
     const optionalPreview = failure?.stage === "optional_preview" && failure.subreddit === feeds[result.feeds.length - 1] &&
-      ["network_error", "session_invalid"].includes(failure.status) && failure.sessionReason === "navigation_rate_limited" && failure.httpStatus === 429;
+      ["network_error", "session_invalid"].includes(failure.status) &&
+      (failure.sessionReason === "feed_challenge" || (failure.sessionReason === "navigation_rate_limited" && failure.httpStatus === 429));
     const nextFeed = (failure?.stage === undefined || failure.stage === "feed") && result.feeds.length < feeds.length && failure?.subreddit === feeds[result.feeds.length];
     if (!failure || typeof failure !== "object" || (!optionalPreview && !nextFeed) || !FAILURE_STATUSES.includes(failure.status)) throw new Error("Browser returned an invalid batch failure");
     batchFailure = { subreddit: failure.subreddit, status: failure.status, ...(failure.stage ? { stage: failure.stage } : {}) };
