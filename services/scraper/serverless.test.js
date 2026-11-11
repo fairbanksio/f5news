@@ -8,7 +8,7 @@ test("one scheduled batch covers the supported news feeds", () => {
   const config = yaml.load(fs.readFileSync(path.join(__dirname, "serverless.yml"), "utf8"));
   const schedules = config.functions.fetchPosts.events.filter((event) => event.schedule?.input.allFeeds === true);
   assert.equal(schedules.length, 1);
-  assert.equal(schedules[0].schedule.rate, "rate(5 minutes)");
+  assert.equal(schedules[0].schedule.rate, "rate(15 minutes)");
   assert.equal(schedules[0].schedule.input.allFeeds, true);
   assert.equal(schedules[0].schedule.input.subreddit, undefined);
   assert.deepEqual(require("../posts/subreddits.json"), [
