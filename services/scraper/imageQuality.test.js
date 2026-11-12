@@ -20,7 +20,7 @@ const matches = (post, filter) => Object.entries(filter).every(([field, value]) 
   return Object.entries(value).every(([operator, operand]) => {
     if (operator === "$exists") return (post[field] !== undefined) === operand;
     if (operator === "$ne") return post[field] !== operand;
-    if (operator === "$in") return operand.includes(post[field]);
+    if (operator === "$in") return operand.includes(post[field] ?? null);
     if (operator === "$nin") return !operand.includes(post[field]);
     if (operator === "$gt") return post[field] > operand;
     if (operator === "$lt") return post[field] < operand;
@@ -127,6 +127,63 @@ test("a concurrent better image also survives the backfill repair write", async 
     fetchImageWidthImpl: async () => { stored.thumbnail = large; return 1200; },
   });
   assert.equal(stored.thumbnail, large);
+});
+
+test("manual publisher backfill repairs only verified external images without reading Reddit", async () => {
+  const improved = "https://cdn.example/large.jpg";
+  const posts = [
+    record({ _id: "small", title: "Small" }),
+    record({ _id: "missing", title: "Missing", thumbnail: undefined }),
+    record({ _id: "unverified", title: "Unverified" }),
+    record({ _id: "concurrent", title: "Concurrent", thumbnail: undefined }),
+    record({ _id: "reddit", url: "https://www.reddit.com./r/politics/comments/a", thumbnail: undefined }),
+    record({ _id: "gallery", is_gallery: true, thumbnail: undefined }),
+    record({ _id: "otherfeed", sub: "news" }),
+    record({ _id: "large", thumbnail: large }),
+  ];
+  const calls = [];
+  const neverReadReddit = () => { throw new Error("Unexpected Reddit read"); };
+  const handler = createFetchPosts({
+    scrapePostsImpl: neverReadReddit, scrapeBatchImpl: neverReadReddit, inspectSessionImpl: neverReadReddit,
+    newPostModel: model(posts), mongooseClient: { connect: async () => {} }, logger, now: () => now,
+    imageSourceImpl: async (post, options) => {
+      assert.equal(options.publisherOnly, true);
+      calls.push(post._id);
+      return `${improved}?id=${post._id}`;
+    },
+    fetchImageWidthImpl: async (url, options) => {
+      assert.equal(options.publisherOnly, true);
+      const id = new URL(url).searchParams.get("id");
+      if (id === "concurrent") posts[3].thumbnail = large;
+      return id === "unverified" ? 140 : 1200;
+    },
+  });
+  const event = { publisherImageBackfill: true, subreddit: "politics" };
+  const result = await handler(event);
+  assert.deepEqual(result, { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", subreddit: "politics",
+    candidates: 4, attempts: 4, updated: 2, errors: 0, dependencyFailures: 0, deferred: false });
+  assert.deepEqual(calls.sort(), ["concurrent", "missing", "small", "unverified"]);
+  assert.equal(posts[0].thumbnail, `${improved}?id=small`);
+  assert.equal(posts[1].thumbnail, `${improved}?id=missing`);
+  assert.equal(posts[2].thumbnail, small);
+  assert.equal(posts[3].thumbnail, large);
+  assert.equal((await handler(event)).attempts, 0);
+  await assert.rejects(handler({ ...event, scheduled: true }), /standalone manual/);
+  await assert.rejects(handler({ ...event, subreddit: "unsupported" }), /configured subreddit/);
+  await assert.rejects(handler(event, { getRemainingTimeInMillis: () => 5000 }), /Insufficient time/);
+});
+
+test("manual publisher backfill caps work at ten records", async () => {
+  const posts = Array.from({ length: 14 }, (_, id) => record({ _id: String(id), title: `Story ${id}`, thumbnail: undefined }));
+  const handler = createFetchPosts({
+    newPostModel: model(posts), mongooseClient: { connect: async () => {} }, logger, now: () => now,
+    imageSourceImpl: async () => "",
+  });
+  const result = await handler({ publisherImageBackfill: true, subreddit: "politics" });
+  assert.equal(result.candidates, 10);
+  assert.equal(result.attempts, 10);
+  assert.equal(result.updated, 0);
+  assert.equal(posts.filter((post) => post.thumbnailQualityCheckedAt).length, 10);
 });
 
 

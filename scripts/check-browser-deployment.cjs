@@ -370,7 +370,11 @@ function invokeLive(event) {
     console.error(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE_FAILED", subreddit: event.subreddit,
       ...failureSummary({ ...result, LogResult: Buffer.from(logText).toString("base64") }, error) }));
   }
-  if (event.allFeeds && !result.FunctionError) result.BatchResult = JSON.parse(readFileSync(payloadFile, "utf8"));
+  if (!result.FunctionError && (event.allFeeds || event.publisherImageBackfill)) {
+    const payload = JSON.parse(readFileSync(payloadFile, "utf8"));
+    if (event.publisherImageBackfill) result.PublisherBackfillResult = payload;
+    else result.BatchResult = payload;
+  }
   return result;
 }
 
@@ -385,6 +389,23 @@ function selectVerificationMode(env, configuration) {
 
 async function runVerification({ env = process.env, configuration, invoke = invokeLive, readEvents = readScheduledEvents,
   readRuntime = readRuntimeEvents, emit = console.log, sleep } = {}) {
+  if (env.F5_PROBE_PUBLISHER_IMAGE_BACKFILL === "true") {
+    const conflicts = ["DIAGNOSTICS", "DEPLOYMENT", "SCHEDULED", "ALL_FEEDS", "AUTHENTICATE", "RENEW_SESSION"];
+    assert.ok(!conflicts.some((mode) => env[`F5_PROBE_${mode}`] === "true"), "Select publisher image backfill by itself");
+    const subreddit = env.F5_PROBE_SUBREDDIT || "politics";
+    assert.ok(FEEDS.includes(subreddit), "Select a configured subreddit for publisher image backfill");
+    const metadata = await invoke({ publisherImageBackfill: true, subreddit });
+    assert.ok(metadata.StatusCode === 200 && !metadata.FunctionError, "Publisher image backfill invocation failed");
+    const result = metadata.PublisherBackfillResult;
+    assert.ok(result?.eventType === "PUBLISHER_IMAGE_BACKFILL_COMPLETED" && result.subreddit === subreddit, "Publisher image backfill result missing");
+    const { candidates, attempts, updated, errors, dependencyFailures, deferred } = result;
+    assert.ok([candidates, attempts, updated, errors, dependencyFailures].every((count) => Number.isInteger(count) && count >= 0)
+      && candidates <= 10 && attempts <= candidates && updated <= attempts && typeof deferred === "boolean", "Invalid publisher image backfill counts");
+    const summary = { eventType: result.eventType, subreddit, candidates, attempts, updated, errors, dependencyFailures, deferred };
+    emit(JSON.stringify(summary));
+    assert.equal(errors, 0, "Publisher image backfill reported errors");
+    return summary;
+  }
   if (env.F5_PROBE_DEPLOYMENT === "true" && env.F5_PROBE_DIAGNOSTICS !== "true" && configuration === undefined) {
     const yaml = require("../services/scraper/node_modules/js-yaml");
     configuration = yaml.load(readFileSync(path.join(__dirname, "../services/scraper/serverless.yml"), "utf8"));

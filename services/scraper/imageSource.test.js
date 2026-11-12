@@ -20,6 +20,35 @@ const createHeaders = (values = {}) => ({
   get: (name) => values[name.toLowerCase()] || null,
 });
 
+test("publisher-only article and image requests never follow redirects to Reddit", async () => {
+  for (const resolve of [fetchArticleImage, fetchImageWidth]) {
+    const requests = [];
+    const result = await resolve("https://publisher.example/story", {
+      publisherOnly: true,
+      resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+      fetchImpl: async (url) => {
+        requests.push(url);
+        return { status: 302, headers: createHeaders({ location: "https://preview.redd.it./image.jpg" }) };
+      },
+    });
+    assert.ok(!result);
+    assert.deepEqual(requests, ["https://publisher.example/story"]);
+  }
+});
+
+test("publisher-only resolution neither returns a Reddit fallback nor accepts Reddit publisher metadata", async () => {
+  const data = { url: "https://publisher.example/story", thumbnail: "https://preview.redd.it/image.jpg?width=140" };
+  assert.equal(await imageSource(data, { publisherOnly: true, fetchArticleImageImpl: async () => "" }), "");
+  assert.equal(await imageSource(data, {
+    publisherOnly: true,
+    resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+    fetchImpl: async () => ({
+      ok: true, status: 200, headers: createHeaders({ "content-type": "text/html" }),
+      body: Readable.from(['<meta property="og:image" content="https://preview.redd.it/image.jpg">']),
+    }),
+  }), "");
+});
+
 test("extractMetaImage prefers og:image and resolves relative URLs", () => {
   const html = `
     <html>

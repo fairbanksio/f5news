@@ -60,6 +60,16 @@ const isSmallRedditThumbnail = (url) => {
   }
 };
 
+const isPublisherUrl = (value) => {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password &&
+      !/(^|\.)(reddit\.com|redd\.it|redditmedia\.com|redditstatic\.com)\.?$/.test(url.hostname);
+  } catch {
+    return false;
+  }
+};
+
 const isPrivateIPv4 = (address) => {
   const parts = address.split(".").map((part) => Number(part));
   if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
@@ -530,10 +540,13 @@ const fetchArticleImage = async (url, options = {}) => {
   let transientRetryCount = 0;
 
   while (redirectCount <= maxRedirects) {
-    if (!(await isSafeHttpUrl(nextUrl, { resolveHostname }))) {
+    if (options.publisherOnly && !isPublisherUrl(nextUrl)) return "";
+    const safeUrl = isSafeHttpUrl(nextUrl, { resolveHostname });
+    const allowed = options.publisherOnly ? await withTimeout(safeUrl, timeoutMs, () => {}) : await safeUrl;
+    if (!allowed) {
       reportArticleImageFailure(options, {
         url: nextUrl,
-        reason: "unsafe_url",
+        reason: allowed === null ? "request_timeout" : "unsafe_url",
         details: {
           redirectCount,
           retryCount: transientRetryCount,
@@ -699,7 +712,7 @@ const fetchArticleImage = async (url, options = {}) => {
         return "";
       }
 
-      return image;
+      return !options.publisherOnly || isPublisherUrl(image) ? image : "";
     } catch (error) {
       if (canRetryTransientFailure(transientRetryCount, maxTransientRetries)) {
         transientRetryCount += 1;
@@ -768,6 +781,7 @@ const fetchImageWidth = async (url, options = {}) => {
   const operation = async () => {
     let nextUrl = url;
     for (let redirects = 0; redirects <= 2; redirects += 1) {
+      if (options.publisherOnly && !isPublisherUrl(nextUrl)) return null;
       if (!(await isSafeHttpUrl(nextUrl, { resolveHostname })) || controller.signal.aborted) return null;
       response = await fetchImpl(nextUrl, {
         headers: { ...DEFAULT_ARTICLE_HEADERS, Accept: "image/*", Range: "bytes=0-65535" },
@@ -846,7 +860,8 @@ const isExternalLinkPost = (data) => {
 };
 
 const imageSource = async (data, options = {}) => {
-  const redditImage = redditImageSource(data);
+  const redditImage = options.publisherOnly ? "" : redditImageSource(data);
+  const fallback = options.publisherOnly ? "" : data.thumbnail || "";
   const tryPublisher = options.preferArticleImage === true && isSmallRedditThumbnail(redditImage);
   if (redditImage && !tryPublisher) {
     return redditImage;
@@ -854,17 +869,17 @@ const imageSource = async (data, options = {}) => {
 
   const articleUrl = data.url_overridden_by_dest || data.url;
   if (!articleUrl || !isExternalLinkPost(data)) {
-    return redditImage || data.thumbnail || "";
+    return redditImage || fallback;
   }
 
   const fetchArticleImageImpl =
     options.fetchArticleImageImpl || fetchArticleImage;
   try {
     const articleImage = await fetchArticleImageImpl(articleUrl, options);
-    return articleImage || redditImage || data.thumbnail || "";
+    return articleImage || redditImage || fallback;
   } catch (error) {
     reportArticleImageFailure(options, { url: articleUrl, reason: "fetch_error", details: errorFields(error) });
-    return redditImage || data.thumbnail || "";
+    return redditImage || fallback;
   }
 };
 
@@ -875,6 +890,7 @@ module.exports = {
   imageUrlWidth,
   isSmallRedditThumbnail,
   isExternalLinkPost,
+  isPublisherUrl,
   SMALL_THUMBNAIL_PATTERN,
   fetchImageWidth,
   imageWidthFromBytes,
