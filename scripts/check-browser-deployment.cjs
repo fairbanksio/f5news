@@ -389,18 +389,27 @@ function selectVerificationMode(env, configuration) {
 
 async function runVerification({ env = process.env, configuration, invoke = invokeLive, readEvents = readScheduledEvents,
   readRuntime = readRuntimeEvents, emit = console.log, sleep } = {}) {
+  const publisherPostId = env.F5_PROBE_PUBLISHER_POST_ID || "";
+  const publisherImageUrl = env.F5_PROBE_PUBLISHER_IMAGE_URL || "";
+  const targeted = Boolean(publisherPostId || publisherImageUrl);
+  if (targeted) {
+    assert.equal(env.F5_PROBE_PUBLISHER_IMAGE_BACKFILL, "true", "Enable publisher image backfill to repair a single cover");
+    assert.ok(/^[a-z0-9]{1,20}$/.test(publisherPostId) && publisherImageUrl.startsWith("https://") && publisherImageUrl.length <= 2048,
+      "Provide a Reddit post ID and a public HTTPS publisher image URL");
+  }
   if (env.F5_PROBE_PUBLISHER_IMAGE_BACKFILL === "true") {
     const conflicts = ["DIAGNOSTICS", "DEPLOYMENT", "SCHEDULED", "ALL_FEEDS", "AUTHENTICATE", "RENEW_SESSION"];
     assert.ok(!conflicts.some((mode) => env[`F5_PROBE_${mode}`] === "true"), "Select publisher image backfill by itself");
     const subreddit = env.F5_PROBE_SUBREDDIT || "politics";
     assert.ok(FEEDS.includes(subreddit), "Select a configured subreddit for publisher image backfill");
-    const metadata = await invoke({ publisherImageBackfill: true, subreddit });
+    const metadata = await invoke({ publisherImageBackfill: true, subreddit, ...(targeted ? { publisherPostId, publisherImageUrl } : {}) });
     assert.ok(metadata.StatusCode === 200 && !metadata.FunctionError, "Publisher image backfill invocation failed");
     const result = metadata.PublisherBackfillResult;
     assert.ok(result?.eventType === "PUBLISHER_IMAGE_BACKFILL_COMPLETED" && result.subreddit === subreddit, "Publisher image backfill result missing");
+    if (targeted) assert.equal(result.publisherPostId, publisherPostId, "Targeted publisher image backfill result missing");
     const { candidates, attempts, updated, errors, dependencyFailures, deferred } = result;
     assert.ok([candidates, attempts, updated, errors, dependencyFailures].every((count) => Number.isInteger(count) && count >= 0)
-      && candidates <= 10 && attempts <= candidates && updated <= attempts && typeof deferred === "boolean", "Invalid publisher image backfill counts");
+      && candidates <= (targeted ? 1 : 10) && attempts <= candidates && updated <= attempts && typeof deferred === "boolean", "Invalid publisher image backfill counts");
     const summary = { eventType: result.eventType, subreddit, candidates, attempts, updated, errors, dependencyFailures, deferred };
     emit(JSON.stringify(summary));
     assert.equal(errors, 0, "Publisher image backfill reported errors");

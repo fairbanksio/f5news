@@ -1265,3 +1265,19 @@ test("a legacy main container requires its image anchor to identify the article 
   assert.equal(extractMetaImage(html, "https://publisher.example/story"), "https://publisher.example/poster.jpg");
   assert.equal(extractMetaImage(html.replace('aria-label="Primary Article"', ''), "https://publisher.example/story"), "");
 });
+
+test("HTTPS-only publisher image verification rejects non-default and unsafe redirects", async () => {
+  for (const location of ["http://cdn.example/story.jpg", "https://cdn.example:8443/story.jpg",
+    "https://user:password@cdn.example/story.jpg", "https://127.0.0.1/story.jpg"]) {
+    const requests = [];
+    assert.equal(await fetchImageWidth("https://publisher.example/story.jpg", {
+      publisherOnly: true, httpsOnly: true,
+      resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+      fetchImpl: async (url) => {
+        requests.push(url);
+        return { status: 302, headers: createHeaders({ location }) };
+      },
+    }), null);
+    assert.deepEqual(requests, ["https://publisher.example/story.jpg"]);
+  }
+});
