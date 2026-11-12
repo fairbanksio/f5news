@@ -785,7 +785,7 @@ const fetchImageWidth = async (url, options = {}) => {
       if (options.publisherOnly && !isPublisherUrl(nextUrl, options)) return null;
       if (!(await isSafeHttpUrl(nextUrl, { resolveHostname })) || controller.signal.aborted) return null;
       response = await fetchImpl(nextUrl, {
-        headers: { ...DEFAULT_ARTICLE_HEADERS, Accept: "image/*", Range: "bytes=0-65535" },
+        headers: { Accept: "image/*", Range: "bytes=0-65535" },
         agent: makeSafeAgent(resolveHostname), redirect: "manual", signal: controller.signal,
       });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
