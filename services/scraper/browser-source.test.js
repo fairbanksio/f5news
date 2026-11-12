@@ -325,6 +325,14 @@ test("partial batch diagnostics retain only validated fields and the backoff per
   assert.ok(!JSON.stringify(result).includes("private-cookie-value"));
 });
 
+test("partial batch reports a started cooldown only with session coordination", async () => {
+  const response = { status: "accessible", feeds: completeBatch().feeds.slice(0, 1), readBackoffStartedSeconds: 600,
+    batchFailure: { subreddit: feeds[1], status: "session_challenge", sessionReason: "feed_challenge" } };
+  const scrape = createBrowserBatchSource({ runBrowserImpl: async () => response, sessionRunner: async () => response });
+  assert.equal((await scrape({ session: true, logger })).readBackoffStartedSeconds, 600);
+  assert.equal((await scrape({ session: false, logger })).readBackoffStartedSeconds, undefined);
+});
+
 test("optional-preview rate limiting preserves the current feed and its finite stop marker", async () => {
   const response = { status: "accessible", feeds: completeBatch().feeds.slice(0, 2),
     batchFailure: { subreddit: feeds[1], stage: "optional_preview", status: "network_error", sessionReason: "navigation_rate_limited", httpStatus: 429, retryAfterSeconds: 60 } };
