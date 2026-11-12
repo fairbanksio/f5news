@@ -60,10 +60,11 @@ const isSmallRedditThumbnail = (url) => {
   }
 };
 
-const isPublisherUrl = (value) => {
+const isPublisherUrl = (value, { httpsOnly = false } = {}) => {
   try {
     const url = new URL(value);
-    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password &&
+    const allowedProtocol = httpsOnly ? url.protocol === "https:" && !url.port : ["http:", "https:"].includes(url.protocol);
+    return allowedProtocol && !url.username && !url.password &&
       !/(^|\.)(reddit\.com|redd\.it|redditmedia\.com|redditstatic\.com)\.?$/.test(url.hostname);
   } catch {
     return false;
@@ -781,7 +782,7 @@ const fetchImageWidth = async (url, options = {}) => {
   const operation = async () => {
     let nextUrl = url;
     for (let redirects = 0; redirects <= 2; redirects += 1) {
-      if (options.publisherOnly && !isPublisherUrl(nextUrl)) return null;
+      if (options.publisherOnly && !isPublisherUrl(nextUrl, options)) return null;
       if (!(await isSafeHttpUrl(nextUrl, { resolveHostname })) || controller.signal.aborted) return null;
       response = await fetchImpl(nextUrl, {
         headers: { ...DEFAULT_ARTICLE_HEADERS, Accept: "image/*", Range: "bytes=0-65535" },

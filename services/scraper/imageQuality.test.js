@@ -198,3 +198,59 @@ test("a concurrent sharp upgrade survives an intermediate-width optional fallbac
   await handler({ subreddit: "politics" });
   assert.equal(stored.thumbnail, large);
 });
+
+test("targeted publisher backfill verifies one recent external post and skips the article fetch", async () => {
+  const thumbnail = "https://cdn.example/public-story.jpg";
+  const posts = [
+    record({ _id: "selected", commentLink: "/r/politics/comments/abc/story/", thumbnailQualityCheckedAt: now }),
+    record({ _id: "different", commentLink: "/r/politics/comments/abcd/story/" }),
+    record({ _id: "wrongFeed", sub: "news", commentLink: "/r/news/comments/abc/story/" }),
+    record({ _id: "old", commentLink: "/r/politics/comments/abc/story/", created_utc: now.getTime() / 1000 - 9 * 3600 }),
+  ];
+  const writes = [];
+  const postModel = model(posts);
+  const handler = createFetchPosts({
+    newPostModel: { ...postModel, findOneAndUpdate: (...args) => { writes.push(args[0]); return postModel.findOneAndUpdate(...args); } },
+    mongooseClient: { connect: async () => {} }, logger, now: () => now,
+    imageSourceImpl: () => { throw new Error("Unexpected article fetch"); },
+    scrapePostsImpl: () => { throw new Error("Unexpected Reddit read"); },
+    fetchImageWidthImpl: async (url, options) => {
+      assert.equal(url, thumbnail);
+      assert.deepEqual(options, { publisherOnly: true, httpsOnly: true });
+      return 1200;
+    },
+  });
+  const event = { publisherImageBackfill: true, subreddit: "politics", publisherPostId: "abc", publisherImageUrl: thumbnail };
+  const result = await handler(event);
+  assert.equal(result.publisherPostId, "abc");
+  assert.equal(result.candidates, 1);
+  assert.equal(result.attempts, 1);
+  assert.equal(result.updated, 1);
+  assert.deepEqual(writes, [{ _id: "selected", thumbnail: small }]);
+  assert.deepEqual(posts.map((post) => post.thumbnail), [thumbnail, small, small, small]);
+  assert.equal((await handler(event)).candidates, 0);
+});
+
+test("targeted publisher backfill rejects unsafe input and preserves the existing cover on failed verification or a concurrent update", async () => {
+  const stored = record({ commentLink: "/r/politics/comments/abc/story/" });
+  let concurrent = false;
+  const handler = createFetchPosts({
+    newPostModel: model([stored]), mongooseClient: { connect: async () => {} }, logger, now: () => now,
+    fetchImageWidthImpl: async () => {
+      if (concurrent) stored.thumbnail = large;
+      return concurrent ? 1200 : 320;
+    },
+  });
+  const event = { publisherImageBackfill: true, subreddit: "politics", publisherPostId: "abc", publisherImageUrl: "https://cdn.example/public.jpg" };
+  for (const publisherImageUrl of ["http://cdn.example/story.jpg", "https://cdn.example:8443/story.jpg",
+    "https://user:password@cdn.example/story.jpg", "https://preview.redd.it/story.jpg", undefined]) {
+    await assert.rejects(handler({ ...event, publisherImageUrl }), /public HTTPS/);
+  }
+  await assert.rejects(handler({ ...event, publisherImageBackfill: false }), /requires publisher image backfill/);
+  assert.equal((await handler(event)).updated, 0);
+  assert.equal(stored.thumbnail, small);
+  assert.equal(stored.thumbnailQualityCheckedAt, undefined);
+  concurrent = true;
+  assert.equal((await handler(event)).updated, 0);
+  assert.equal(stored.thumbnail, large);
+});
