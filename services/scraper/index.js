@@ -9,6 +9,7 @@ const {
   imageUrlWidth,
   isSmallRedditThumbnail,
   isExternalLinkPost,
+  isPublisherUrl,
   SMALL_THUMBNAIL_PATTERN,
   fetchImageWidth,
   imageSource,
@@ -20,6 +21,9 @@ const IMAGE_SOURCE_CONCURRENCY = 10;
 const IMAGE_METRIC_NAMESPACE = "F5News/Scraper";
 const IMAGE_BACKFILL_CONCURRENCY = 5;
 const IMAGE_BACKFILL_LIMIT = 25;
+const PUBLISHER_BACKFILL_LIMIT = 10;
+const PUBLISHER_BACKFILL_TIMEOUT_MS = 45_000;
+const PUBLISHER_BACKFILL_MIN_REMAINING_MS = 13_000;
 const IMAGE_BACKFILL_LOOKBACK_SECONDS = 8 * 60 * 60;
 const IMAGE_QUALITY_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -159,9 +163,14 @@ const missingThumbnailFilter = () => ({
 const findMissingThumbnailPosts = async (
   newPostModel,
   subreddit,
-  { now = () => new Date(), lookbackSeconds = IMAGE_BACKFILL_LOOKBACK_SECONDS, deadline } = {}
+  { now = () => new Date(), lookbackSeconds = IMAGE_BACKFILL_LOOKBACK_SECONDS, deadline, publisherOnly = false } = {}
 ) => {
-  const createdAfter = Math.floor(now().getTime() / 1000) - lookbackSeconds;
+  const currentTime = now().getTime();
+  const createdAfter = Math.floor(currentTime / 1000) - lookbackSeconds;
+  const qualityCooldown = { $or: [
+    { thumbnailQualityCheckedAt: { $exists: false } },
+    { thumbnailQualityCheckedAt: { $lt: new Date(currentTime - IMAGE_QUALITY_CHECK_INTERVAL_MS) } },
+  ] };
   let query = newPostModel.find({
     sub: subreddit,
     created_utc: { $gt: createdAfter },
@@ -174,12 +183,16 @@ const findMissingThumbnailPosts = async (
         { thumbnail: { $regex: SMALL_THUMBNAIL_PATTERN, $options: "i" } },
         { is_gallery: { $ne: true } },
         { post_hint: { $nin: ["image", "rich:video"] } },
-        { $or: [
-          { thumbnailQualityCheckedAt: { $exists: false } },
-          { thumbnailQualityCheckedAt: { $lt: new Date(now().getTime() - IMAGE_QUALITY_CHECK_INTERVAL_MS) } },
-        ] },
+        qualityCooldown,
       ] },
     ],
+    ...(publisherOnly ? {
+      is_gallery: { $ne: true },
+      rpan_video: { $ne: true },
+      post_hint: { $in: [null, "", "link"] },
+      url: { $regex: "^https?://(?!(?:[a-z0-9-]+\\.)*(?:reddit\\.com|redd\\.it|redditmedia\\.com|redditstatic\\.com)\\.?(?:[:/?#]|$))", $options: "i" },
+      $and: [qualityCooldown],
+    } : {}),
   });
 
   if (typeof query.sort === "function") {
@@ -187,7 +200,7 @@ const findMissingThumbnailPosts = async (
   }
 
   if (typeof query.limit === "function") {
-    query = query.limit(IMAGE_BACKFILL_LIMIT);
+    query = query.limit(publisherOnly ? PUBLISHER_BACKFILL_LIMIT : IMAGE_BACKFILL_LIMIT);
   }
   if (deadline && typeof query.setOptions === "function") query = query.setOptions(persistenceOptions({}, deadline));
 
@@ -238,7 +251,7 @@ const updatePostThumbnail = (newPostModel, data, thumbnail, { qualityCheckedAt, 
   const postKey = data._id ? { _id: data._id } : createPostKey(data);
   const fields = {};
   if (qualityCheckedAt) {
-    postKey.thumbnail = data.thumbnail;
+    postKey.thumbnail = data.thumbnail === undefined ? { $exists: false } : data.thumbnail;
     fields.thumbnailQualityCheckedAt = qualityCheckedAt;
   }
   if (thumbnail) {
@@ -268,7 +281,7 @@ const dependencyFailed = (diagnostics) => diagnostics.failures.some((failure) =>
   ["http_status", "request_timeout", "empty_response", "body_read_error", "body_read_timeout", "fetch_error", "redirect_missing_location", "too_many_redirects"].includes(failure.reason)
 );
 
-const resolvePostImage = async (post, subreddit, operation, metrics, imageSourceImpl, logger, secrets = [], { deadline, job } = {}) => {
+const resolvePostImage = async (post, subreddit, operation, metrics, imageSourceImpl, logger, secrets = [], { deadline, job, publisherOnly = false } = {}) => {
   if (deadline && deadline - Date.now() < 6000) {
     if (job) job.optionalImagesDeferred = true;
     return "";
@@ -293,9 +306,11 @@ const resolvePostImage = async (post, subreddit, operation, metrics, imageSource
   if (tracked) metrics.attempts += 1;
   try {
     thumbnail = await imageSourceImpl(post, { ...diagnostics.options, preferArticleImage: operation === "scrape" || isSmallRedditThumbnail(post.thumbnail),
-      ...(deadline ? { timeoutMs: 1000, maxTransientRetries: 0, maxRedirects: 1 } : {}) });
+      ...(deadline ? { timeoutMs: publisherOnly ? 2000 : 1000, maxTransientRetries: 0, maxRedirects: 1 } : {}),
+      ...(publisherOnly ? { publisherOnly } : {}) });
   } catch (error) {
     resolutionError = error;
+    if (publisherOnly) thumbnail = "";
     if (tracked) metrics.errors += 1;
   }
   const exhaustedDependency = tracked && dependencyFailed(diagnostics);
@@ -329,41 +344,53 @@ const saveOptionalThumbnail = async (newPostModel, post, thumbnail, subreddit, o
       options.job.storedThumbnails ||= new Map();
       options.job.storedThumbnails.set(identity, thumbnail);
     }
+    return Boolean(written && thumbnail);
   } catch (error) {
     metrics.updateErrors += 1;
     logStructured(logger, {
       eventType: "POST_IMAGE_UPDATE_ERROR", subreddit, operation,
       postId: getPostId(post), domain: getPostDomain(post), ...errorFields(error, secrets),
     });
+    return false;
   }
 };
 
 const backfillMissingPostImages = async (
   subreddit,
-  { imageSourceImpl = imageSource, fetchImageWidthImpl = fetchImageWidth, logger = console, newPostModel = newPost, now = () => new Date(), redactionValues = [], deadline, job } = {}
+  { imageSourceImpl = imageSource, fetchImageWidthImpl = fetchImageWidth, logger = console, newPostModel = newPost, now = () => new Date(), redactionValues = [], deadline, job, publisherOnly = false } = {}
 ) => {
   const metrics = createImageResolutionMetrics(subreddit, "backfill");
   let posts;
   try {
-    posts = await findMissingThumbnailPosts(newPostModel, subreddit, { now, deadline });
+    posts = await findMissingThumbnailPosts(newPostModel, subreddit, { now, deadline, publisherOnly });
   } catch (error) {
     logStructured(logger, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit, stage: "backfill_query", ...errorFields(error, redactionValues) });
     return { ...metrics, queryErrors: 1 };
   }
+  if (publisherOnly) {
+    posts = (posts || []).slice(0, PUBLISHER_BACKFILL_LIMIT);
+    metrics.candidates = posts.length;
+    metrics.updated = 0;
+  }
   await mapWithConcurrency(posts || [], IMAGE_BACKFILL_CONCURRENCY, async (post) => {
-    if (deadline && deadline - Date.now() < 6000) { if (job) job.optionalImagesDeferred = true; return; }
+    if (deadline && deadline - Date.now() < (publisherOnly ? PUBLISHER_BACKFILL_MIN_REMAINING_MS : 6000)) {
+      if (job) job.optionalImagesDeferred = true;
+      return;
+    }
     if (!shouldTrackImageResolution(post) || job?.imageAttemptedKeys?.has(imageWorkKey(post))) return;
+    if (publisherOnly && (!isExternalLinkPost(post) || !isPublisherUrl(getPostUrl(post)))) return;
     const qualityCheck = hasUsableThumbnail(post.thumbnail);
     if (qualityCheck && (!isSmallRedditThumbnail(post.thumbnail) || !isExternalLinkPost(post))) return;
-    const thumbnail = await resolvePostImage(post, subreddit, "backfill", metrics, imageSourceImpl, logger, redactionValues, { deadline, job });
-    if (qualityCheck) {
+    const thumbnail = await resolvePostImage(post, subreddit, "backfill", metrics, imageSourceImpl, logger, redactionValues, { deadline, job, publisherOnly });
+    if (qualityCheck || publisherOnly) {
       let better = false;
-      if (thumbnail && thumbnail !== post.thumbnail) {
-        const priorWidth = imageUrlWidth(post.thumbnail) || 320;
-        const replacementWidth = await fetchImageWidthImpl(thumbnail);
+      if (thumbnail && thumbnail !== post.thumbnail && (!publisherOnly || isPublisherUrl(thumbnail))) {
+        const priorWidth = publisherOnly ? 320 : imageUrlWidth(post.thumbnail) || 320;
+        const replacementWidth = await fetchImageWidthImpl(thumbnail, publisherOnly ? { publisherOnly: true } : undefined);
         better = Number.isFinite(replacementWidth) && replacementWidth > priorWidth;
       }
-      await saveOptionalThumbnail(newPostModel, post, better ? thumbnail : null, subreddit, "backfill", metrics, logger, redactionValues, { qualityCheckedAt: now(), deadline });
+      const updated = await saveOptionalThumbnail(newPostModel, post, better ? thumbnail : null, subreddit, "backfill", metrics, logger, redactionValues, { qualityCheckedAt: now(), deadline });
+      if (publisherOnly && updated) metrics.updated += 1;
       return;
     }
     if (thumbnail) await saveOptionalThumbnail(newPostModel, post, thumbnail, subreddit, "backfill", metrics, logger, redactionValues, { deadline });
@@ -617,12 +644,48 @@ const createFetchPosts = ({
   scrapeBatchImpl = scrapeBatch,
   inspectSessionImpl = inspectSession,
   imageSourceImpl = imageSource,
+  fetchImageWidthImpl = fetchImageWidth,
   logger = console,
   mongooseClient = mongoose,
   newPostModel = newPost,
   now = () => new Date(),
 } = {}) => {
   return async (event = {}, context = {}) => {
+    if (event.publisherImageBackfill === true) {
+      if (!supportedSubreddits.includes(event.subreddit)) throw new Error("Select a configured subreddit for publisher image backfill");
+      if ([event.scheduled, event.allFeeds, event.authenticate, event.renewSession, event.inspectSession].includes(true)) {
+        throw new Error("Publisher image backfill requires a standalone manual invocation");
+      }
+      const remaining = context.getRemainingTimeInMillis?.() ?? PUBLISHER_BACKFILL_TIMEOUT_MS;
+      const deadline = Date.now() + Math.min(PUBLISHER_BACKFILL_TIMEOUT_MS, remaining - 2000);
+      if (deadline - Date.now() < PUBLISHER_BACKFILL_MIN_REMAINING_MS) throw new Error("Insufficient time for publisher image backfill");
+      const redactionValues = [env.MONGO_CONNECTION_STRING, env.REDDIT_USERNAME, env.REDDIT_PASSWORD];
+      const job = {};
+      let connected = false;
+      try {
+        await mongooseClient.connect();
+        connected = true;
+      } catch (error) {
+        logStructured(logger, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit: event.subreddit, stage: "database_connect", ...errorFields(error, redactionValues) });
+      }
+      const metrics = connected
+        ? await backfillMissingPostImages(event.subreddit, {
+          newPostModel, logger, now, imageSourceImpl, fetchImageWidthImpl, redactionValues, deadline, job, publisherOnly: true,
+        })
+        : { ...createImageResolutionMetrics(event.subreddit, "backfill"), errors: 1 };
+      const result = {
+        eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED",
+        subreddit: event.subreddit,
+        candidates: metrics.candidates || 0,
+        attempts: metrics.attempts,
+        updated: metrics.updated || 0,
+        errors: metrics.errors + metrics.updateErrors + (metrics.queryErrors || 0),
+        dependencyFailures: metrics.dependencyFailures,
+        deferred: job.optionalImagesDeferred === true,
+      };
+      logStructured(logger, result);
+      return result;
+    }
     if (event.inspectSession === true) {
       await mongooseClient.connect();
       const diagnostics = await inspectSessionImpl();

@@ -12,6 +12,23 @@ const decryptDiagnostics = (envelope) => {
   return JSON.parse(Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, "base64")), decipher.final()]).toString("utf8"));
 };
 const response = (fields = {}) => ({ StatusCode: 200, LogResult: Buffer.from('request prefix\t' + JSON.stringify({ eventType: "SCRAPER_JOB_COMPLETED", outcome: "success", fetchedCount: 25, savedCount: 25, ...fields })).toString("base64") });
+
+test("manual publisher backfill invokes one selected feed and reports aggregate counts only", async () => {
+  const env = { F5_PROBE_PUBLISHER_IMAGE_BACKFILL: "true", F5_PROBE_SUBREDDIT: "news", F5_PROBE_SESSION: "true" };
+  const summary = { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", subreddit: "news", candidates: 2,
+    attempts: 2, updated: 1, errors: 0, dependencyFailures: 0, deferred: false };
+  const invocations = [];
+  const logs = [];
+  const invoke = async (event) => {
+    invocations.push(event);
+    return { StatusCode: 200, PublisherBackfillResult: { ...summary, privateUrl: "https://private.example" } };
+  };
+  assert.deepEqual(await runVerification({ env, invoke, emit: (log) => logs.push(JSON.parse(log)) }), summary);
+  assert.deepEqual(logs, [summary]);
+  await assert.rejects(runVerification({ env: { ...env, F5_PROBE_ALL_FEEDS: "true" }, invoke }), /by itself/);
+  assert.deepEqual(invocations, [{ publisherImageBackfill: true, subreddit: "news" }]);
+});
+
 test("deployment probe accepts saved posts and optional image degradation", () => {
   assert.equal(checkInvocation(response()).savedCount, 25);
   assert.equal(checkInvocation(response({ outcome: "degraded" })).outcome, "degraded");
