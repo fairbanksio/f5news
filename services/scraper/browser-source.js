@@ -193,7 +193,10 @@ const createBrowserBatchSource = ({ runBrowserImpl = runBrowser, fetchImpl = glo
     metadata.sessionGeneration = result.sessionGeneration;
     if (result.sessionRenewalDeferred === true) metadata.sessionRenewalDeferred = true;
   }
-  return { feeds: mapped, failures, ...(batchFailure ? { batchFailure } : {}), ...metadata, ...(result.readBackoffFailed === true ? { readBackoffFailed: true } : {}) };
+  const readBackoffStartedSeconds = session && batchFailure && result.readBackoffStartedSeconds;
+  return { feeds: mapped, failures, ...(batchFailure ? { batchFailure } : {}), ...metadata,
+    ...(Number.isInteger(readBackoffStartedSeconds) && readBackoffStartedSeconds >= 1 && readBackoffStartedSeconds <= 86400 ? { readBackoffStartedSeconds } : {}),
+    ...(result.readBackoffFailed === true ? { readBackoffFailed: true } : {}) };
 };
 
 module.exports = { createBrowserSource, createBrowserBatchSource, runBrowser, scrapePosts: createBrowserSource(), scrapeBatch: createBrowserBatchSource() };

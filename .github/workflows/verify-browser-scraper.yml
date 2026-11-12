@@ -43,6 +43,14 @@ on:
         description: Repair recent cover images for the selected feed using publisher sources
         type: boolean
         default: false
+      publisher_post_id:
+        description: Reddit post ID for a single cover repair
+        type: string
+        default: ''
+      publisher_image_url:
+        description: Verified public HTTPS publisher image for the selected post
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -83,4 +91,6 @@ jobs:
           F5_PROBE_RENEW_SESSION: ${{ inputs.renew_session }}
           F5_PROBE_AUTHENTICATE: ${{ inputs.authenticate }}
           F5_PROBE_PUBLISHER_IMAGE_BACKFILL: ${{ inputs.publisher_image_backfill }}
+          F5_PROBE_PUBLISHER_POST_ID: ${{ inputs.publisher_post_id }}
+          F5_PROBE_PUBLISHER_IMAGE_URL: ${{ inputs.publisher_image_url }}
         run: node scripts/check-browser-deployment.cjs

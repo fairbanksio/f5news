@@ -163,7 +163,7 @@ const missingThumbnailFilter = () => ({
 const findMissingThumbnailPosts = async (
   newPostModel,
   subreddit,
-  { now = () => new Date(), lookbackSeconds = IMAGE_BACKFILL_LOOKBACK_SECONDS, deadline, publisherOnly = false } = {}
+  { now = () => new Date(), lookbackSeconds = IMAGE_BACKFILL_LOOKBACK_SECONDS, deadline, publisherOnly = false, publisherTarget } = {}
 ) => {
   const currentTime = now().getTime();
   const createdAfter = Math.floor(currentTime / 1000) - lookbackSeconds;
@@ -183,7 +183,7 @@ const findMissingThumbnailPosts = async (
         { thumbnail: { $regex: SMALL_THUMBNAIL_PATTERN, $options: "i" } },
         { is_gallery: { $ne: true } },
         { post_hint: { $nin: ["image", "rich:video"] } },
-        qualityCooldown,
+        ...(!publisherTarget ? [qualityCooldown] : []),
       ] },
     ],
     ...(publisherOnly ? {
@@ -191,7 +191,7 @@ const findMissingThumbnailPosts = async (
       rpan_video: { $ne: true },
       post_hint: { $in: [null, "", "link"] },
       url: { $regex: "^https?://(?!(?:[a-z0-9-]+\\.)*(?:reddit\\.com|redd\\.it|redditmedia\\.com|redditstatic\\.com)\\.?(?:[:/?#]|$))", $options: "i" },
-      $and: [qualityCooldown],
+      ...(publisherTarget ? { commentLink: { $regex: `^/r/${subreddit}/comments/${publisherTarget.postId}(?:/[^?#]*)?$` } } : { $and: [qualityCooldown] }),
     } : {}),
   });
 
@@ -200,7 +200,7 @@ const findMissingThumbnailPosts = async (
   }
 
   if (typeof query.limit === "function") {
-    query = query.limit(publisherOnly ? PUBLISHER_BACKFILL_LIMIT : IMAGE_BACKFILL_LIMIT);
+    query = query.limit(publisherTarget ? 1 : publisherOnly ? PUBLISHER_BACKFILL_LIMIT : IMAGE_BACKFILL_LIMIT);
   }
   if (deadline && typeof query.setOptions === "function") query = query.setOptions(persistenceOptions({}, deadline));
 
@@ -357,18 +357,18 @@ const saveOptionalThumbnail = async (newPostModel, post, thumbnail, subreddit, o
 
 const backfillMissingPostImages = async (
   subreddit,
-  { imageSourceImpl = imageSource, fetchImageWidthImpl = fetchImageWidth, logger = console, newPostModel = newPost, now = () => new Date(), redactionValues = [], deadline, job, publisherOnly = false } = {}
+  { imageSourceImpl = imageSource, fetchImageWidthImpl = fetchImageWidth, logger = console, newPostModel = newPost, now = () => new Date(), redactionValues = [], deadline, job, publisherOnly = false, publisherTarget } = {}
 ) => {
   const metrics = createImageResolutionMetrics(subreddit, "backfill");
   let posts;
   try {
-    posts = await findMissingThumbnailPosts(newPostModel, subreddit, { now, deadline, publisherOnly });
+    posts = await findMissingThumbnailPosts(newPostModel, subreddit, { now, deadline, publisherOnly, publisherTarget });
   } catch (error) {
     logStructured(logger, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit, stage: "backfill_query", ...errorFields(error, redactionValues) });
     return { ...metrics, queryErrors: 1 };
   }
   if (publisherOnly) {
-    posts = (posts || []).slice(0, PUBLISHER_BACKFILL_LIMIT);
+    posts = (posts || []).slice(0, publisherTarget ? 1 : PUBLISHER_BACKFILL_LIMIT);
     metrics.candidates = posts.length;
     metrics.updated = 0;
   }
@@ -381,13 +381,20 @@ const backfillMissingPostImages = async (
     if (publisherOnly && (!isExternalLinkPost(post) || !isPublisherUrl(getPostUrl(post)))) return;
     const qualityCheck = hasUsableThumbnail(post.thumbnail);
     if (qualityCheck && (!isSmallRedditThumbnail(post.thumbnail) || !isExternalLinkPost(post))) return;
-    const thumbnail = await resolvePostImage(post, subreddit, "backfill", metrics, imageSourceImpl, logger, redactionValues, { deadline, job, publisherOnly });
+    if (publisherTarget) metrics.attempts += 1;
+    const thumbnail = publisherTarget?.imageUrl || await resolvePostImage(post, subreddit, "backfill", metrics, imageSourceImpl, logger, redactionValues, { deadline, job, publisherOnly });
     if (qualityCheck || publisherOnly) {
       let better = false;
       if (thumbnail && thumbnail !== post.thumbnail && (!publisherOnly || isPublisherUrl(thumbnail))) {
         const priorWidth = publisherOnly ? 320 : imageUrlWidth(post.thumbnail) || 320;
-        const replacementWidth = await fetchImageWidthImpl(thumbnail, publisherOnly ? { publisherOnly: true } : undefined);
+        const replacementWidth = await fetchImageWidthImpl(thumbnail, publisherOnly
+          ? { publisherOnly: true, ...(publisherTarget ? { httpsOnly: true } : {}) }
+          : undefined);
         better = Number.isFinite(replacementWidth) && replacementWidth > priorWidth;
+      }
+      if (publisherTarget) {
+        metrics[better ? "resolved" : "missing"] += 1;
+        if (!better) return;
       }
       const updated = await saveOptionalThumbnail(newPostModel, post, better ? thumbnail : null, subreddit, "backfill", metrics, logger, redactionValues, { qualityCheckedAt: now(), deadline });
       if (publisherOnly && updated) metrics.updated += 1;
@@ -533,6 +540,11 @@ const scheduledReadBackoff = (error, event, context, logger) => {
   return { status: "read_backoff", readBackoffSeconds: seconds };
 };
 
+const scheduledReadBackoffStarted = (seconds, event) => {
+  if (event.scheduled !== true || !Number.isInteger(seconds) || seconds < 1 || seconds > 86400) return undefined;
+  return { status: "read_backoff", readBackoffSeconds: seconds };
+};
+
 const fetchAllFeeds = async (dependencies, event, context) => {
   const { env, scrapeBatchImpl, mongooseClient, newPostModel, logger, now } = dependencies;
   const startedAt = Date.now();
@@ -544,6 +556,7 @@ const fetchAllFeeds = async (dependencies, event, context) => {
   let result;
   let batchProblem;
   let sourceFailureFields;
+  let readBackoffStartedSeconds;
   try {
     await mongooseClient.connect();
     const imagePriorityIdsBySubreddit = {};
@@ -617,11 +630,18 @@ const fetchAllFeeds = async (dependencies, event, context) => {
       catch { feed.job.optionalImagesDeferred = true; }
       feed.stage = "complete";
     });
+    if (result.batchFailure && !result.readBackoffFailed && feeds.every((feed) => !feed.terminalError ||
+      (feed.stage === "browser_extract" && ["source_failed", "not_attempted"].includes(feed.sourceStatus)))) {
+      readBackoffStartedSeconds = result.readBackoffStartedSeconds;
+    }
   } catch (error) {
     const skipped = scheduledReadBackoff(error, event, context, logger);
     if (skipped) return skipped;
     batchProblem = true;
     sourceFailureFields = batchFailureFields(error);
+    if (feeds.every((feed) => feed.stage === "browser_extract" && feed.job.savedCount === 0) && !error.readBackoffFailed) {
+      readBackoffStartedSeconds = error.readBackoffStartedSeconds;
+    }
     for (const feed of feeds) if (!feed.terminalError) {
       feed.terminalError = error;
       feed.sourceStatus = "source_failed";
@@ -631,6 +651,8 @@ const fetchAllFeeds = async (dependencies, event, context) => {
   const feedResults = feeds.map((feed) => finishFeed({ ...feed, startedAt, event, context, logger, redactionValues }));
   const failed = feedResults.filter((feed) => feed.outcome === "failed").length;
   if (batchProblem || failed) {
+    const paused = scheduledReadBackoffStarted(readBackoffStartedSeconds, event);
+    if (paused) return { ...paused, feedResults };
     const cause = [sourceFailureFields.sessionReason, sourceFailureFields.httpStatus ? `HTTP ${sourceFailureFields.httpStatus}` : "",
       sourceFailureFields.retryAfterSeconds !== undefined ? `retry after ${sourceFailureFields.retryAfterSeconds}s` : ""].filter(Boolean).join(", ");
     throw new Error(`Browser batch did not complete cleanly: ${failed} feeds incomplete${cause ? `; stopped: ${cause}` : ""}`);
@@ -651,10 +673,22 @@ const createFetchPosts = ({
   now = () => new Date(),
 } = {}) => {
   return async (event = {}, context = {}) => {
+    const hasPublisherTarget = event.publisherPostId !== undefined || event.publisherImageUrl !== undefined;
+    if (hasPublisherTarget && event.publisherImageBackfill !== true) throw new Error("Targeted repair requires publisher image backfill");
     if (event.publisherImageBackfill === true) {
       if (!supportedSubreddits.includes(event.subreddit)) throw new Error("Select a configured subreddit for publisher image backfill");
       if ([event.scheduled, event.allFeeds, event.authenticate, event.renewSession, event.inspectSession].includes(true)) {
         throw new Error("Publisher image backfill requires a standalone manual invocation");
+      }
+      let publisherTarget;
+      if (hasPublisherTarget) {
+        const { publisherPostId, publisherImageUrl } = event;
+        if (typeof publisherPostId !== "string" || !/^[a-z0-9]{1,20}$/.test(publisherPostId) ||
+            typeof publisherImageUrl !== "string" || publisherImageUrl.length > 2048 ||
+            !publisherImageUrl.startsWith("https://") || !isPublisherUrl(publisherImageUrl, { httpsOnly: true })) {
+          throw new Error("Provide a Reddit post ID and a public HTTPS publisher image URL");
+        }
+        publisherTarget = { postId: publisherPostId, imageUrl: publisherImageUrl };
       }
       const remaining = context.getRemainingTimeInMillis?.() ?? PUBLISHER_BACKFILL_TIMEOUT_MS;
       const deadline = Date.now() + Math.min(PUBLISHER_BACKFILL_TIMEOUT_MS, remaining - 2000);
@@ -670,7 +704,7 @@ const createFetchPosts = ({
       }
       const metrics = connected
         ? await backfillMissingPostImages(event.subreddit, {
-          newPostModel, logger, now, imageSourceImpl, fetchImageWidthImpl, redactionValues, deadline, job, publisherOnly: true,
+          newPostModel, logger, now, imageSourceImpl, fetchImageWidthImpl, redactionValues, deadline, job, publisherOnly: true, publisherTarget,
         })
         : { ...createImageResolutionMetrics(event.subreddit, "backfill"), errors: 1 };
       const result = {
@@ -684,7 +718,7 @@ const createFetchPosts = ({
         deferred: job.optionalImagesDeferred === true,
       };
       logStructured(logger, result);
-      return result;
+      return publisherTarget ? { ...result, publisherPostId: publisherTarget.postId } : result;
     }
     if (event.inspectSession === true) {
       await mongooseClient.connect();
@@ -725,6 +759,8 @@ const createFetchPosts = ({
       const safe = errorFields(error, redactionValues);
       terminalError = Object.assign(new Error(safe.errorMessage), { name: safe.errorName, code: safe.errorCode, status: safe.status });
       if (safe.stack) terminalError.stack = safe.stack;
+      const paused = stage === "browser_extract" && !error.readBackoffFailed && scheduledReadBackoffStarted(error.readBackoffStartedSeconds, event);
+      if (paused) return paused;
       throw terminalError;
     } finally {
       const imageCounts = [job.scrapeImages, job.backfillImages].filter(Boolean);
