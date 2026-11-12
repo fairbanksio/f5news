@@ -162,6 +162,13 @@ function summarizeRuntimeEvents(events) {
     const records = logRecords({ LogResult: Buffer.from(message).toString("base64") });
     for (let record of records) {
       const imageFeed = summary.imageDiagnostics.feeds.find((feed) => feed.subreddit === record.subreddit);
+      if (imageFeed && record.eventType === "PUBLISHER_IMAGE_BACKFILL_COMPLETED" && record.trigger === "schedule" &&
+          Number.isSafeInteger(event.timestamp) && event.timestamp >= 0 &&
+          (!imageFeed.latestScheduledCoverRepair || event.timestamp >= imageFeed.latestScheduledCoverRepair.timestamp)) {
+        const repair = { timestamp: event.timestamp, deferred: record.deferred === true };
+        for (const field of ["candidates", "attempts", "updated", "errors"]) add(repair, field, record[field]);
+        imageFeed.latestScheduledCoverRepair = repair;
+      }
       if (imageFeed && ["SCRAPER_JOB_COMPLETED", "SCRAPER_JOB_FAILED"].includes(record.eventType)) {
         add(imageFeed, record.eventType === "SCRAPER_JOB_COMPLETED" ? "completedCount" : "failedCount", 1);
         if (record.outcome === "degraded") add(imageFeed, "degradedCount", 1);
@@ -350,7 +357,7 @@ function readScheduledEvents(startTime) {
 }
 
 function readRuntimeEvents() {
-  return readLogEvents(Date.now() - 3600000, '?REPORT ?"platform.report" ?"Resource counters:" ?SCRAPER_JOB_FAILED ?SCRAPER_JOB_COMPLETED ?BROWSER_NAVIGATION_HTTP ?POST_IMAGE_RESOLUTION_ERROR ?POST_IMAGE_RESOLUTION_MISSING ?POST_IMAGE_RESOLUTION_DEGRADED ?POST_IMAGE_BACKFILL_ERROR ?POST_IMAGE_BACKFILL_MISSING ?POST_IMAGE_BACKFILL_DEGRADED ?POST_IMAGE_UPDATE_ERROR');
+  return readLogEvents(Date.now() - 3600000, '?REPORT ?"platform.report" ?"Resource counters:" ?SCRAPER_JOB_FAILED ?SCRAPER_JOB_COMPLETED ?BROWSER_NAVIGATION_HTTP ?POST_IMAGE_RESOLUTION_ERROR ?POST_IMAGE_RESOLUTION_MISSING ?POST_IMAGE_RESOLUTION_DEGRADED ?POST_IMAGE_BACKFILL_ERROR ?POST_IMAGE_BACKFILL_MISSING ?POST_IMAGE_BACKFILL_DEGRADED ?POST_IMAGE_UPDATE_ERROR ?PUBLISHER_IMAGE_BACKFILL_COMPLETED');
 }
 
 function invokeLive(event) {
