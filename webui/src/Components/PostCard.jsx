@@ -35,6 +35,8 @@ const getThumbnailSrc = (thumbnail) => {
   }
 };
 
+const apNewsCoverSrc = 'https://dims.apnews.com/dims4/default/d3e73ae/2147483647/strip/false/crop/1281x854+0+0/resize/1200x800!/quality/90/?url=https%3A%2F%2Fassets.apnews.com%2F0c%2F94%2Fcbc970464ba8bfbc6042dd7cdd78%2Fthe-ap-default-image-2026.png';
+
 const getPublisherFallback = post => {
   let hostname;
   try {
@@ -44,6 +46,9 @@ const getPublisherFallback = post => {
   }
   if (hostname === 'axios.com' || hostname.endsWith('.axios.com')) return { src: axiosLogoSrc, label: 'Axios' };
   if (hostname === 'reuters.com' || hostname.endsWith('.reuters.com')) return { src: reutersLogoSrc, label: 'Reuters' };
+  if (hostname === 'apnews.com' || hostname.endsWith('.apnews.com')) {
+    return { src: apNewsCoverSrc, label: 'AP News', minArticleWidth: 321, isLogo: false };
+  }
   return null;
 };
 
@@ -52,13 +57,15 @@ const PostThumbnail = ({ post, height }) => {
   const sources = [...new Set([getThumbnailSrc(post.thumbnail), publisherFallback?.src, placeholderSrc].filter(Boolean))];
   const [sourceIndex, setSourceIndex] = useState(0);
   const source = sources[sourceIndex];
-  const isLogo = source === publisherFallback?.src;
+  const isPublisherFallback = source === publisherFallback?.src;
+  const isLogo = isPublisherFallback && publisherFallback.isLogo !== false;
+  const minArticleWidth = publisherFallback?.minArticleWidth ?? 128;
   const advanceSource = () => setSourceIndex(Math.min(sourceIndex + 1, sources.length - 1));
 
   return (
     <Image
       src={source}
-      alt={isLogo ? publisherFallback.label : undefined}
+      alt={isPublisherFallback ? publisherFallback.label : undefined}
       w='100%'
       h={height}
       objectFit={isLogo ? 'contain' : 'cover'}
@@ -66,8 +73,8 @@ const PostThumbnail = ({ post, height }) => {
       p={isLogo ? 6 : 0}
       position='relative'
       onLoad={event => {
-        if (!isLogo && source !== placeholderSrc &&
-            (event.currentTarget.naturalWidth < 128 || event.currentTarget.naturalHeight < 64)) {
+        if (!isPublisherFallback && source !== placeholderSrc &&
+            (event.currentTarget.naturalWidth < minArticleWidth || event.currentTarget.naturalHeight < 64)) {
           advanceSource();
         }
       }}

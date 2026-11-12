@@ -277,6 +277,39 @@ describe.each([
   });
 });
 
+test('uses the AP News cover for missing, broken, and low-resolution article images', () => {
+  const apPost = { ...post, domain: 'apnews.com', url: 'https://www.apnews.com/article/story' };
+  const fallback = 'https://dims.apnews.com/dims4/default/d3e73ae/2147483647/strip/false/crop/1281x854+0+0/resize/1200x800!/quality/90/?url=https%3A%2F%2Fassets.apnews.com%2F0c%2F94%2Fcbc970464ba8bfbc6042dd7cdd78%2Fthe-ap-default-image-2026.png';
+  const { rerender } = render(<PostCard post={{ ...apPost, thumbnail: null }} elId={0} />);
+  expect(screen.getByRole('img', { name: 'AP News' })).toHaveAttribute('src', fallback);
+
+  rerender(<PostCard post={apPost} elId={0} />);
+  const image = screen.getByRole('img');
+  Object.defineProperties(image, { naturalWidth: { value: 1200, configurable: true }, naturalHeight: { value: 800, configurable: true } });
+  fireEvent.load(image);
+  expect(image).toHaveAttribute('src', apPost.thumbnail);
+
+  Object.defineProperties(image, { naturalWidth: { value: 140, configurable: true }, naturalHeight: { value: 78, configurable: true } });
+  fireEvent.load(image);
+  expect(image).toHaveAttribute('src', fallback);
+  expect(window.getComputedStyle(image).objectFit).toBe('cover');
+  fireEvent.error(image);
+  expect(image).toHaveAttribute('src', placeholderSrc);
+
+  rerender(<PostCard post={{ ...apPost, thumbnail: 'https://cdn.example.com/broken.jpg' }} elId={0} />);
+  fireEvent.error(screen.getByRole('img'));
+  expect(screen.getByRole('img', { name: 'AP News' })).toHaveAttribute('src', fallback);
+});
+
+test('keeps a small usable cover on other publishers, including AP News lookalike domains', () => {
+  const otherPost = { ...post, domain: 'apnews.com', url: 'https://apnews.com.example.org/story' };
+  render(<PostCard post={otherPost} elId={0} />);
+  const image = screen.getByRole('img');
+  Object.defineProperties(image, { naturalWidth: { value: 140 }, naturalHeight: { value: 78 } });
+  fireEvent.load(image);
+  expect(image).toHaveAttribute('src', otherPost.thumbnail);
+});
+
 test('tries a newly available article image after showing a publisher logo', () => {
   const initialPost = { ...post, domain: 'axios.com', url: 'https://axios.com/story', thumbnail: null };
   const { rerender } = render(<PostCard post={initialPost} elId={0} />);
