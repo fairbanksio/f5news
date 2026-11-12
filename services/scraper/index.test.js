@@ -1527,3 +1527,45 @@ test("scheduled batches and renewals record a skip while Reddit reads are paused
   assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_FAILED").length, 0);
   await assert.rejects(handler({ subreddit: "politics" }), /cooling down/);
 });
+
+test("scheduled challenges with a persisted cooldown retain failure logs without raising a Lambda error", async () => {
+  const challenge = async () => {
+    throw Object.assign(new Error("Browser extraction failed: auth_challenge"), { sessionReason: "feed_challenge", readBackoffStartedSeconds: 600 });
+  };
+  for (const input of [{ allFeeds: true }, { subreddit: "politics", renewSession: true }]) {
+    const { handler, logger, writes } = batchHarness({ scrapeBatchImpl: challenge, scrapePostsImpl: challenge });
+    const result = await handler({ ...input, scheduled: true });
+    assert.equal(result.status, "read_backoff");
+    assert.equal(result.readBackoffSeconds, 600);
+    assert.equal(writes.length, 0);
+    assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_FAILED").length, input.allFeeds ? batchSubreddits.length : 1);
+    assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 0);
+    await assert.rejects(handler(input), /Browser (batch|extraction)/);
+  }
+});
+
+test("scheduled partial rate limits save the prefix and retain real mapping and write failures", async () => {
+  for (const problem of [undefined, "mapping", "write", "coordination", "unconfirmed"]) {
+    const result = {
+      ...batchResult(batchSubreddits.slice(0, 1)),
+      batchFailure: { subreddit: batchSubreddits[1], status: "network_error", sessionReason: "navigation_rate_limited", httpStatus: 429 },
+      readBackoffStartedSeconds: problem === "unconfirmed" ? undefined : 600,
+      ...(problem === "coordination" ? { readBackoffFailed: true } : {}),
+    };
+    if (problem === "mapping") result.feeds[0].children = [null];
+    const overrides = { scrapeBatchImpl: async () => result };
+    if (problem === "write") overrides.newPostModel = { find: async () => [], findOneAndUpdate: async () => { throw new Error("Mongo write failed"); } };
+    const { handler, logger, writes } = batchHarness(overrides);
+    if (problem) {
+      await assert.rejects(handler({ allFeeds: true, scheduled: true }), /Browser batch did not complete cleanly/);
+    } else {
+      const outcome = await handler({ allFeeds: true, scheduled: true });
+      assert.equal(outcome.status, "read_backoff");
+      assert.equal(outcome.feedResults[0].savedCount, 1);
+      assert.equal(writes.filter(([, , options]) => options.upsert).length, 1);
+      assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 1);
+      assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_FAILED").length, batchSubreddits.length - 1);
+      await assert.rejects(handler({ allFeeds: true }), /Browser batch did not complete cleanly/);
+    }
+  }
+});

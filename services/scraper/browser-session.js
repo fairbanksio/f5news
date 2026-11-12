@@ -141,13 +141,17 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
       try { result = await runBrowser(request); }
       catch (error) {
         const seconds = readPauseFor(error);
-        if (seconds) await pauseLimitedReads(seconds);
+        if (seconds) {
+          await pauseLimitedReads(seconds);
+          error.readBackoffStartedSeconds = seconds;
+        }
         throw error;
       }
       const seconds = Math.max(readPauseFor(result?.batchFailure), readPauseFor(result?.optionalFailure), readPauseFor(result?.navigationRateLimit));
       if (seconds) {
         try { await pauseLimitedReads(seconds); }
         catch { return { ...result, readBackoffFailed: true }; }
+        if (readPauseFor(result?.batchFailure)) return { ...result, readBackoffStartedSeconds: seconds };
       }
       return result;
     };
@@ -198,7 +202,11 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
                 lastReuseReason = SESSION_REASONS.includes(error.sessionReason) ? error.sessionReason : undefined;
                 const fields = rejected ? rejectionFields(error) : {};
                 options.logger.log(JSON.stringify({ eventType: "BROWSER_SESSION", mode: "reuse_failed", generation, status: lastReuseFailure, ...(lastReuseReason ? { reason: lastReuseReason } : {}), ...fields, attempt }));
-                if (rejected) throw sessionReadError(lastReuseFailure, lastReuseReason, fields);
+                if (rejected) {
+                  const failure = sessionReadError(lastReuseFailure, lastReuseReason, fields);
+                  failure.readBackoffStartedSeconds = error.readBackoffStartedSeconds;
+                  throw failure;
+                }
                 if (credentialFailure(lastReuseFailure, lastReuseReason)) break;
                 if (attempt === 2) {
                   throw sessionReadError(lastReuseFailure, lastReuseReason);

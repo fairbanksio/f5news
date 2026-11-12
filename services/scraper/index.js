@@ -540,6 +540,11 @@ const scheduledReadBackoff = (error, event, context, logger) => {
   return { status: "read_backoff", readBackoffSeconds: seconds };
 };
 
+const scheduledReadBackoffStarted = (seconds, event) => {
+  if (event.scheduled !== true || !Number.isInteger(seconds) || seconds < 1 || seconds > 86400) return undefined;
+  return { status: "read_backoff", readBackoffSeconds: seconds };
+};
+
 const fetchAllFeeds = async (dependencies, event, context) => {
   const { env, scrapeBatchImpl, mongooseClient, newPostModel, logger, now } = dependencies;
   const startedAt = Date.now();
@@ -551,6 +556,7 @@ const fetchAllFeeds = async (dependencies, event, context) => {
   let result;
   let batchProblem;
   let sourceFailureFields;
+  let readBackoffStartedSeconds;
   try {
     await mongooseClient.connect();
     const imagePriorityIdsBySubreddit = {};
@@ -624,11 +630,18 @@ const fetchAllFeeds = async (dependencies, event, context) => {
       catch { feed.job.optionalImagesDeferred = true; }
       feed.stage = "complete";
     });
+    if (result.batchFailure && !result.readBackoffFailed && feeds.every((feed) => !feed.terminalError ||
+      (feed.stage === "browser_extract" && ["source_failed", "not_attempted"].includes(feed.sourceStatus)))) {
+      readBackoffStartedSeconds = result.readBackoffStartedSeconds;
+    }
   } catch (error) {
     const skipped = scheduledReadBackoff(error, event, context, logger);
     if (skipped) return skipped;
     batchProblem = true;
     sourceFailureFields = batchFailureFields(error);
+    if (feeds.every((feed) => feed.stage === "browser_extract" && feed.job.savedCount === 0) && !error.readBackoffFailed) {
+      readBackoffStartedSeconds = error.readBackoffStartedSeconds;
+    }
     for (const feed of feeds) if (!feed.terminalError) {
       feed.terminalError = error;
       feed.sourceStatus = "source_failed";
@@ -638,6 +651,8 @@ const fetchAllFeeds = async (dependencies, event, context) => {
   const feedResults = feeds.map((feed) => finishFeed({ ...feed, startedAt, event, context, logger, redactionValues }));
   const failed = feedResults.filter((feed) => feed.outcome === "failed").length;
   if (batchProblem || failed) {
+    const paused = scheduledReadBackoffStarted(readBackoffStartedSeconds, event);
+    if (paused) return { ...paused, feedResults };
     const cause = [sourceFailureFields.sessionReason, sourceFailureFields.httpStatus ? `HTTP ${sourceFailureFields.httpStatus}` : "",
       sourceFailureFields.retryAfterSeconds !== undefined ? `retry after ${sourceFailureFields.retryAfterSeconds}s` : ""].filter(Boolean).join(", ");
     throw new Error(`Browser batch did not complete cleanly: ${failed} feeds incomplete${cause ? `; stopped: ${cause}` : ""}`);
@@ -744,6 +759,8 @@ const createFetchPosts = ({
       const safe = errorFields(error, redactionValues);
       terminalError = Object.assign(new Error(safe.errorMessage), { name: safe.errorName, code: safe.errorCode, status: safe.status });
       if (safe.stack) terminalError.stack = safe.stack;
+      const paused = stage === "browser_extract" && !error.readBackoffFailed && scheduledReadBackoffStarted(error.readBackoffStartedSeconds, event);
+      if (paused) return paused;
       throw terminalError;
     } finally {
       const imageCounts = [job.scrapeImages, job.backfillImages].filter(Boolean);

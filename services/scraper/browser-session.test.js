@@ -529,7 +529,7 @@ test("a challenge stops the current attempt and the next scheduled read resumes 
     if (++calls <= 2) throw Object.assign(new Error("Browser extraction failed: session_challenge"), { sessionReason: "feed_challenge" });
     return { status: "accessible", posts: [] };
   };
-  await assert.rejects(run(options(), browser), { sessionReason: "feed_challenge" });
+  await assert.rejects(run(options(), browser), { sessionReason: "feed_challenge", readBackoffStartedSeconds: 600 });
   clock += 300000;
   await assert.rejects(run(options(), browser), { readBackoffSeconds: 300 });
   await assert.rejects(run({ ...options(), renewSession: true }, browser), { readBackoffSeconds: 300 });
@@ -551,7 +551,7 @@ test("a challenge during renewal pauses reads and leaves the saved session in pl
   await assert.rejects(run({ ...options(), renewSession: true }, async ({ authenticate }) => {
     assert.equal(authenticate, true);
     throw new Error("Browser extraction failed: auth_challenge");
-  }), /auth_challenge/);
+  }), { message: "Browser extraction failed: auth_challenge", readBackoffStartedSeconds: 600 });
   assert.deepEqual(store.readPauses, [600]);
   assert.equal((await store.current()).activeGeneration, generation);
   assert.equal(store.releases.length, 1);
@@ -584,6 +584,7 @@ test("a partial rate-limited batch pauses once and retains proven posts without 
   const result = await createSessionRunner({ store, now: () => NOW })(options(), async () => { calls += 1; return partialBatch(); });
   assert.deepEqual(result.feeds, partialBatch().feeds);
   assert.equal(result.batchFailure.httpStatus, 429);
+  assert.equal(result.readBackoffStartedSeconds, 30);
   assert.deepEqual(store.readPauses, [30]);
   assert.equal(store.attempts.length, 0);
   assert.equal(calls, 1);
@@ -622,6 +623,7 @@ test("backoff coordination failures retain partial posts with an explicit failur
   const messages = [];
   const result = await createSessionRunner({ store, now: () => NOW })(options(messages), async () => partialBatch());
   assert.equal(result.readBackoffFailed, true);
+  assert.equal(result.readBackoffStartedSeconds, undefined);
   assert.deepEqual(result.feeds, partialBatch().feeds);
   assert.equal(store.attempts.length, 0);
   assert.equal(messages.join().includes("private-provider"), false);
