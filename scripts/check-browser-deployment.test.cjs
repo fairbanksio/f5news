@@ -704,3 +704,22 @@ test("runtime HTTP diagnostics accept direct, progress, and Lambda JSON envelope
   assert.equal(summary.sessionReasonCounts.navigation_rate_limited, 1);
   assert.equal(JSON.stringify(summary).includes("private"), false);
 });
+
+test("targeted publisher repair passes the explicit candidate to Lambda and emits only aggregate results", async () => {
+  const publisherImageUrl = "https://cdn.example/public.jpg";
+  const env = { F5_PROBE_PUBLISHER_IMAGE_BACKFILL: "true", F5_PROBE_PUBLISHER_POST_ID: "abc",
+    F5_PROBE_PUBLISHER_IMAGE_URL: publisherImageUrl, F5_PROBE_SUBREDDIT: "news" };
+  const summary = { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", subreddit: "news", candidates: 1,
+    attempts: 1, updated: 1, errors: 0, dependencyFailures: 0, deferred: false };
+  const calls = [];
+  const logs = [];
+  const invoke = async (event) => {
+    calls.push(event);
+    return { StatusCode: 200, PublisherBackfillResult: { ...summary, publisherPostId: "abc", publisherImageUrl } };
+  };
+  assert.deepEqual(await runVerification({ env, invoke, emit: (log) => logs.push(JSON.parse(log)) }), summary);
+  assert.deepEqual(logs, [summary]);
+  await assert.rejects(runVerification({ env: { ...env, F5_PROBE_PUBLISHER_IMAGE_URL: "" }, invoke }), /public HTTPS/);
+  await assert.rejects(runVerification({ env: { ...env, F5_PROBE_PUBLISHER_IMAGE_BACKFILL: "false" }, invoke }), /Enable publisher image backfill/);
+  assert.deepEqual(calls, [{ publisherImageBackfill: true, subreddit: "news", publisherPostId: "abc", publisherImageUrl }]);
+});
