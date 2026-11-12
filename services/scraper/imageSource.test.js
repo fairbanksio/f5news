@@ -1281,3 +1281,96 @@ test("HTTPS-only publisher image verification rejects non-default and unsafe red
     assert.deepEqual(requests, ["https://publisher.example/story.jpg"]);
   }
 });
+
+const nytArticle = "https://www.nytimes.com/2026/11/11/us/politics/example.html";
+const nytFeed = "https://rss.nytimes.com/services/xml/rss/nyt/US.xml";
+const nytImage = "https://static01.nyt.com/images/example.jpg";
+const nytThumbnail = "https://external-preview.redd.it/example.jpg?width=140";
+const nytItem = (article, image = nytImage) =>
+  `<item><link>${article}</link><media:content url="${image}" medium="image" width="1800" /></item>`;
+const nytRssResponse = (items) => ({
+  ok: true, status: 200, headers: createHeaders({ "content-type": "application/rss+xml" }),
+  body: Readable.from([`<rss><channel>${items}</channel></rss>`]),
+});
+const publicDns = async () => [{ address: "93.184.216.34", family: 4 }];
+
+test("NYT RSS supplies an exact article image after metadata is unavailable and shares the feed request", async () => {
+  const calls = [];
+  const options = {
+    preferArticleImage: true, resolveHostname: publicDns, maxTransientRetries: 0,
+    fetchImpl: async (url, request) => {
+      calls.push(url);
+      if (url === nytFeed) return nytRssResponse(nytItem(nytArticle));
+      if (url === nytImage) {
+        assert.equal(request.headers.Range, "bytes=0-65535");
+        return { ok: true, status: 206, body: Readable.from([pngHeader(1800)]) };
+      }
+      return { ok: false, status: 403, headers: createHeaders() };
+    },
+  };
+  const results = await Promise.all([
+    imageSource({ url: `${nytArticle}?smid=share#fragment`, thumbnail: nytThumbnail }, options),
+    imageSource({ url: nytArticle.replace("www.nytimes.com", "nytimes.com") }, { ...options, publisherOnly: true }),
+  ]);
+  assert.deepEqual(results, [nytImage, nytImage]);
+  assert.equal(calls.filter((url) => url === nytFeed).length, 1);
+  assert.equal(calls.filter((url) => url === nytImage).length, 2);
+});
+
+test("NYT RSS skips unrelated articles, foreign image URLs and unverified image sizes", async () => {
+  for (const [items, expectedProbes] of [
+    [nytItem(nytArticle.replace("example.html", "similar-example.html")), 0],
+    [nytItem(nytArticle, "https://cdn.example/wrong.jpg"), 0],
+    [nytItem(nytArticle, "https://static01.nyt.com:8443/wrong.jpg"), 0],
+    [nytItem(nytArticle), 1],
+  ]) {
+    let probes = 0;
+    const result = await imageSource({ url: nytArticle, thumbnail: nytThumbnail }, {
+      preferArticleImage: true, resolveHostname: publicDns, fetchArticleImageImpl: async () => "",
+      fetchImpl: async (url) => {
+        if (url === nytFeed) return nytRssResponse(items);
+        probes += 1;
+        return { ok: true, status: 206, body: Readable.from([pngHeader(140)]) };
+      },
+    });
+    assert.equal(result, nytThumbnail);
+    assert.equal(probes, expectedProbes);
+  }
+});
+
+test("NYT RSS performs no fallback request after article success or an explicit HTTP 429", async () => {
+  const data = { url: nytArticle, thumbnail: nytThumbnail };
+  const options = {
+    preferArticleImage: true, resolveHostname: publicDns,
+    fetchImpl: async () => { assert.fail("Unexpected RSS or image request"); },
+  };
+  assert.equal(await imageSource(data, { ...options, fetchArticleImageImpl: async () => nytImage }), nytImage);
+  assert.equal(await imageSource(data, {
+    ...options,
+    fetchArticleImageImpl: async (_url, { onArticleImageFailure }) => {
+      onArticleImageFailure({ reason: "http_status", status: 429 });
+      return "";
+    },
+  }), nytThumbnail);
+});
+
+test("NYT RSS has one bounded fetch with no follow-up after timeout or redirect", async () => {
+  const data = { url: nytArticle, thumbnail: nytThumbnail };
+  for (const response of ["timeout", "redirect"]) {
+    const requests = [];
+    const result = await imageSource(data, {
+      timeoutMs: 25, preferArticleImage: true, resolveHostname: publicDns, fetchArticleImageImpl: async () => "",
+      fetchImpl: async (url, options) => {
+        requests.push({ url, ...options });
+        return response === "timeout"
+          ? new Promise(() => {})
+          : { ok: false, status: 302, headers: createHeaders({ location: "https://public.example/feed" }) };
+      },
+    });
+    assert.equal(result, nytThumbnail);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, nytFeed);
+    assert.equal(requests[0].redirect, "manual");
+    if (response === "timeout") assert.equal(requests[0].signal.aborted, true);
+  }
+});

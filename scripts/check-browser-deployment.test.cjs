@@ -548,6 +548,9 @@ const imageDiagnosticEvents = () => {
         { reason: "no_meta_image", status: 200 }, { reason: "request_timeout" }] }),
     event(301, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit: "news", errorMessage: "private-database-message",
       imageResolutionFailures: [{ reason: "fetch_error", status: 429, domain: "private.example" }] }),
+    event(302, { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", trigger: "schedule", subreddit: "news",
+      candidates: 3, attempts: 2, updated: 1, errors: 0, deferred: true }),
+    event(303, { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", subreddit: "news", updated: 2 }),
     event(400, { eventType: "BROWSER_NAVIGATION_HTTP", status: 429, retryAfterSeconds: 60 }),
     event(500, { eventType: "SCRAPER_JOB_COMPLETED", subreddit: "science", outcome: "degraded", imageAttempts: 999 }),
   ];
@@ -557,6 +560,8 @@ test("encrypted image diagnostics separate publisher failures, Reddit responses,
   const summary = summarizeRuntimeEvents(imageDiagnosticEvents());
   const images = summary.imageDiagnostics;
   assert.deepEqual(images.feeds.map((entry) => entry.subreddit), FEEDS);
+  assert.deepEqual(images.feeds.find((entry) => entry.subreddit === "news").latestScheduledCoverRepair,
+    { timestamp: 302, candidates: 3, attempts: 2, updated: 1, errors: 0, deferred: true });
   const politics = images.feeds.find((entry) => entry.subreddit === "politics");
   assert.equal(politics.completedCount, 2);
   assert.equal(politics.degradedCount, 1);

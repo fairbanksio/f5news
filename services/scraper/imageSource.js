@@ -860,6 +860,88 @@ const isExternalLinkPost = (data) => {
   }
 };
 
+const NYT_FEED_TTL_MS = 5 * 60_000;
+const NYT_FEED_MAX_BYTES = 256 * 1024;
+const NYT_FALLBACK_TIMEOUT_MS = 1500;
+const NYT_SECTION_FEEDS = new Map([["us", "US"], ["world", "World"], ["technology", "Technology"], ["business", "Business"]]);
+const nytFeedCaches = new WeakMap();
+
+const nytArticlePath = (value) => {
+  const url = URL.parse(value);
+  if (!url || !["nytimes.com", "www.nytimes.com"].includes(url.hostname) ||
+      !isPublisherUrl(value, { httpsOnly: true }) ||
+      !/^\/\d{4}\/\d{2}\/\d{2}\/(?:[a-z0-9-]+\/)+[a-z0-9-]+\.html$/.test(url.pathname)) return "";
+  return url.pathname;
+};
+
+const nytFeedImages = (xml) => {
+  const images = new Map();
+  const markup = xml.replace(/<!--[^]*?-->|<!\[CDATA\[[^]*?\]\]>/g, "");
+  for (const [, item] of markup.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item\s*>/gi)) {
+    const link = item.match(/<link\s*>([^<>]+)<\/link\s*>/i)?.[1]?.trim();
+    const article = link && nytArticlePath(decodeHtml(link));
+    if (!article) continue;
+    for (const [tag] of item.matchAll(/<media:content\b[^>]*>/gi)) {
+      const { url, medium, width } = parseAttributes(tag);
+      const candidate = URL.parse(url);
+      if (medium !== "image" || !(Number(width) > 320) || candidate?.hostname !== "static01.nyt.com" ||
+          !isPublisherUrl(url, { httpsOnly: true })) continue;
+      images.set(article, candidate.href);
+      break;
+    }
+  }
+  return images;
+};
+
+const fetchNytFeed = async (feed, fetchImpl, resolveHostname, timeoutMs) => {
+  const controller = new AbortController();
+  const url = `https://rss.nytimes.com/services/xml/rss/nyt/${feed}.xml`;
+  const operation = async () => {
+    if (!(await isSafeHttpUrl(url, { resolveHostname })) || controller.signal.aborted) return null;
+    const response = await fetchImpl(url, {
+      headers: { Accept: "application/rss+xml, application/xml, text/xml" },
+      agent: makeSafeAgent(resolveHostname), redirect: "manual", signal: controller.signal,
+    });
+    try {
+      if (!response.ok || !/\b(?:rss\+xml|xml)\b/i.test(getHeader(response, "content-type"))) return null;
+      return nytFeedImages(await readResponseBody(response, NYT_FEED_MAX_BYTES));
+    } finally {
+      await destroyResponseBody(response);
+    }
+  };
+  try {
+    return await withTimeout(operation(), timeoutMs, () => controller.abort());
+  } catch {
+    return null;
+  }
+};
+
+const fetchNytRssImage = async (article, options) => {
+  const section = article.split("/")[4];
+  const feed = NYT_SECTION_FEEDS.get(section) || "HomePage";
+  const fetchImpl = normalizeFetch(options.fetchImpl || fetch);
+  const resolveHostname = options.resolveHostname || dns.lookup;
+  const timeoutMs = Math.min(options.timeoutMs || NYT_FALLBACK_TIMEOUT_MS, NYT_FALLBACK_TIMEOUT_MS);
+  if (typeof fetchImpl !== "function") return "";
+  const startedAt = Date.now();
+  let cache = nytFeedCaches.get(fetchImpl);
+  if (!cache) {
+    cache = new Map();
+    nytFeedCaches.set(fetchImpl, cache);
+  }
+  let entry = cache.get(feed);
+  if (!entry || entry.expiresAt <= startedAt) {
+    entry = { expiresAt: startedAt + NYT_FEED_TTL_MS, result: fetchNytFeed(feed, fetchImpl, resolveHostname, timeoutMs) };
+    cache.set(feed, entry);
+  }
+  const images = await withTimeout(entry.result, timeoutMs, () => {});
+  const image = images?.get(article);
+  const remaining = timeoutMs - (Date.now() - startedAt);
+  if (!image || remaining <= 0) return "";
+  const width = await fetchImageWidth(image, { fetchImpl, resolveHostname, publisherOnly: true, httpsOnly: true, imageTimeoutMs: remaining });
+  return width > 320 ? image : "";
+};
+
 const imageSource = async (data, options = {}) => {
   const redditImage = options.publisherOnly ? "" : redditImageSource(data);
   const fallback = options.publisherOnly ? "" : data.thumbnail || "";
@@ -873,15 +955,24 @@ const imageSource = async (data, options = {}) => {
     return redditImage || fallback;
   }
 
-  const fetchArticleImageImpl =
-    options.fetchArticleImageImpl || fetchArticleImage;
+  const fetchArticleImageImpl = options.fetchArticleImageImpl || fetchArticleImage;
+  const nytArticle = nytArticlePath(articleUrl);
+  let rateLimited = false;
+  const articleOptions = nytArticle ? {
+    ...options,
+    onArticleImageFailure: (failure) => {
+      if (failure.status === 429) rateLimited = true;
+      options.onArticleImageFailure?.(failure);
+    },
+  } : options;
   try {
-    const articleImage = await fetchArticleImageImpl(articleUrl, options);
-    return articleImage || redditImage || fallback;
+    const articleImage = await fetchArticleImageImpl(articleUrl, articleOptions);
+    if (articleImage) return articleImage;
   } catch (error) {
-    reportArticleImageFailure(options, { url: articleUrl, reason: "fetch_error", details: errorFields(error) });
-    return redditImage || fallback;
+    reportArticleImageFailure(articleOptions, { url: articleUrl, reason: "fetch_error", details: errorFields(error) });
   }
+  const nytImage = nytArticle && !rateLimited ? await fetchNytRssImage(nytArticle, options) : "";
+  return nytImage || redditImage || fallback;
 };
 
 module.exports = {

@@ -173,6 +173,41 @@ test("manual publisher backfill repairs only verified external images without re
   await assert.rejects(handler(event, { getRemainingTimeInMillis: () => 5000 }), /Insufficient time/);
 });
 
+test("scheduled Reddit cooldown repairs existing covers across feeds and preserves freshness timestamps", async () => {
+  for (const key of ["readBackoffSeconds", "readBackoffStartedSeconds"]) {
+    const fetchedAt = new Date(now.getTime() - 600_000);
+    const posts = [
+      record({ _id: "politics", sub: "politics", fetchedAt }),
+      record({ _id: "news", sub: "news", fetchedAt, thumbnail: undefined }),
+      record({ _id: "worldnews", sub: "worldnews", fetchedAt, thumbnail: large }),
+    ];
+    const checked = [];
+    const events = [];
+    const handler = createFetchPosts({
+      scrapeBatchImpl: async () => { throw Object.assign(new Error("Reddit cooldown"), { [key]: 600 }); },
+      mongooseClient: { connect: async () => {} }, newPostModel: model(posts), now: () => now,
+      logger: { ...logger, log: (line) => events.push(JSON.parse(line)) },
+      imageSourceImpl: async (post, options) => {
+        assert.equal(options.publisherOnly, true);
+        checked.push(post.sub);
+        return "https://cdn.example/publisher-cover.jpg";
+      },
+      fetchImageWidthImpl: async () => 1200,
+    });
+    const result = await handler({ allFeeds: true, scheduled: true });
+    assert.equal(result.status, "read_backoff");
+    assert.deepEqual(checked.sort(), ["news", "politics"]);
+    assert.deepEqual(posts.map((post) => post.thumbnail), [
+      "https://cdn.example/publisher-cover.jpg", "https://cdn.example/publisher-cover.jpg", large,
+    ]);
+    assert.ok(posts.every((post) => post.fetchedAt === fetchedAt));
+    const repairs = events.filter((event) => event.eventType === "PUBLISHER_IMAGE_BACKFILL_COMPLETED");
+    assert.equal(repairs.length, 3);
+    assert.equal(repairs.reduce((total, event) => total + event.updated, 0), 2);
+    assert.equal(events.some((event) => event.eventType === "SCRAPER_JOB_COMPLETED"), false);
+  }
+});
+
 test("manual publisher backfill caps work at ten records", async () => {
   const posts = Array.from({ length: 14 }, (_, id) => record({ _id: String(id), title: `Story ${id}`, thumbnail: undefined }));
   const handler = createFetchPosts({
@@ -187,16 +222,17 @@ test("manual publisher backfill caps work at ten records", async () => {
 });
 
 
-test("a concurrent sharp upgrade survives an intermediate-width optional fallback", async () => {
-  const stored = record();
-  const intermediate = "https://external-preview.redd.it/story.jpg?width=640&s=fallback";
-  const handler = createFetchPosts({
-    scrapePostsImpl: async () => [{ data: record() }],
-    imageSourceImpl: async () => { stored.thumbnail = large; return intermediate; },
-    mongooseClient: { connect: async () => {} }, newPostModel: model([stored]), logger, now: () => now,
-  });
-  await handler({ subreddit: "politics" });
-  assert.equal(stored.thumbnail, large);
+test("a concurrent sharp upgrade survives optional writes from Reddit and publisher URLs", async () => {
+  for (const candidate of ["https://external-preview.redd.it/story.jpg?width=640&s=fallback", "https://cdn.example/story.jpg"]) {
+    const stored = record();
+    const handler = createFetchPosts({
+      scrapePostsImpl: async () => [{ data: record() }],
+      imageSourceImpl: async () => { stored.thumbnail = large; return candidate; },
+      mongooseClient: { connect: async () => {} }, newPostModel: model([stored]), logger, now: () => now,
+    });
+    await handler({ subreddit: "politics" });
+    assert.equal(stored.thumbnail, large);
+  }
 });
 
 test("targeted publisher backfill verifies one recent external post and skips the article fetch", async () => {

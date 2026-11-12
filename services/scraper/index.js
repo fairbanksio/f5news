@@ -258,7 +258,7 @@ const updatePostThumbnail = (newPostModel, data, thumbnail, { qualityCheckedAt, 
     const candidateWidth = imageUrlWidth(thumbnail);
     const storedWidth = imageUrlWidth(expectedThumbnail);
     if (hasExpectedThumbnail && candidateWidth && storedWidth && candidateWidth < storedWidth) return null;
-    if (hasExpectedThumbnail && candidateWidth && !isSmallRedditThumbnail(thumbnail)) {
+    if (hasExpectedThumbnail && !isSmallRedditThumbnail(thumbnail)) {
       // A concurrent image change must survive this snapshot's optional write.
       postKey.thumbnail = expectedThumbnail === undefined ? { $exists: false } : expectedThumbnail;
     }
@@ -545,6 +545,34 @@ const scheduledReadBackoffStarted = (seconds, event) => {
   return { status: "read_backoff", readBackoffSeconds: seconds };
 };
 
+const repairCoversDuringCooldown = async (dependencies, deadline) => {
+  const { logger } = dependencies;
+  const repairDeadline = Math.min(deadline, Date.now() + PUBLISHER_BACKFILL_TIMEOUT_MS);
+  if (repairDeadline - Date.now() < PUBLISHER_BACKFILL_MIN_REMAINING_MS) return;
+
+  await mapWithConcurrency(supportedSubreddits, 2, async (subreddit) => {
+    const job = {};
+    try {
+      const metrics = await backfillMissingPostImages(subreddit, {
+        ...dependencies, deadline: repairDeadline, job, publisherOnly: true,
+      });
+      logStructured(logger, {
+        eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED",
+        trigger: "schedule",
+        subreddit,
+        candidates: metrics.candidates || 0,
+        attempts: metrics.attempts,
+        updated: metrics.updated || 0,
+        errors: metrics.errors + metrics.updateErrors + (metrics.queryErrors || 0),
+        deferred: job.optionalImagesDeferred === true,
+      });
+    } catch (error) {
+      logStructured(logger, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit, stage: "cooldown_repair",
+        ...errorFields(error, dependencies.redactionValues) });
+    }
+  });
+};
+
 const fetchAllFeeds = async (dependencies, event, context) => {
   const { env, scrapeBatchImpl, mongooseClient, newPostModel, logger, now } = dependencies;
   const startedAt = Date.now();
@@ -636,7 +664,10 @@ const fetchAllFeeds = async (dependencies, event, context) => {
     }
   } catch (error) {
     const skipped = scheduledReadBackoff(error, event, context, logger);
-    if (skipped) return skipped;
+    if (skipped) {
+      await repairCoversDuringCooldown({ ...dependencies, redactionValues }, deadline);
+      return skipped;
+    }
     batchProblem = true;
     sourceFailureFields = batchFailureFields(error);
     if (feeds.every((feed) => feed.stage === "browser_extract" && feed.job.savedCount === 0) && !error.readBackoffFailed) {
@@ -652,7 +683,10 @@ const fetchAllFeeds = async (dependencies, event, context) => {
   const failed = feedResults.filter((feed) => feed.outcome === "failed").length;
   if (batchProblem || failed) {
     const paused = scheduledReadBackoffStarted(readBackoffStartedSeconds, event);
-    if (paused) return { ...paused, feedResults };
+    if (paused) {
+      await repairCoversDuringCooldown({ ...dependencies, redactionValues }, deadline);
+      return { ...paused, feedResults };
+    }
     const cause = [sourceFailureFields.sessionReason, sourceFailureFields.httpStatus ? `HTTP ${sourceFailureFields.httpStatus}` : "",
       sourceFailureFields.retryAfterSeconds !== undefined ? `retry after ${sourceFailureFields.retryAfterSeconds}s` : ""].filter(Boolean).join(", ");
     throw new Error(`Browser batch did not complete cleanly: ${failed} feeds incomplete${cause ? `; stopped: ${cause}` : ""}`);
@@ -726,7 +760,7 @@ const createFetchPosts = ({
       logger.log(JSON.stringify({ eventType: "BROWSER_SESSION_DIAGNOSTICS", ...diagnostics }));
       return diagnostics;
     }
-    if (event.allFeeds === true) return fetchAllFeeds({ env, scrapeBatchImpl, mongooseClient, newPostModel, logger, now, imageSourceImpl }, event, context);
+    if (event.allFeeds === true) return fetchAllFeeds({ env, scrapeBatchImpl, mongooseClient, newPostModel, logger, now, imageSourceImpl, fetchImageWidthImpl }, event, context);
     const startedAt = Date.now();
     const subreddit = event.subreddit || "politics";
     const job = { savedCount: 0, fetchedCount: 0 };
