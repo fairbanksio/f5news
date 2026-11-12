@@ -39,6 +39,10 @@ on:
         description: Bootstrap one login with the approved Reddit account
         type: boolean
         default: false
+      publisher_image_backfill:
+        description: Repair recent cover images for the selected feed using publisher sources
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -78,4 +82,5 @@ jobs:
           F5_PROBE_SESSION: ${{ inputs.session }}
           F5_PROBE_RENEW_SESSION: ${{ inputs.renew_session }}
           F5_PROBE_AUTHENTICATE: ${{ inputs.authenticate }}
+          F5_PROBE_PUBLISHER_IMAGE_BACKFILL: ${{ inputs.publisher_image_backfill }}
         run: node scripts/check-browser-deployment.cjs
