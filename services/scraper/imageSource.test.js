@@ -1118,7 +1118,7 @@ test("image width probing uses a bounded range and pinned public DNS agent", asy
     resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
     fetchImpl: async (_url, request) => { options = request; return { ok: true, status: 200, body: Readable.from([pngHeader(1200)]) }; },
   }), 1200);
-  assert.equal(options.headers.Range, "bytes=0-65535");
+  assert.deepEqual(options.headers, { Accept: "image/*", Range: "bytes=0-65535" });
   assert.equal(options.redirect, "manual");
   assert.equal(typeof options.agent, "function");
 });
