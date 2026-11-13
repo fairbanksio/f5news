@@ -161,8 +161,8 @@ def options(args=None):
 
 def state(page):
     try:
-        return page.evaluate_read("""() => {
-          if (!document.body) return 'loading';
+        evidence = page.evaluate_read("""() => {
+          if (!document.body) return { state: 'loading' };
           const hasPosts = Boolean(document.querySelector('shreddit-post'));
           const visibleText = hasPosts ? [] : [document.title];
           const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -176,11 +176,36 @@ def state(page):
             if ([...range.getClientRects()].some(rect => rect.width > 0 && rect.height > 0)) visibleText.push(node.textContent.trim());
           }
           const text = visibleText.join(' ');
-          if (/prove your humanity|verify (that )?you('re| are) human|complete the challenge/i.test(text)) return 'challenge';
-          if (/blocked by network security|you.have been blocked/i.test(text)) return 'blocked';
-          if (hasPosts) return 'feed';
-          return 'loading';
+          const rules = [
+            ['prove_humanity', /prove your humanity/i],
+            ['verify_human', /verify (that )?you('re| are) human/i],
+            ['complete_challenge', /complete the challenge/i],
+            ['network_security', /blocked by network security/i],
+            ['blocked_text', /you.have been blocked/i],
+          ];
+          const marker = rules.find(([, pattern]) => pattern.test(text))?.[0];
+          if (!marker) return { state: hasPosts ? 'feed' : 'loading' };
+          const region = document.querySelector('[role="dialog"], [aria-modal="true"]');
+          const frames = [...document.querySelectorAll('iframe')].filter(frame => frame.getClientRects().length);
+          const verificationFrame = frames.some(frame => {
+            try {
+              const host = new URL(frame.src, location.href).hostname;
+              return ['challenges.cloudflare.com', 'hcaptcha.com', 'www.hcaptcha.com', 'newassets.hcaptcha.com',
+                'www.google.com', 'www.recaptcha.net'].includes(host) && /challenge|captcha|turnstile/i.test(frame.src);
+            } catch { return false; }
+          });
+          return {
+            state: ['network_security', 'blocked_text'].includes(marker) ? 'blocked' : 'challenge',
+            marker,
+            hasPosts,
+            titleMatch: rules.some(([name, pattern]) => name === marker && pattern.test(document.title)),
+            dialogVisible: Boolean(region?.getClientRects().length),
+            verificationFrame,
+          };
         }""")
+        if evidence["state"] in ("challenge", "blocked"):
+            log(json.dumps({"eventType": "BROWSER_PAGE_ACCESS", **evidence}, separators=(",", ":")))
+        return evidence["state"]
     except Exception as error:
         if "Execution context was destroyed" in str(error) or "Cannot find context" in str(error):
             return "loading"
