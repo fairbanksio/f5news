@@ -714,11 +714,11 @@ test("page access diagnostics retain only fixed verification indicators", () => 
   const evidence = { eventType: "BROWSER_PAGE_ACCESS", state: "challenge", marker: "verify_human",
     hasPosts: false, titleMatch: true, dialogVisible: false, verificationFrame: true };
   const message = JSON.stringify({ eventType: "BROWSER_PROGRESS",
-    message: JSON.stringify({ ...evidence, html: "private-page" }) });
+    message: JSON.stringify({ ...evidence, matchedRegion: "verification", verificationControl: true, html: "private-page" }) });
   const invalid = JSON.stringify({ ...evidence, marker: "private-marker" });
   assert.deepEqual(summarizeRuntimeEvents([{ timestamp: 3, message }, { timestamp: 4, message: invalid }]).latestPageAccess,
     { timestamp: 3, state: "challenge", marker: "verify_human", hasPosts: false,
-      titleMatch: true, dialogVisible: false, verificationFrame: true });
+      titleMatch: true, dialogVisible: false, verificationFrame: true, matchedRegion: "verification", verificationControl: true });
 });
 
 test("targeted publisher repair passes the explicit candidate to Lambda and emits only aggregate results", async () => {
