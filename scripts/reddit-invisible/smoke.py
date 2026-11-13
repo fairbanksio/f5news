@@ -164,7 +164,7 @@ def state(page):
         evidence = page.evaluate_read("""() => {
           if (!document.body) return { state: 'loading' };
           const hasPosts = Boolean(document.querySelector('shreddit-post'));
-          const visibleText = hasPosts ? [] : [document.title];
+          const visibleText = hasPosts ? [] : [{ text: document.title }];
           const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
           let node;
           while ((node = walker.nextNode())) {
@@ -173,9 +173,11 @@ def state(page):
                 getComputedStyle(parent).visibility !== 'visible' || !node.textContent.trim()) continue;
             const range = document.createRange();
             range.selectNodeContents(node);
-            if ([...range.getClientRects()].some(rect => rect.width > 0 && rect.height > 0)) visibleText.push(node.textContent.trim());
+            if ([...range.getClientRects()].some(rect => rect.width > 0 && rect.height > 0)) {
+              visibleText.push({ text: node.textContent.trim(), parent });
+            }
           }
-          const text = visibleText.join(' ');
+          const text = visibleText.map(part => part.text).join(' ');
           const rules = [
             ['prove_humanity', /prove your humanity/i],
             ['verify_human', /verify (that )?you('re| are) human/i],
@@ -183,9 +185,32 @@ def state(page):
             ['network_security', /blocked by network security/i],
             ['blocked_text', /you.have been blocked/i],
           ];
-          const marker = rules.find(([, pattern]) => pattern.test(text))?.[0];
-          if (!marker) return { state: hasPosts ? 'feed' : 'loading' };
-          const region = document.querySelector('[role="dialog"], [aria-modal="true"]');
+          const rule = rules.find(([, pattern]) => pattern.test(text));
+          if (!rule) return { state: hasPosts ? 'feed' : 'loading' };
+          const [marker, pattern] = rule;
+          const matchIndex = text.search(pattern);
+          let offset = 0;
+          const matchedPart = visibleText.find(part => {
+            const containsMatch = matchIndex >= offset && matchIndex < offset + part.text.length;
+            offset += part.text.length + 1;
+            return containsMatch;
+          });
+          const dialogSelector = 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]';
+          const verificationSelector = 'shreddit-captcha, shreddit-verification, shreddit-captcha-modal, ' +
+            '[id*="captcha" i], [data-testid*="captcha" i], [data-testid*="challenge" i]';
+          const parent = matchedPart?.parent;
+          const regions = [
+            ['verification', verificationSelector], ['dialog', dialogSelector],
+            ['navigation', 'nav, header, [role="navigation"], [role="banner"]'],
+            ['footer', 'footer, [role="contentinfo"]'], ['link', 'a[href]'],
+            ['heading', 'h1, h2, h3, h4, h5, h6, [role="heading"]'], ['main', 'main, [role="main"]'],
+          ];
+          const matchedRegion = matchedPart && !parent ? 'title' :
+            regions.find(([, selector]) => parent?.closest(selector))?.[0] ?? 'other';
+          const visible = element => getComputedStyle(element).visibility === 'visible' &&
+            [...element.getClientRects()].some(rect => rect.width > 0 && rect.height > 0);
+          const dialogVisible = [...document.querySelectorAll(dialogSelector)].some(visible);
+          const verificationControl = [...document.querySelectorAll(verificationSelector)].some(visible);
           const frames = [...document.querySelectorAll('iframe')].filter(frame => frame.getClientRects().length);
           const verificationFrame = frames.some(frame => {
             try {
@@ -199,8 +224,10 @@ def state(page):
             marker,
             hasPosts,
             titleMatch: rules.some(([name, pattern]) => name === marker && pattern.test(document.title)),
-            dialogVisible: Boolean(region?.getClientRects().length),
+            dialogVisible,
             verificationFrame,
+            matchedRegion,
+            verificationControl,
           };
         }""")
         if evidence["state"] in ("challenge", "blocked"):
