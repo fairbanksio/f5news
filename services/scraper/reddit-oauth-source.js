@@ -13,6 +13,14 @@ const readDelay = (value) => {
   return Math.min(Number(value), 86400);
 };
 
+const retryDelay = (value) => {
+  const seconds = readDelay(value);
+  if (seconds !== undefined) return seconds;
+  if (typeof value !== "string" || !/^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(value)) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? Math.min(86400, Math.max(0, Math.ceil((timestamp - Date.now()) / 1000))) : undefined;
+};
+
 const exhaustedDelay = (headers) => {
   const remaining = headers.get("x-ratelimit-remaining");
   if (typeof remaining !== "string" || !/^0(?:\.0+)?$/.test(remaining.trim())) return undefined;
@@ -28,7 +36,7 @@ const requestJson = async (fetchImpl, url, options, stage, maxBytes) => {
     response = await fetchImpl(url, { ...options, redirect: "error" });
     if (!response.ok) {
       const httpStatus = Number.isInteger(response.status) && response.status >= 400 && response.status <= 599 ? response.status : undefined;
-      const delays = [readDelay(response.headers.get("retry-after")), exhaustedDelay(response.headers)].filter(Number.isInteger);
+      const delays = [retryDelay(response.headers.get("retry-after")), exhaustedDelay(response.headers)].filter(Number.isInteger);
       throw oauthFailure(stage, "http_error", {
         ...(httpStatus === undefined ? {} : { httpStatus }),
         ...(delays.length ? { retryAfterSeconds: Math.max(...delays) } : {}),
@@ -65,7 +73,8 @@ const listingChildren = (body, subreddit, limit) => {
   const rows = body?.data?.children;
   if (body?.kind !== "Listing" || !Array.isArray(rows) || !rows.length || rows.length > limit) throw oauthFailure("listing", "invalid_listing");
   const ids = new Set();
-  return rows.map(({ kind, data } = {}) => {
+  return rows.map((row) => {
+    const { kind, data } = row || {};
     if (kind !== "t3" || !data || typeof data.id !== "string" || !/^[a-z0-9]+$/.test(data.id) || ids.has(data.id) ||
         typeof data.subreddit !== "string" || data.subreddit.toLowerCase() !== subreddit ||
         !["title", "domain", "author"].every((key) => typeof data[key] === "string" && data[key].trim()) ||
@@ -108,8 +117,9 @@ const createRedditOAuthSource = ({ env = process.env, fetchImpl = globalThis.fet
       body: new URLSearchParams({ grant_type: "password", username, password }),
     }, "token", 64 * 1024);
     const accessToken = token.body?.access_token;
+    const tokenType = token.body?.token_type;
     if (typeof accessToken !== "string" || !/^[a-zA-Z0-9._~+/=-]{1,4096}$/.test(accessToken) ||
-        token.body?.token_type?.toLowerCase?.() !== "bearer") throw oauthFailure("token", "token_rejected");
+        typeof tokenType !== "string" || tokenType.toLowerCase() !== "bearer") throw oauthFailure("token", "token_rejected");
 
     const feeds = [];
     let delay = token.delay;
