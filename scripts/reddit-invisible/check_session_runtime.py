@@ -44,6 +44,20 @@ def check_access_classification(page):
         page.goto("data:text/html," + quote("<!doctype html>" + html), wait_until="domcontentloaded", timeout=15000)
         assert smoke.state(page) == expected
 
+    for html, region, control in (
+        ("<footer><a href='/help'>Verify that you are human</a></footer>", "footer", False),
+        ("<dialog open><h2>Verify that <span>you are human</span></h2></dialog>", "dialog", False),
+        ("<div id='captcha-widget'>Verify that you are human</div>", "verification", True),
+    ):
+        page.goto("data:text/html," + quote("<!doctype html>" + html + "<shreddit-post>Story</shreddit-post>"),
+                  wait_until="domcontentloaded", timeout=15000)
+        with patch.object(smoke, "log") as log:
+            assert smoke.state(page) == "challenge"
+        evidence = json.loads(log.call_args.args[0])
+        assert evidence["matchedRegion"] == region
+        assert evidence["verificationControl"] is control
+        assert evidence["dialogVisible"] is (region == "dialog")
+
 
 def check_navigation_http(browser):
     fixtures = (

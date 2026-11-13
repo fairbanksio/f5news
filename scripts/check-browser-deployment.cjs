@@ -212,7 +212,12 @@ function summarizeRuntimeEvents(events) {
           ["hasPosts", "titleMatch", "dialogVisible", "verificationFrame"].every((key) => typeof record[key] === "boolean") &&
           Number.isSafeInteger(event.timestamp) && event.timestamp >= (summary.latestPageAccess?.timestamp ?? 0)) {
         const { state, marker, hasPosts, titleMatch, dialogVisible, verificationFrame } = record;
-        summary.latestPageAccess = { timestamp: event.timestamp, state, marker, hasPosts, titleMatch, dialogVisible, verificationFrame };
+        const evidence = { timestamp: event.timestamp, state, marker, hasPosts, titleMatch, dialogVisible, verificationFrame };
+        if (["verification", "dialog", "navigation", "footer", "link", "heading", "main", "title", "other"].includes(record.matchedRegion)) {
+          evidence.matchedRegion = record.matchedRegion;
+        }
+        if (typeof record.verificationControl === "boolean") evidence.verificationControl = record.verificationControl;
+        summary.latestPageAccess = evidence;
       }
       if (record.eventType === "BROWSER_NAVIGATION_HTTP" && Number.isInteger(record.status) && record.status >= 400 && record.status <= 599) {
         summary.navigationHttpStatusCounts[record.status] = (summary.navigationHttpStatusCounts[record.status] || 0) + 1;
