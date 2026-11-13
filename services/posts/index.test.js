@@ -3,7 +3,7 @@ const test = require("node:test");
 
 const { createGetPostsBySubreddit } = require("./index");
 
-const createPostModel = (posts = []) => {
+const createPostModel = (posts = [], fallbackPosts = posts) => {
   const calls = [];
   const query = {
     sort(sortOptions) {
@@ -16,7 +16,7 @@ const createPostModel = (posts = []) => {
     },
     limit(limitCount) {
       calls.push({ method: "limit", args: [limitCount] });
-      return posts;
+      return calls.filter((call) => call.method === "find").length === 2 ? fallbackPosts : posts;
     },
   };
 
@@ -116,6 +116,22 @@ test("queries recent popular posts for the requested subreddit", async () => {
     count: 1,
     data: [{ title: "Story" }],
   });
+});
+
+test("serves the latest saved posts for the same feed when its normal window is empty", async () => {
+  const now = new Date("2026-11-13T21:00:00Z");
+  const savedPost = { title: "Saved story", fetchedAt: "2026-11-12T03:36:00Z" };
+  const postModel = createPostModel([], [savedPost]);
+  const { handler } = createHandler({ now, postModel });
+  const response = await handler(allowedEvent({ pathParameters: { subreddit: "news" } }));
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(getJsonBody(response).data, [savedPost]);
+  assert.deepEqual(postModel.calls.filter((call) => call.method === "find")[1].args, [{
+    sub: "news", upvoteCount: { $gt: 5 }, created_utc: { $gt: expectedCutoff(now, 72 * 3600) },
+  }]);
+  assert.deepEqual(postModel.calls.filter((call) => call.method === "sort")[1].args,
+    [{ created_utc: -1, upvoteCount: -1 }]);
 });
 
 test("logs connection and query failures with bounded diagnostics and correlation", async () => {

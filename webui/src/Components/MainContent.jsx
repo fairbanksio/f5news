@@ -27,6 +27,7 @@ const SCRAPER_REFRESH_INTERVAL_MS = 1000 * 60 * 5;
 const SCRAPER_FRESHNESS_GRACE_MS = 1000 * 60 * 2;
 const STALE_POSTS_THRESHOLD_MS =
   SCRAPER_REFRESH_INTERVAL_MS + SCRAPER_FRESHNESS_GRACE_MS;
+const STALE_NOTICE_THRESHOLD_MS = 45 * 60 * 1000;
 const MIN_RESUME_REFRESH_AGE_MS = 1000 * 30;
 const POST_REQUEST_TIMEOUT_MS = 1000 * 45;
 
@@ -137,6 +138,10 @@ const PostView = () => {
   const { setLoading } = useContext(LoadingContext);
 
   const [posts, setPosts] = useState([]);
+  const [freshnessObservedAt, setFreshnessObservedAt] = useState(() => Date.now());
+  const { latestFetchedAt } = getPostsFreshness(posts, freshnessObservedAt);
+  const staleNoticeAt = latestFetchedAt === null ? null : Date.parse(latestFetchedAt) + STALE_NOTICE_THRESHOLD_MS + 1;
+  const showStaleNotice = staleNoticeAt !== null && freshnessObservedAt >= staleNoticeAt;
   const [hasLoadedPosts, setHasLoadedPosts] = useState(false);
   const lastFetchStartedAtRef = useRef(0);
   const freshnessReporterRef = useRef(null);
@@ -157,6 +162,12 @@ const PostView = () => {
     xl: '1280px',
     '2xl': '1600px',
   });
+
+  useEffect(() => {
+    if (staleNoticeAt === null || showStaleNotice) return undefined;
+    const timer = setTimeout(() => setFreshnessObservedAt(Date.now()), Math.max(0, staleNoticeAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [staleNoticeAt, showStaleNotice]);
 
   useEffect(() => {
     if (!isVisible || !refreshInterval || refreshInterval <= 0) return undefined;
@@ -198,6 +209,7 @@ const PostView = () => {
         if (!isCurrent()) return;
         const nextPosts = sortPostsByUpvotes(getValidatedPosts(json));
         setPosts(nextPosts);
+        setFreshnessObservedAt(Date.now());
         setHasLoadedPosts(true);
         setError({ show: false });
         setLoading(false);
@@ -252,6 +264,21 @@ const PostView = () => {
         </Box>
       ) : null}
 
+      {showStaleNotice ? (
+        <Alert.Root status="warning" mb={4}>
+          <Alert.Indicator />
+          <Box>
+            <Alert.Title>Feed Updates Delayed</Alert.Title>
+            <Alert.Description>
+              Last refreshed <time dateTime={latestFetchedAt}>{new Date(latestFetchedAt).toLocaleString(undefined, {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+              })}</time>.
+            </Alert.Description>
+          </Box>
+        </Alert.Root>
+      ) : null}
+
       {!error.show && hasLoadedPosts && posts.length === 0 ? (
         <Box
           mt={{ base: 14, md: 16 }}
@@ -260,7 +287,7 @@ const PostView = () => {
           textAlign="center"
         >
           <Text color="textPrimary" textStyle="emptyState">
-            Nothing notable is happening, surely everything is fine.
+            No posts are available for this feed right now.
           </Text>
         </Box>
       ) : viewMode === 'list' ? (
