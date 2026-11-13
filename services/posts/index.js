@@ -4,6 +4,7 @@ const { createCorsHeaders, isAllowedOrigin } = require("./cors");
 const { errorFields } = require("./telemetry");
 
 const configuredSubreddits = require("./subreddits.json");
+const fallbackLookbackSeconds = 72 * 60 * 60;
 const subredditNames = new Map(configuredSubreddits.map((name) => [name.toLowerCase(), name]));
 
 const getRequestOrigin = (event = {}) => {
@@ -40,11 +41,19 @@ const createGetPostsBySubreddit = ({
         const hours = currentDate.getUTCHours();
         const searchTime = Math.floor(currentDate.getTime() / 1000) -
           (hours >= 11 && hours <= 23 ? 14400 : 28800);
-        const posts = await postModel.find({
+        const filter = { upvoteCount: { $gt: 5 }, sub: subreddit };
+        let posts = await postModel.find({
+          ...filter,
           created_utc: { $gt: searchTime },
-          upvoteCount: { $gt: 5 },
-          sub: subreddit,
         }).sort({ upvoteCount: -1, created_utc: 1 }).maxTimeMS(2000).limit(20);
+
+        if (posts.length === 0) {
+          const cutoff = Math.floor(currentDate.getTime() / 1000) - fallbackLookbackSeconds;
+          posts = await postModel.find({
+            ...filter,
+            created_utc: { $gt: cutoff },
+          }).sort({ created_utc: -1, upvoteCount: -1 }).maxTimeMS(2000).limit(20);
+        }
         cache.set(subreddit, { posts, expiresAt: now().getTime() + 10000 });
         return posts;
       } catch (error) {
