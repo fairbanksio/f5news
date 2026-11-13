@@ -75,6 +75,19 @@ def sample_post(post_type="link"):
 
 
 class SmokeTests(unittest.TestCase):
+    def test_page_access_logs_only_bounded_verification_evidence(self):
+        evidence = {"state": "challenge", "marker": "verify_human", "hasPosts": False,
+                    "titleMatch": True, "dialogVisible": False, "verificationFrame": True}
+        page = types.SimpleNamespace(evaluate_read=lambda _expression: evidence)
+        with patch.object(smoke, "log") as log:
+            self.assertEqual(smoke.state(page), "challenge")
+            self.assertEqual(json.loads(log.call_args.args[0]),
+                             {"eventType": "BROWSER_PAGE_ACCESS", **evidence})
+            log.reset_mock()
+            evidence = {"state": "feed"}
+            self.assertEqual(smoke.state(page), "feed")
+            log.assert_not_called()
+
     def test_navigation_races_are_loading_but_other_errors_propagate(self):
         page = types.SimpleNamespace(evaluate_read=lambda _expression: (_ for _ in ()).throw(RuntimeError("Execution context was destroyed")))
         self.assertEqual(smoke.state(page), "loading")
@@ -108,9 +121,10 @@ class SmokeTests(unittest.TestCase):
                 self.url = url
 
             def evaluate(self, expression, *_args):
-                if "return 'challenge'" not in expression:
+                if "verificationFrame" not in expression:
                     raise AssertionError("A challenged page must not be scraped")
-                return "challenge"
+                return {"state": "challenge", "marker": "verify_human", "hasPosts": False,
+                        "titleMatch": False, "dialogVisible": False, "verificationFrame": True}
 
             evaluate_read = evaluate
 

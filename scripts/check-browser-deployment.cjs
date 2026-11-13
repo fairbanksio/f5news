@@ -136,6 +136,7 @@ function summarizeRuntimeEvents(events) {
     navigationHttpStatusCounts: {}, navigationMaxRetryAfterSeconds: 0, navigationChallengeCount: 0 };
   const reasons = ["invalid_data", "input_file_invalid", "root_cookie_expired", "root_cookie_missing", "restore_exception",
     "navigation_network_error", "navigation_http_rejected", "navigation_rate_limited", "feed_cookie_missing", "feed_timeout", "feed_blocked", "feed_challenge"];
+  summary.latestPageAccess = null;
   summary.sessionReasonCounts = Object.fromEntries(reasons.map((reason) => [reason, 0]));
   const imageReasons = ["unsafe_url", "request_timeout", "empty_response", "redirect_missing_location", "http_status",
     "non_html_response", "body_read_error", "body_read_timeout", "empty_html", "no_meta_image", "fetch_error", "too_many_redirects"];
@@ -202,8 +203,16 @@ function summarizeRuntimeEvents(events) {
       if (record.eventType === "BROWSER_PROGRESS" && typeof record.message === "string" && record.message.length <= 65536 && record.message.startsWith("{")) {
         try {
           const navigation = JSON.parse(record.message);
-          if (navigation?.eventType === "BROWSER_NAVIGATION_HTTP") record = navigation;
+          if (["BROWSER_NAVIGATION_HTTP", "BROWSER_PAGE_ACCESS"].includes(navigation?.eventType)) record = navigation;
         } catch { /* Ignore malformed nested browser diagnostics. */ }
+      }
+      if (record.eventType === "BROWSER_PAGE_ACCESS" &&
+          ["challenge", "blocked"].includes(record.state) &&
+          ["prove_humanity", "verify_human", "complete_challenge", "network_security", "blocked_text"].includes(record.marker) &&
+          ["hasPosts", "titleMatch", "dialogVisible", "verificationFrame"].every((key) => typeof record[key] === "boolean") &&
+          Number.isSafeInteger(event.timestamp) && event.timestamp >= (summary.latestPageAccess?.timestamp ?? 0)) {
+        const { state, marker, hasPosts, titleMatch, dialogVisible, verificationFrame } = record;
+        summary.latestPageAccess = { timestamp: event.timestamp, state, marker, hasPosts, titleMatch, dialogVisible, verificationFrame };
       }
       if (record.eventType === "BROWSER_NAVIGATION_HTTP" && Number.isInteger(record.status) && record.status >= 400 && record.status <= 599) {
         summary.navigationHttpStatusCounts[record.status] = (summary.navigationHttpStatusCounts[record.status] || 0) + 1;
@@ -357,7 +366,7 @@ function readScheduledEvents(startTime) {
 }
 
 function readRuntimeEvents() {
-  return readLogEvents(Date.now() - 3600000, '?REPORT ?"platform.report" ?"Resource counters:" ?SCRAPER_JOB_FAILED ?SCRAPER_JOB_COMPLETED ?BROWSER_NAVIGATION_HTTP ?POST_IMAGE_RESOLUTION_ERROR ?POST_IMAGE_RESOLUTION_MISSING ?POST_IMAGE_RESOLUTION_DEGRADED ?POST_IMAGE_BACKFILL_ERROR ?POST_IMAGE_BACKFILL_MISSING ?POST_IMAGE_BACKFILL_DEGRADED ?POST_IMAGE_UPDATE_ERROR ?PUBLISHER_IMAGE_BACKFILL_COMPLETED');
+  return readLogEvents(Date.now() - 3600000, '?REPORT ?"platform.report" ?"Resource counters:" ?SCRAPER_JOB_FAILED ?SCRAPER_JOB_COMPLETED ?BROWSER_NAVIGATION_HTTP ?BROWSER_PAGE_ACCESS ?POST_IMAGE_RESOLUTION_ERROR ?POST_IMAGE_RESOLUTION_MISSING ?POST_IMAGE_RESOLUTION_DEGRADED ?POST_IMAGE_BACKFILL_ERROR ?POST_IMAGE_BACKFILL_MISSING ?POST_IMAGE_BACKFILL_DEGRADED ?POST_IMAGE_UPDATE_ERROR ?PUBLISHER_IMAGE_BACKFILL_COMPLETED');
 }
 
 function invokeLive(event) {
