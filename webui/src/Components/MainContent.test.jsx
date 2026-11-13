@@ -92,7 +92,7 @@ describe('MainContent', () => {
     });
 
     expect(
-      screen.getByText('Nothing notable is happening, surely everything is fine.')
+      screen.getByText('No posts are available for this feed right now.')
     ).toBeInTheDocument();
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
@@ -111,8 +111,47 @@ describe('MainContent', () => {
     });
 
     expect(
-      screen.queryByText('Nothing notable is happening, surely everything is fine.')
+      screen.queryByText('No posts are available for this feed right now.')
     ).not.toBeInTheDocument();
+  });
+
+  test('shows the last refresh for a stale fallback and clears it after fresh data arrives', async () => {
+    const staleTimestamp = '2026-06-06T11:14:59.999Z';
+    const storedPost = {
+      title: 'Stored headline', url: 'https://example.com/story', fetchedAt: staleTimestamp,
+      commentLink: '/r/politics/comments/stored/example',
+    };
+    const response = (posts, fallback = false) => ({
+      ok: true, json: async () => ({ data: posts, fallback }),
+    });
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(response([storedPost, { ...storedPost, fetchedAt: '2026-06-05T12:00:00.000Z',
+        title: 'Earlier headline', commentLink: '/r/politics/comments/earlier/example' }], true))
+      .mockResolvedValueOnce(response([{ ...storedPost, fetchedAt: '2026-06-06T11:59:00.000Z' }]));
+
+    await act(async () => { renderMainContent(); });
+    expect(screen.getByText('Stored headline')).toBeInTheDocument();
+    expect(screen.getByText('Feed Updates Delayed')).toBeInTheDocument();
+    const time = screen.getByText(new Date(staleTimestamp).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }));
+    expect(time).toHaveAttribute('dateTime', staleTimestamp);
+
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(screen.queryByText('Feed Updates Delayed')).not.toBeInTheDocument();
+  });
+
+  test('shows the notice after the 45-minute boundary without another successful refresh', async () => {
+    const post = {
+      title: 'Still available', url: 'https://example.com/story', fetchedAt: '2026-06-06T11:15:00.000Z',
+      commentLink: '/r/politics/comments/stored/example',
+    };
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [post] }) });
+
+    await act(async () => { renderMainContent(); });
+    expect(screen.queryByText('Feed Updates Delayed')).not.toBeInTheDocument();
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(screen.getByText('Feed Updates Delayed')).toBeInTheDocument();
+    expect(screen.getByText('Still available')).toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   test('renders posts in descending upvote order even when the API response is unsorted', async () => {
