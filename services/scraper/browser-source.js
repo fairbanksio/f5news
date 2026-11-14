@@ -22,6 +22,7 @@ const runBrowser = ({ subreddit, allFeeds = false, limit, timeoutMs, logger, aut
   let droppingDiagnostic = false;
   let failure;
   let navigationRateLimit;
+  let risingNavigations = 0;
   const displays = new Map();
   const stopDisplays = () => {
     for (const [pid, startTime] of displays) {
@@ -66,6 +67,7 @@ const runBrowser = ({ subreddit, allFeeds = false, limit, timeoutMs, logger, aut
         const event = JSON.parse(line);
         if (event.eventType === "BROWSER_OWNED_DISPLAY" && Number.isSafeInteger(event.pid) && event.pid > 1 && event.pgid === event.pid && /^\d+$/.test(String(event.startTime))) displays.set(event.pid, event.startTime);
         if (event.eventType === "BROWSER_DISPLAY_STOPPED" && displays.get(event.pid) === event.startTime) displays.delete(event.pid);
+        if (event.eventType === "BROWSER_RISING_NAVIGATION") risingNavigations++;
         if (event.eventType === "BROWSER_NAVIGATION_HTTP") {
           const retry = Number.isInteger(event.retryAfterSeconds) && event.retryAfterSeconds >= 0 && event.retryAfterSeconds <= 86400 ? event.retryAfterSeconds : undefined;
           if (event.status === 429) {
@@ -109,7 +111,7 @@ const runBrowser = ({ subreddit, allFeeds = false, limit, timeoutMs, logger, aut
     }
     if (navigationRateLimit) result.navigationRateLimit = navigationRateLimit;
     else delete result.navigationRateLimit;
-    resolve(result);
+    resolve({ ...result, risingNavigations });
   });
 });
 
@@ -182,7 +184,7 @@ const createBrowserBatchSource = ({ runBrowserImpl = runBrowser, sessionRunner =
     if (result.sessionRenewalDeferred === true) metadata.sessionRenewalDeferred = true;
   }
   const readBackoffStartedSeconds = session && batchFailure && result.readBackoffStartedSeconds;
-  return { feeds: mapped, failures, ...(batchFailure ? { batchFailure } : {}), ...metadata,
+  return { feeds: mapped, failures, ...(Number.isSafeInteger(result.risingNavigations) ? { risingNavigations: result.risingNavigations } : {}), ...(batchFailure ? { batchFailure } : {}), ...metadata,
     ...(Number.isInteger(readBackoffStartedSeconds) && readBackoffStartedSeconds >= 1 && readBackoffStartedSeconds <= 86400 ? { readBackoffStartedSeconds } : {}),
     ...(result.readBackoffFailed === true ? { readBackoffFailed: true } : {}) };
 };

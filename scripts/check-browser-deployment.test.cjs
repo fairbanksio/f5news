@@ -248,9 +248,10 @@ test("scheduled verification reads all fresh feed completions and emits only saf
   const starts = [];
   const summary = await verifyScheduled({ now: () => 1000, readEvents: async (start) => {
     starts.push(start);
-    return FEEDS.map((feed) => scheduledEvent(feed, 1001, { privateData: "private-marker" }));
+    return FEEDS.map((feed) => scheduledEvent(feed, 1001, { risingNavigations: 1, privateData: "private-marker" }));
   }, emit: (line) => lines.push(line) });
   assert.deepEqual(starts, [1000]);
+  assert.ok(summary.feeds.every((feed) => feed.risingNavigations === 1));
   assert.equal(summary.feedCount, FEEDS.length);
   assert.equal(summary.savedCount, FEEDS.length * 25);
   assert.equal(lines.length, 1);
@@ -285,7 +286,7 @@ test("scheduled verification allows a later completion to recover a failed feed"
 });
 
 test("scheduled verification rejects missing feeds, missing session proof, and partial writes at its deadline", async () => {
-  for (const fields of [{ savedCount: 0 }, { sessionMode: undefined }, { eventType: "SCRAPER_JOB_FAILED", errorMessage: "private-error" }]) {
+  for (const fields of [{ savedCount: 0 }, { risingNavigations: 2 }, { sessionMode: undefined }, { eventType: "SCRAPER_JOB_FAILED", errorMessage: "private-error" }]) {
     let clock = 1000;
     const lines = [];
     await assert.rejects(verifyScheduled({ now: () => clock, timeoutMs: 30000, sleep: async (ms) => { clock += ms; },
@@ -323,7 +324,7 @@ test("deployment mode chooses read-only scheduled verification whenever a schedu
   let reads = 0;
   const result = await runVerification({ env: { F5_PROBE_DEPLOYMENT: "true", F5_PROBE_ALL_FEEDS: "true" }, configuration,
     invoke: async () => assert.fail("Deployment must not overlap an enabled schedule with manual browser calls"),
-    readEvents: async (startTime) => { reads++; return FEEDS.map((feed) => scheduledEvent(feed, startTime + 1)); }, emit: () => {},
+    readEvents: async (startTime) => { reads++; return FEEDS.map((feed) => scheduledEvent(feed, startTime + 1, { risingNavigations: 1 })); }, emit: () => {},
   });
   assert.equal(reads, 1);
   assert.equal(result.eventType, "BROWSER_SCHEDULED_PROBE_COMPLETED");

@@ -168,7 +168,7 @@ def check_batch_runtime(saved, directory):
                 page.route("https://www.reddit.com/**", fulfill)
                 return PageProxy(page)
 
-        config = SimpleNamespace(subreddit=feeds[0], limit=1, all_feeds=True, authenticate=False,
+        config = SimpleNamespace(subreddit=feeds[0], limit=25, all_feeds=True, authenticate=False,
                                  session_input=source, session_output=output, batch_budget_seconds=90)
         messages = []
         with patch.object(smoke, "log", side_effect=messages.append), patch.object(smoke, "SUBREDDITS", catalog):
@@ -179,6 +179,7 @@ def check_batch_runtime(saved, directory):
         assert stats["launches"] == 1 and stats["pages"] == 1, "Offline batch opened more than one browser or page"
         assert len(stats["checks"]) == expected, "Offline batch did not retain state on every feed"
         assert stats["requests"] == feeds[:expected + (failure_status is not None)], "Offline batch read after a rejection"
+        assert messages.count('{"eventType": "BROWSER_RISING_NAVIGATION"}') == len(stats["requests"]), "Navigation telemetry did not match actual requests"
         if failure_status is not None:
             assert result["batchFailure"]["subreddit"] == feeds[failure_index], "Offline batch failure identified the wrong feed"
             assert result["batchFailure"]["httpStatus"] == failure_status, "Offline batch failure lost HTTP status"

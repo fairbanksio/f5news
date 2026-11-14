@@ -404,6 +404,9 @@ def navigate(page, url, wait_until="domcontentloaded", timeout=30000, now=time.m
             if remaining <= 0:
                 raise SessionError("Browser navigation failed", "navigation_network_error")
             try:
+                target = urlsplit(url)
+                if target.hostname == "www.reddit.com" and re.fullmatch(r"/r/[a-zA-Z0-9_]+/rising/", target.path):
+                    log(json.dumps({"eventType": "BROWSER_RISING_NAVIGATION"}))
                 result = page.goto(url, wait_until=wait_until, timeout=max(1, int(remaining * 1000)))
                 if not observed:
                     response_observer(result)

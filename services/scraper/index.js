@@ -448,6 +448,7 @@ const finishFeed = ({ job, subreddit, stage, terminalError, startedAt, event, co
     subreddit, stage, trigger: event.scheduled === true ? "schedule" : "manual", outcome,
     durationMs: Date.now() - startedAt, requestId: context.awsRequestId || "",
     fetchedCount: job.fetchedCount, savedCount: job.savedCount,
+    ...(Number.isSafeInteger(job.risingNavigations) ? { risingNavigations: job.risingNavigations } : {}),
     ...(job.sessionMode ? { sessionMode: job.sessionMode, sessionGeneration: job.sessionGeneration } : {}),
     ...(job.sessionRenewalDeferred ? { sessionRenewalDeferred: true } : {}),
     ...(job.optionalImagesDeferred ? { optionalImagesDeferred: true } : {}),
@@ -547,6 +548,7 @@ const fetchAllFeeds = async (dependencies, event, context) => {
       } else {
         feed.children = completed.children;
         feed.job.fetchedCount = completed.children.length;
+        feed.job.risingNavigations = result.risingNavigations;
       }
       seen.add(feed.subreddit);
     }
