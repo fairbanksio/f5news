@@ -67,18 +67,18 @@ test('redirects unknown routes to the default politics subreddit', async () => {
   expect(screen.getByText('Mock Footer')).toBeInTheDocument();
 });
 
-test('uses the stored subreddit for the default redirect destination', async () => {
+test('ignores a retired stored subreddit for the default redirect destination', async () => {
   localStorage.setItem('subreddit', 'technology');
 
   render(<App />);
 
   await waitFor(() => {
-    expect(window.location.pathname).toBe('/r/technology');
+    expect(window.location.pathname).toBe('/r/politics');
   });
 });
 
 test('renders the app shell on subreddit routes', () => {
-  window.history.pushState({}, '', '/r/worldnews');
+  window.history.pushState({}, '', '/r/politics');
 
   render(<App />);
 

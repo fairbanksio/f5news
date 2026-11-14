@@ -81,7 +81,7 @@ test("queries recent popular posts for the requested subreddit", async () => {
       origin: "https://f5.news",
     },
     pathParameters: {
-      subreddit: "worldnews",
+      subreddit: "politics",
     },
   });
 
@@ -93,7 +93,7 @@ test("queries recent popular posts for the requested subreddit", async () => {
         {
           created_utc: { $gt: 1710057600 },
           upvoteCount: { $gt: 5 },
-          sub: "worldnews",
+          sub: "politics",
         },
       ],
     },
@@ -123,12 +123,12 @@ test("serves the latest saved posts for the same feed when its normal window is 
   const savedPost = { title: "Saved story", fetchedAt: "2026-11-12T03:36:00Z" };
   const postModel = createPostModel([], [savedPost]);
   const { handler } = createHandler({ now, postModel });
-  const response = await handler(allowedEvent({ pathParameters: { subreddit: "news" } }));
+  const response = await handler(allowedEvent({ pathParameters: { subreddit: "politics" } }));
 
   assert.equal(response.statusCode, 200);
   assert.deepEqual(getJsonBody(response).data, [savedPost]);
   assert.deepEqual(postModel.calls.filter((call) => call.method === "find")[1].args, [{
-    sub: "news", upvoteCount: { $gt: 5 }, created_utc: { $gt: expectedCutoff(now, 72 * 3600) },
+    sub: "politics", upvoteCount: { $gt: 5 }, created_utc: { $gt: expectedCutoff(now, 72 * 3600) },
   }]);
   assert.deepEqual(postModel.calls.filter((call) => call.method === "sort")[1].args,
     [{ created_utc: -1, upvoteCount: -1 }]);
@@ -137,7 +137,7 @@ test("serves the latest saved posts for the same feed when its normal window is 
 test("logs connection and query failures with bounded diagnostics and correlation", async () => {
   for (const failedStage of ["mongo_connect", "mongo_query"]) {
     const logs = [];
-    const cause = new Error("Dependency unavailable at mongodb://user:private-marker@db.example/news");
+    const cause = new Error("Dependency unavailable at mongodb://user:private-marker@db.example/politics");
     cause.name = "MongoServerSelectionError";
     cause.code = "ETIMEDOUT";
     const context = createHandler({
@@ -148,7 +148,7 @@ test("logs connection and query failures with bounded diagnostics and correlatio
       postModel: { find: () => { throw cause; } },
     });
     const response = await context.handler(allowedEvent({
-      pathParameters: { subreddit: "NEWS" },
+      pathParameters: { subreddit: "POLITICS" },
       requestContext: { requestId: "api-request" },
     }), { awsRequestId: "lambda-request" });
 
@@ -157,7 +157,7 @@ test("logs connection and query failures with bounded diagnostics and correlatio
     assert.equal(logs.length, 1);
     assert.equal(logs[0].eventType, "POSTS_FETCH_FAILED");
     assert.equal(logs[0].failedStage, failedStage);
-    assert.equal(logs[0].subreddit, "news");
+    assert.equal(logs[0].subreddit, "politics");
     assert.equal(logs[0].requestId, "lambda-request");
     assert.equal(logs[0].apiRequestId, "api-request");
     assert.equal(logs[0].errorType, "MongoServerSelectionError");
@@ -176,7 +176,7 @@ test("logs a coalesced database failure once without logging successful reads", 
     logger: { error: (line) => logs.push(JSON.parse(line)) },
     mongooseClient: { connect: () => new Promise((_resolve, reject) => { rejectConnection = reject; }) },
   });
-  const event = allowedEvent({ pathParameters: { subreddit: "news" } });
+  const event = allowedEvent({ pathParameters: { subreddit: "politics" } });
   const first = context.handler(event, { awsRequestId: "first" });
   const second = context.handler(event, { awsRequestId: "second" });
   rejectConnection(new Error("query unavailable"));
@@ -197,7 +197,7 @@ test("rejects disallowed origins before querying posts", async () => {
       origin: "https://evil.example",
     },
     pathParameters: {
-      subreddit: "worldnews",
+      subreddit: "politics",
     },
   });
 
@@ -217,7 +217,7 @@ test("rejects requests with no origin before querying posts", async () => {
   const response = await context.handler({
     headers: {},
     pathParameters: {
-      subreddit: "worldnews",
+      subreddit: "politics",
     },
   });
 
@@ -235,7 +235,7 @@ test("returns an empty successful response when no posts match", async () => {
 
   const response = await context.handler(allowedEvent({
     pathParameters: {
-      subreddit: "worldnews",
+      subreddit: "politics",
     },
   }));
 
@@ -258,7 +258,7 @@ test("uses the default clock when no clock is injected", async () => {
 
   const response = await handler(allowedEvent({
     pathParameters: {
-      subreddit: "worldnews",
+      subreddit: "politics",
     },
   }));
 
@@ -272,7 +272,7 @@ test("uses an eight hour cutoff before the UTC daytime window", async () => {
 
   await context.handler(allowedEvent({
     pathParameters: {
-      subreddit: "news",
+      subreddit: "politics",
     },
   }));
 
@@ -282,7 +282,7 @@ test("uses an eight hour cutoff before the UTC daytime window", async () => {
       {
         created_utc: { $gt: 1710036000 },
         upvoteCount: { $gt: 5 },
-        sub: "news",
+        sub: "politics",
       },
     ],
   });
@@ -294,7 +294,7 @@ test("uses the four hour cutoff at the start of the UTC daytime window", async (
 
   await context.handler(allowedEvent({
     pathParameters: {
-      subreddit: "news",
+      subreddit: "politics",
     },
   }));
 
@@ -310,7 +310,7 @@ test("uses the four hour cutoff at the end of the UTC daytime window", async () 
 
   await context.handler(allowedEvent({
     pathParameters: {
-      subreddit: "news",
+      subreddit: "politics",
     },
   }));
 
@@ -359,7 +359,7 @@ test("returns a server error response when the post query fails", async () => {
 
   const response = await context.handler(allowedEvent({
     pathParameters: {
-      subreddit: "news",
+      subreddit: "politics",
     },
   }));
 
@@ -388,7 +388,7 @@ test("coalesces concurrent reads and reuses results until the ten second cache e
     postModel: model,
     now: () => clock,
   });
-  const event = allowedEvent({ pathParameters: { subreddit: "news" } });
+  const event = allowedEvent({ pathParameters: { subreddit: "politics" } });
   const responses = await Promise.all([handler(event), handler(event)]);
   assert.deepEqual(responses[0], responses[1]);
   await handler(event);
@@ -408,7 +408,7 @@ test("failed queries can be retried and are never cached", async () => {
     } },
     postModel: model,
   });
-  const event = allowedEvent({ pathParameters: { subreddit: "news" } });
+  const event = allowedEvent({ pathParameters: { subreddit: "politics" } });
   assert.equal((await handler(event)).statusCode, 500);
   assert.equal((await handler(event)).statusCode, 200);
   assert.equal(attempts, 2);
@@ -416,20 +416,21 @@ test("failed queries can be retried and are never cached", async () => {
 
 test("normalizes configured subreddit spelling and keeps the cache origin-independent", async () => {
   const context = createHandler();
-  const event = { pathParameters: { subreddit: "NEWS" } };
+  const event = { pathParameters: { subreddit: "POLITICS" } };
   const first = await context.handler(allowedEvent(event));
   const second = await context.handler(allowedEvent({ ...event, headers: { origin: "https://www.f5.news" } }));
   assert.equal(first.statusCode, 200);
   assert.equal(second.headers["Access-Control-Allow-Origin"], "https://www.f5.news");
-  assert.equal(getFindCall(context.postModel).args[0].sub, "news");
+  assert.equal(getFindCall(context.postModel).args[0].sub, "politics");
   assert.equal(context.connectCount, 1);
 });
 
 test("rejects retired feeds before opening a database connection", async () => {
   const context = createHandler();
-  for (const subreddit of ["europe", "technology", "science", "health", "energy", "sports", "business", "Economics"]) {
+  for (const subreddit of ["news", "worldnews", "europe", "technology", "science", "health", "energy", "sports", "business", "Economics"]) {
     const response = await context.handler(allowedEvent({ pathParameters: { subreddit } }));
     assert.equal(response.statusCode, 400);
+    assert.deepEqual(getJsonBody(response), { success: false, error: "Unsupported subreddit" });
   }
   assert.equal(context.connectCount, 0);
   assert.equal(context.postModel.calls.length, 0);

@@ -97,12 +97,13 @@ class SmokeTests(unittest.TestCase):
 
     def test_options_restrict_targets_and_limits(self):
         configured = json.loads(smoke.SUBREDDITS.read_text())
+        self.assertEqual(configured, ["politics"])
         for feed in configured:
             self.assertEqual(smoke.options(["--subreddit", feed.upper()]).subreddit, feed)
         alternate = types.SimpleNamespace(read_text=lambda: '["MixedCase"]')
         with patch.object(smoke, "SUBREDDITS", alternate):
             self.assertEqual(smoke.options(["--subreddit", "mixedcase"]).subreddit, "MixedCase")
-        for feed in ("economics", "science", "technology", "europe", "health", "energy", "sports", "business"):
+        for feed in ("news", "worldnews", "economics", "science", "technology", "europe", "health", "energy", "sports", "business"):
             with self.assertRaises(SystemExit):
                 smoke.options(["--subreddit", feed])
         with self.assertRaises(SystemExit):
@@ -1027,6 +1028,19 @@ class LinkPreviewTests(unittest.TestCase):
 
 
 class BatchTests(unittest.TestCase):
+    def setUp(self):
+        self.deployed_catalog = smoke.SUBREDDITS
+        fixture = types.SimpleNamespace(read_text=lambda: '["fixtureone", "fixturetwo", "fixturethree"]')
+        self.enterContext(patch.object(smoke, "SUBREDDITS", fixture))
+
+    def test_scheduled_batch_reads_only_politics(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(smoke, "SUBREDDITS", self.deployed_catalog):
+            config, stats, fixture, browser = self.setup_batch(directory)
+            result = self.execute(config, stats, fixture, browser)
+            self.assertEqual(result["status"], "accessible")
+            self.assertEqual([item["subreddit"] for item in result["feeds"]], ["politics"])
+            self.assertEqual(stats["requests"], ["https://www.reddit.com/r/politics/rising/"])
+
     def setup_batch(self, directory, **overrides):
         feeds = json.loads(smoke.SUBREDDITS.read_text())
         fixture = SessionTests().session()
@@ -1270,13 +1284,14 @@ class BatchTests(unittest.TestCase):
     def test_batch_cli_map_and_budget_validation(self):
         feeds = json.loads(smoke.SUBREDDITS.read_text())
         priorities = json.dumps({feeds[0]: [], feeds[-1]: ["t3_abc"]})
-        config = smoke.options(["--all-feeds", "--image-priority-map", priorities, "--batch-budget-seconds", "126"])
+        arguments = ["--subreddit", feeds[0], "--all-feeds"]
+        config = smoke.options([*arguments, "--image-priority-map", priorities, "--batch-budget-seconds", "126"])
         self.assertTrue(config.all_feeds)
         self.assertEqual(config.image_priority_map[feeds[-1]], ["t3_abc"])
         self.assertEqual(config.batch_budget_seconds, 126)
         for args in (["--all-feeds", "--image-priority-map", json.dumps({feeds[0].upper(): []})], ["--all-feeds", "--image-priority-map", '{"Economics":[]}'], ["--all-feeds", "--image-priority-map", json.dumps({feeds[0]: ["t3_a", "t3_a"]})], ["--all-feeds", "--image-priority-map", json.dumps({feeds[0]: None})], ["--all-feeds", "--batch-budget-seconds", "0"], ["--all-feeds", "--image-priority-ids", "t3_a"]):
             with self.assertRaises(SystemExit):
-                smoke.options(args)
+                smoke.options(["--subreddit", feeds[0], *args])
 
 
 class NativeRunnerTests(unittest.TestCase):
