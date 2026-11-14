@@ -17,8 +17,6 @@ on:
         default: politics
         options:
           - politics
-          - news
-          - worldnews
       scheduled:
         description: Read fresh scheduled completions for every feed without invoking Lambda
         type: boolean

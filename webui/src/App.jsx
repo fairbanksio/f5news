@@ -6,6 +6,7 @@ import {
 } from '@chakra-ui/react';
 import { BrowserRouter as Router, Routes, Navigate, Route, useLocation } from 'react-router-dom';
 import MainContent from './Components/MainContent';
+import supportedSubreddits from '../../services/posts/subreddits.json';
 import { RefreshIntervalProvider} from './Contexts/RefreshIntervalContext'
 import { SubredditProvider} from './Contexts/SubredditContext'
 import CustomTheme from './Themes/CustomTheme'
@@ -68,7 +69,8 @@ const ThemedApp = () => {
 }
 
 const App = () => {
-  const defaultDest = localStorage.getItem('subreddit') ? localStorage.getItem('subreddit') : 'politics'
+  const preferred = localStorage.getItem('subreddit')?.toLowerCase();
+  const defaultDest = supportedSubreddits.includes(preferred) ? preferred : 'politics';
   return (
       <Router>
         <Routes>

@@ -1,8 +1,10 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { spawn } = require("node:child_process");
-const { createBrowserSource, createBrowserBatchSource, runBrowser } = require("./browser-source");
-const feeds = require("../posts/subreddits.json");
+const { loadWithMultipleFeeds, multipleFeeds: feeds } = require("./test-fixtures/subreddit-catalog");
+const liveSource = require("./browser-source");
+delete require.cache[require.resolve("./browser-source")];
+const { createBrowserSource, createBrowserBatchSource, runBrowser } = loadWithMultipleFeeds(() => require("./browser-source"));
 const { randomUUID } = require("node:crypto");
 const logger = { log() {} };
 const raw = (overrides = {}) => ({ attributes: {
@@ -215,6 +217,16 @@ test("failed extraction rejects normally even when stderr also observes a 429", 
 
 const batchRaw = (subreddit, id = "abc") => ({ ...raw({ id: `t3_${id}`, "subreddit-name": subreddit, permalink: `/r/${subreddit}/comments/${id}/story/` }) });
 const completeBatch = () => ({ status: "accessible", feeds: feeds.map((subreddit) => ({ subreddit, posts: [batchRaw(subreddit)] })) });
+
+test("the deployed browser catalog rejects retired feeds before launch", async () => {
+  const unexpected = async () => assert.fail("Unsupported feeds must not launch the browser");
+  const scrape = liveSource.createBrowserSource({ runBrowserImpl: unexpected, sessionRunner: unexpected });
+  const scrapeBatch = liveSource.createBrowserBatchSource({ runBrowserImpl: unexpected, sessionRunner: unexpected });
+  for (const subreddit of ["news", "worldnews"]) {
+    await assert.rejects(scrape({ subreddit, logger }), /Unsupported subreddit/);
+    await assert.rejects(scrapeBatch({ subreddits: ["politics", subreddit], logger }), /requires every configured feed/);
+  }
+});
 
 test("one session runner and one browser produce every configured feed with normal F5 fields", async () => {
   let sessions = 0;

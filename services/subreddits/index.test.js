@@ -3,11 +3,7 @@ const test = require("node:test");
 
 const { get_subreddits: handler } = require("./index");
 
-const configuredSubreddits = [
-  "politics",
-  "news",
-  "worldnews",
-];
+const configuredSubreddits = ["politics"];
 
 const getJsonBody = (response) => JSON.parse(response.body);
 

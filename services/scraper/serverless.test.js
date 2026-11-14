@@ -4,16 +4,14 @@ const path = require("path");
 const test = require("node:test");
 const yaml = require("js-yaml");
 
-test("one scheduled batch covers the supported news feeds", () => {
+test("one scheduled batch covers only politics", () => {
   const config = yaml.load(fs.readFileSync(path.join(__dirname, "serverless.yml"), "utf8"));
   const schedules = config.functions.fetchPosts.events.filter((event) => event.schedule?.input.allFeeds === true);
   assert.equal(schedules.length, 1);
   assert.equal(schedules[0].schedule.rate, "rate(15 minutes)");
   assert.equal(schedules[0].schedule.input.allFeeds, true);
   assert.equal(schedules[0].schedule.input.subreddit, undefined);
-  assert.deepEqual(require("../posts/subreddits.json"), [
-    "politics", "news", "worldnews",
-  ]);
+  assert.deepEqual(require("../posts/subreddits.json"), ["politics"]);
 });
 
 test("browser scraper uses an ARM64 image without Reddit API client credentials", () => {

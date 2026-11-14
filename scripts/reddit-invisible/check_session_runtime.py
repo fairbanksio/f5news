@@ -11,7 +11,8 @@ from unittest.mock import patch
 import smoke
 from invisible_playwright import InvisiblePlaywright
 
-FEED = "https://www.reddit.com/r/" + json.loads(smoke.SUBREDDITS.read_text())[0] + "/rising/"
+DEPLOYED_FEEDS = json.loads(smoke.SUBREDDITS.read_text())
+FEED = "https://www.reddit.com/r/" + DEPLOYED_FEEDS[0] + "/rising/"
 STORAGE_KEY = "f5_offline_session_check"
 STORAGE_VALUE = "offline-fixture-storage"
 COOKIE_VALUE = "offline-fixture-cookie-not-an-account"
@@ -100,10 +101,12 @@ def check_navigation_http(browser):
 
 
 def check_batch_runtime(saved, directory):
-    feeds = json.loads(smoke.SUBREDDITS.read_text())
-    assert len(feeds) >= 3, "Partial batch fixture needs a valid prefix and an unread suffix"
-    failure_index = len(feeds) // 2
-    for failure_status in (None, 403, 429):
+    fixture_feeds = ["fixtureone", "fixturetwo", "fixturethree"]
+    cases = [(DEPLOYED_FEEDS, None), (fixture_feeds, 403), (fixture_feeds, 429)]
+    for feeds, failure_status in cases:
+        failure_index = len(feeds) // 2
+        catalog = Path(directory) / "batch-subreddits.json"
+        catalog.write_text(json.dumps(feeds))
         stats = {"launches": 0, "pages": 0, "requests": [], "checks": []}
         source = Path(directory) / "batch-input.json"
         output = Path(directory) / "batch-output.json"
@@ -168,7 +171,7 @@ def check_batch_runtime(saved, directory):
         config = SimpleNamespace(subreddit=feeds[0], limit=1, all_feeds=True, authenticate=False,
                                  session_input=source, session_output=output, image_priority_map=None, batch_budget_seconds=90)
         messages = []
-        with patch.object(smoke, "log", side_effect=messages.append):
+        with patch.object(smoke, "log", side_effect=messages.append), patch.object(smoke, "SUBREDDITS", catalog):
             result = smoke.run_all_feeds(config, browser_factory=BrowserFactory)
         expected = len(feeds) if failure_status is None else failure_index
         assert result["status"] == "accessible", "Offline batch did not preserve accessible results"
