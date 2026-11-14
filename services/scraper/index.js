@@ -24,6 +24,7 @@ const IMAGE_METRIC_NAMESPACE = "F5News/Scraper";
 const IMAGE_BACKFILL_CONCURRENCY = 5;
 const IMAGE_BACKFILL_LIMIT = 25;
 const PUBLISHER_BACKFILL_LIMIT = 10;
+const SCHEDULED_PUBLISHER_LOOKUP_LIMIT = 3;
 const PUBLISHER_BACKFILL_TIMEOUT_MS = 45_000;
 const PUBLISHER_BACKFILL_MIN_REMAINING_MS = 13_000;
 const IMAGE_BACKFILL_LOOKBACK_SECONDS = 8 * 60 * 60;
@@ -165,7 +166,7 @@ const missingThumbnailFilter = () => ({
 const findMissingThumbnailPosts = async (
   newPostModel,
   subreddit,
-  { now = () => new Date(), lookbackSeconds = IMAGE_BACKFILL_LOOKBACK_SECONDS, deadline, publisherOnly = false, publisherTarget } = {}
+  { now = () => new Date(), lookbackSeconds = IMAGE_BACKFILL_LOOKBACK_SECONDS, deadline, publisherOnly = false, publisherTarget, limit } = {}
 ) => {
   const currentTime = now().getTime();
   const createdAfter = Math.floor(currentTime / 1000) - lookbackSeconds;
@@ -202,7 +203,7 @@ const findMissingThumbnailPosts = async (
   }
 
   if (typeof query.limit === "function") {
-    query = query.limit(publisherTarget ? 1 : publisherOnly ? PUBLISHER_BACKFILL_LIMIT : IMAGE_BACKFILL_LIMIT);
+    query = query.limit(limit);
   }
   if (deadline && typeof query.setOptions === "function") query = query.setOptions(persistenceOptions({}, deadline));
 
@@ -243,7 +244,7 @@ const dependencyFailed = (diagnostics) => diagnostics.failures.some((failure) =>
   ["http_status", "request_timeout", "empty_response", "body_read_error", "body_read_timeout", "fetch_error", "redirect_missing_location", "too_many_redirects"].includes(failure.reason)
 );
 
-const resolvePostImage = async (post, subreddit, operation, metrics, imageSourceImpl, logger, secrets = [], { deadline, job, publisherOnly = false } = {}) => {
+const resolvePostImage = async (post, subreddit, operation, metrics, imageSourceImpl, logger, secrets = [], { deadline, job, publisherOnly = false, singlePublisherRequest = false } = {}) => {
   if (deadline && deadline - Date.now() < 6000) {
     if (job) job.optionalImagesDeferred = true;
     return "";
@@ -269,7 +270,8 @@ const resolvePostImage = async (post, subreddit, operation, metrics, imageSource
   try {
     thumbnail = await imageSourceImpl(post, { ...diagnostics.options, preferArticleImage: operation === "scrape" || isSmallRedditThumbnail(post.thumbnail),
       ...(deadline ? { timeoutMs: publisherOnly ? 2000 : 1000, maxTransientRetries: 0, maxRedirects: 1 } : {}),
-      ...(publisherOnly ? { publisherOnly } : {}) });
+      ...(publisherOnly ? { publisherOnly } : {}),
+      ...(singlePublisherRequest ? { maxRedirects: 0, allowRssFallback: false } : {}) });
   } catch (error) {
     resolutionError = error;
     if (publisherOnly) thumbnail = "";
@@ -319,18 +321,20 @@ const saveOptionalThumbnail = async (newPostModel, post, thumbnail, subreddit, o
 
 const backfillMissingPostImages = async (
   subreddit,
-  { imageSourceImpl = imageSource, fetchImageWidthImpl = fetchImageWidth, logger = console, newPostModel = newPost, now = () => new Date(), redactionValues = [], deadline, job, publisherOnly = false, publisherTarget } = {}
+  { imageSourceImpl = imageSource, fetchImageWidthImpl = fetchImageWidth, logger = console, newPostModel = newPost, now = () => new Date(), redactionValues = [], deadline, job, publisherOnly = false, publisherTarget,
+    limit = publisherTarget ? 1 : publisherOnly ? PUBLISHER_BACKFILL_LIMIT : IMAGE_BACKFILL_LIMIT,
+    singlePublisherRequest = false } = {}
 ) => {
   const metrics = createImageResolutionMetrics(subreddit, "backfill");
   let posts;
   try {
-    posts = await findMissingThumbnailPosts(newPostModel, subreddit, { now, deadline, publisherOnly, publisherTarget });
+    posts = await findMissingThumbnailPosts(newPostModel, subreddit, { now, deadline, publisherOnly, publisherTarget, limit });
   } catch (error) {
     logStructured(logger, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit, stage: "backfill_query", ...errorFields(error, redactionValues) });
     return { ...metrics, queryErrors: 1 };
   }
   if (publisherOnly) {
-    posts = (posts || []).slice(0, publisherTarget ? 1 : PUBLISHER_BACKFILL_LIMIT);
+    posts = (posts || []).slice(0, limit);
     metrics.candidates = posts.length;
     metrics.updated = 0;
   }
@@ -344,7 +348,7 @@ const backfillMissingPostImages = async (
     const qualityCheck = hasUsableThumbnail(post.thumbnail);
     if (qualityCheck && (!isSmallRedditThumbnail(post.thumbnail) || !isExternalLinkPost(post))) return;
     if (publisherTarget) metrics.attempts += 1;
-    const thumbnail = publisherTarget?.imageUrl || await resolvePostImage(post, subreddit, "backfill", metrics, imageSourceImpl, logger, redactionValues, { deadline, job, publisherOnly });
+    const thumbnail = publisherTarget?.imageUrl || await resolvePostImage(post, subreddit, "backfill", metrics, imageSourceImpl, logger, redactionValues, { deadline, job, publisherOnly, singlePublisherRequest });
     if (qualityCheck || publisherOnly) {
       let better = false;
       if (thumbnail && thumbnail !== post.thumbnail && (!publisherOnly || isPublisherUrl(thumbnail))) {
@@ -450,6 +454,9 @@ const finishFeed = ({ job, subreddit, stage, terminalError, startedAt, event, co
     durationMs: Date.now() - startedAt, requestId: context.awsRequestId || "",
     fetchedCount: job.fetchedCount, savedCount: job.savedCount,
     ...(Number.isSafeInteger(job.risingNavigations) ? { risingNavigations: job.risingNavigations } : {}),
+    ...(Number.isSafeInteger(job.publisherLookups) ? {
+      publisherLookups: job.publisherLookups, publisherCoversUpdated: job.publisherCoversUpdated,
+    } : {}),
     ...(job.sessionMode ? { sessionMode: job.sessionMode, sessionGeneration: job.sessionGeneration } : {}),
     ...(job.sessionRenewalDeferred ? { sessionRenewalDeferred: true } : {}),
     ...(job.optionalImagesDeferred ? { optionalImagesDeferred: true } : {}),
@@ -501,6 +508,25 @@ const persistBatchImages = async (feed, dependencies, deadline) => {
   }
   if (deadline - Date.now() < 6000) { feed.job.optionalImagesDeferred = true; return; }
   feed.job.backfillImages = await backfillMissingPostImages(feed.subreddit, { imageSourceImpl, logger, newPostModel, now, redactionValues, deadline, job: feed.job });
+};
+
+const repairScheduledCovers = async (feeds, dependencies, deadline) => {
+  let remaining = SCHEDULED_PUBLISHER_LOOKUP_LIMIT;
+  for (const feed of feeds) {
+    if (!remaining || deadline - Date.now() < PUBLISHER_BACKFILL_MIN_REMAINING_MS) break;
+    const job = {};
+    const options = { ...dependencies, deadline, job, publisherOnly: true, singlePublisherRequest: true, limit: remaining };
+    const metrics = await backfillMissingPostImages(feed.subreddit, options);
+    remaining -= metrics.attempts;
+    feed.job.publisherLookups = metrics.attempts;
+    feed.job.publisherCoversUpdated = metrics.updated || 0;
+    logStructured(dependencies.logger, {
+      eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", trigger: "schedule", subreddit: feed.subreddit,
+      candidates: metrics.candidates || 0, attempts: metrics.attempts, updated: feed.job.publisherCoversUpdated,
+      errors: metrics.errors + metrics.updateErrors + (metrics.queryErrors || 0),
+      dependencyFailures: metrics.dependencyFailures, deferred: job.optionalImagesDeferred === true,
+    });
+  }
 };
 
 const scheduledReadBackoff = (error, event, context, logger) => {
@@ -617,8 +643,15 @@ const fetchAllFeeds = async (dependencies, event, context) => {
       feed.failureFields = batchFailureFields(error);
     }
   }
+  const failed = feeds.filter((feed) => feed.terminalError).length;
+  if (event.scheduled === true && !batchProblem && !failed) {
+    try {
+      await repairScheduledCovers(feeds, { ...dependencies, redactionValues }, deadline);
+    } catch (error) {
+      logStructured(logger, { eventType: "POST_IMAGE_BACKFILL_ERROR", stage: "scheduled_publisher_repair", ...errorFields(error, redactionValues) });
+    }
+  }
   const feedResults = feeds.map((feed) => finishFeed({ ...feed, startedAt, event, context, logger, redactionValues }));
-  const failed = feedResults.filter((feed) => feed.outcome === "failed").length;
   if (batchProblem || failed) {
     const paused = scheduledReadBackoffStarted(readBackoffStartedSeconds, event);
     if (paused) {

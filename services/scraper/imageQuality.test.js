@@ -173,6 +173,57 @@ test("manual publisher backfill repairs only verified external images without re
   await assert.rejects(handler(event, { getRemainingTimeInMillis: () => 5000 }), /Insufficient time/);
 });
 
+test("a scheduled snapshot repairs at most three publisher covers after saving the feed", async () => {
+  const cover = "https://cdn.publisher.example/story.jpg";
+  const posts = [
+    record({ _id: "newest", title: "New story", created_utc: now.getTime() / 1000 - 10 }),
+    record({ _id: "missing", title: "Missing cover", thumbnail: undefined }),
+    record({ _id: "tiny", title: "Tiny cover" }),
+    record({ _id: "fourth", title: "Fourth candidate", created_utc: now.getTime() / 1000 - 500 }),
+    record({ _id: "large", title: "Large cover", thumbnail: large }),
+    record({ _id: "cooldown", title: "Recently checked", thumbnailQualityCheckedAt: now }),
+    record({ _id: "internal", title: "Internal post", url: "https://www.reddit.com/r/politics/" }),
+  ];
+  const calls = [];
+  const events = [];
+  let snapshots = 0;
+  const [story] = posts;
+  const handler = createFetchPosts({
+    scrapeBatchImpl: async () => {
+      snapshots += 1;
+      return { risingNavigations: 1, failures: [], feeds: [{ subreddit: "politics", children: [{
+        kind: "t3", data: { ...story, id: "newest", subreddit: "politics", permalink: "/r/politics/comments/newest/story/", ups: 1, num_comments: 0 },
+      }] }] };
+    },
+    mongooseClient: { connect: async () => {} }, newPostModel: model(posts), now: () => now,
+    logger: { ...logger, log: (line) => events.push(JSON.parse(line)) },
+    imageSourceImpl: async (post, options) => {
+      assert.ok(story.fetchedAt instanceof Date);
+      assert.equal(options.publisherOnly, true);
+      assert.equal(options.maxRedirects, 0);
+      assert.equal(options.maxTransientRetries, 0);
+      assert.equal(options.allowRssFallback, false);
+      calls.push(post._id);
+      return post._id === "tiny" ? "" : cover;
+    },
+    fetchImageWidthImpl: async () => 1920,
+  });
+  const result = await handler({ allFeeds: true, scheduled: true });
+  assert.equal(snapshots, 1);
+  assert.equal(result.feedResults[0].outcome, "success");
+  assert.deepEqual(calls.sort(), ["missing", "newest", "tiny"]);
+  assert.deepEqual(posts.map((post) => post.thumbnail), [cover, cover, small, small, large, small, small]);
+  assert.equal(posts[2].thumbnailQualityCheckedAt.getTime(), now.getTime());
+  const completed = events.find((event) => event.eventType === "SCRAPER_JOB_COMPLETED");
+  assert.equal(completed.risingNavigations, 1);
+  assert.equal(completed.publisherLookups, 3);
+  assert.equal(completed.publisherCoversUpdated, 2);
+  const repair = events.find((event) => event.eventType === "PUBLISHER_IMAGE_BACKFILL_COMPLETED");
+  assert.equal(repair.trigger, "schedule");
+  assert.equal(repair.attempts, 3);
+  assert.equal(repair.updated, 2);
+});
+
 test("scheduled Reddit cooldown leaves images and freshness timestamps untouched", async () => {
   for (const key of ["readBackoffSeconds", "readBackoffStartedSeconds"]) {
     const fetchedAt = new Date(now.getTime() - 600_000);
