@@ -192,7 +192,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
                 const result = await browserAttempt({ ...options, authenticate: false, sessionInput: input, sessionOutput: undefined, timeoutMs: budget(options.allFeeds ? 150000 : 100000) });
                 const aged = now() - new Date(current.sessionCreatedAt).getTime() >= 12 * 60 * 60 * 1000;
                 if (result?.batchFailure) return reused(result, generation, aged ? "batch_incomplete" : undefined);
-                if (options.allFeeds || readPauseFor(result?.navigationRateLimit) || readPauseFor(result?.optionalFailure) || !aged) return reused(result, generation);
+                if (options.oneShot || options.allFeeds || readPauseFor(result?.navigationRateLimit) || readPauseFor(result?.optionalFailure) || !aged) return reused(result, generation);
                 validReuse = result;
                 break;
               } catch (error) {
@@ -207,8 +207,9 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
                   failure.readBackoffStartedSeconds = error.readBackoffStartedSeconds;
                   throw failure;
                 }
+                if (options.oneShot && lastReuseReason === "feed_cookie_missing") throw sessionReadError(lastReuseFailure, lastReuseReason);
                 if (credentialFailure(lastReuseFailure, lastReuseReason)) break;
-                if (attempt === 2) {
+                if (options.oneShot || attempt === 2) {
                   throw sessionReadError(lastReuseFailure, lastReuseReason);
                 }
                 budget(options.allFeeds ? 150000 : 100000);

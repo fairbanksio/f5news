@@ -4,7 +4,7 @@ const test = require("node:test");
 const { loadWithMultipleFeeds, multipleFeeds: batchSubreddits } = require("./test-fixtures/subreddit-catalog");
 const liveScraper = require("./index");
 delete require.cache[require.resolve("./index")];
-const { backfillMissingPostImages, createFetchPosts, findImagePriorityIds } = loadWithMultipleFeeds(() => require("./index"));
+const { backfillMissingPostImages, createFetchPosts } = loadWithMultipleFeeds(() => require("./index"));
 
 const createScraper = ({ posts = [] } = {}) => {
   const calls = [];
@@ -111,16 +111,37 @@ test("the scheduled scraper requests and writes only politics with the deployed 
   assert.deepEqual(writes.filter(([, , options]) => options.upsert).map(([, update]) => update.$set.sub), ["politics"]);
 });
 
-test("allFeeds extracts once, persists every core feed before optional images, and returns safe summaries", async () => {
+test("a partial gallery snapshot seeds new records and preserves an existing gallery", async () => {
+  const result = batchResult(["politics"]);
+  const galleryData = { items: [{ media_id: "cover" }] };
+  const metadata = { cover: { s: { u: "https://i.redd.it/cover.jpg" } } };
+  Object.assign(result.feeds[0].children[0].data, {
+    is_gallery: true, gallery_data: galleryData, media_metadata: metadata, partialGallery: true,
+  });
+  const updates = [];
+  const handler = liveScraper.createFetchPosts({
+    env: { F5_REDDIT_SESSION_ENABLED: "true" }, logger: createLogger(),
+    mongooseClient: { connect: async () => {} },
+    scrapeBatchImpl: async () => result,
+    newPostModel: { findOneAndUpdate: async (_filter, update, options) => { if (options.upsert) updates.push(update); } },
+  });
+  await handler({ allFeeds: true, scheduled: true });
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0].$setOnInsert, { is_gallery: true, gallery_data: galleryData, media_metadata: metadata });
+  for (const field of ["is_gallery", "gallery_data", "media_metadata"]) {
+    assert.equal(Object.hasOwn(updates[0].$set, field), false);
+  }
+});
+
+test("scheduled allFeeds persists snapshots without fetching covers and returns safe summaries", async () => {
   const { handler, logger, writes, calls, images } = batchHarness();
   const result = await handler({ allFeeds: true, scheduled: true }, { getRemainingTimeInMillis: () => 240000 });
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].subreddits, batchSubreddits);
   assert.equal(calls[0].timeoutMs <= 160000, true);
   assert.equal(calls[0].renewSession, false);
-  assert.deepEqual(calls[0].imagePriorityIdsBySubreddit, Object.fromEntries(batchSubreddits.map((name) => [name, []])));
   assert.equal(writes.filter(([, , options]) => options.upsert).length, batchSubreddits.length);
-  assert.equal(images.every(({ coreWrites }) => coreWrites === batchSubreddits.length), true);
+  assert.equal(images.length, 0);
   assert.equal(writes.every(([, , options]) => options.timeoutMS <= 10000 && options.maxTimeMS <= 5000), true);
   assert.deepEqual(Object.keys(result).sort(), ["feedResults", "sessionGeneration", "sessionMode"]);
   assert.deepEqual(result.feedResults.map(({ subreddit }) => subreddit), batchSubreddits);
@@ -212,7 +233,7 @@ test("allFeeds preserves published listing thumbnails when the optional deadline
   } finally { Date.now = originalNow; }
 });
 
-test("allFeeds bounds priority queries to three and core feed writes to two", async () => {
+test("allFeeds bounds core feed writes to two without prefetch queries", async () => {
   let priorities = 0;
   let maxPriorities = 0;
   let pendingWrites = 0;
@@ -238,7 +259,7 @@ test("allFeeds bounds priority queries to three and core feed writes to two", as
     scrapeBatchImpl: async () => { sourceStarted = true; assert.equal(priorities, 0); return batchResult(); },
   });
   await handler({ allFeeds: true });
-  assert.equal(maxPriorities, 3);
+  assert.equal(maxPriorities, 0);
   assert.equal(maxWrites, 2);
   assert.equal(pendingWrites, 0);
 });
@@ -267,16 +288,14 @@ test("allFeeds drains writes and completes other feeds after one core write fail
   assert.equal(failed.savedCount, 0);
 });
 
-test("allFeeds omits unavailable priority entries and isolates source mapping failures", async () => {
-  let captured;
+test("allFeeds isolates source mapping failures", async () => {
   const value = batchResult(batchSubreddits.slice(1));
   value.failures = [{ subreddit: batchSubreddits[0], status: "metadata_invalid" }];
   const { handler, logger } = batchHarness({
     newPostModel: { find: () => { throw new Error("Private query information"); }, findOneAndUpdate: async () => {} },
-    scrapeBatchImpl: async (options) => { captured = options; return value; },
+    scrapeBatchImpl: async () => value,
   });
   await assert.rejects(handler({ allFeeds: true }), /1 feeds incomplete/);
-  assert.deepEqual(captured.imagePriorityIdsBySubreddit, {});
   const [failed] = parseStructuredLogs(logger, "SCRAPER_JOB_FAILED");
   assert.equal(failed.subreddit, batchSubreddits[0]);
   assert.equal(failed.sourceStatus, "metadata_invalid");
@@ -838,8 +857,8 @@ test("fetchPosts backfills recent posts with missing thumbnails", async () => {
 
   await handler({ subreddit: "news" });
 
-  assert.equal(findCalls.length, 2);
-  assert.deepEqual({ ...findCalls[1], $or: findCalls[1].$or.slice(0, 4) }, {
+  assert.equal(findCalls.length, 1);
+  assert.deepEqual({ ...findCalls[0], $or: findCalls[0].$or.slice(0, 4) }, {
     sub: "news",
     created_utc: { $gt: 1710043200 },
     is_self: { $ne: true },
@@ -1424,95 +1443,6 @@ test("session diagnostics read metadata without running a scrape or writing post
   assert.deepEqual(calls, ["connect", "inspect"]);
   assert.equal(parseStructuredLogs(logger, "BROWSER_SESSION_DIAGNOSTICS").length, 1);
   assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED").length, 0);
-});
-
-test("image detail priorities query recent missing or small link images without the article cooldown", async () => {
-  const calls = {};
-  const small = "https://external-preview.redd.it/story.jpg?width=140";
-  const rows = [
-    { commentLink: "/r/politics/comments/abc/story/", thumbnail: small },
-    { commentLink: "/r/POLITICS/comments/def/another/", thumbnail: small },
-    { commentLink: "/r/politics/comments/abc/duplicate/", thumbnail: small },
-    { commentLink: "/r/news/comments/foreign/story/", thumbnail: small },
-    { commentLink: "https://evil.example/r/politics/comments/abc/story/", thumbnail: small },
-    { commentLink: "/r/politics/comments/bad-id/story/", thumbnail: small },
-    { commentLink: "/r/politics/comments/large/story/", thumbnail: "https://preview.redd.it/photo.jpg?width=1080" },
-    { commentLink: "/r/politics/comments/missing/story/" },
-    { commentLink: "/r/politics/comments/nullimage/story/", thumbnail: null },
-    { commentLink: "/r/politics/comments/empty/story/", thumbnail: "" },
-    { commentLink: "/r/politics/comments/placeholder/story/", thumbnail: "default" },
-    { commentLink: "/r/politics/comments/unusable/story/", thumbnail: "ftp://cdn.example/image.jpg" },
-  ];
-  const query = {
-    sort(value) { calls.sort = value; return this; },
-    limit(value) { calls.limit = value; return this; },
-    select(value) { calls.select = value; return this; },
-    maxTimeMS(value) { calls.maxTimeMS = value; return this; },
-    then(resolve) { return Promise.resolve(rows).then(resolve); },
-  };
-  const ids = await findImagePriorityIds({ find: (filter) => { calls.filter = filter; return query; } }, "POLITICS", {
-    now: () => new Date("2026-11-06T20:00:00Z"), logger: createLogger(),
-  });
-  assert.deepEqual(ids, ["t3_abc", "t3_def", "t3_missing", "t3_nullimage", "t3_empty", "t3_placeholder", "t3_unusable"]);
-  assert.equal(calls.filter.sub, "politics");
-  assert.deepEqual(calls.filter.created_utc, { $gt: Date.parse("2026-11-06T12:00:00Z") / 1000 });
-  for (const field of ["is_self", "is_video", "is_gallery"]) assert.deepEqual(calls.filter[field], { $ne: true });
-  assert.deepEqual(calls.filter.post_hint, { $nin: ["image", "rich:video"] });
-  assert.equal(calls.filter.thumbnailQualityCheckedAt, undefined);
-  assert.ok(calls.filter.$or.some((clause) => clause.thumbnail === null));
-  assert.ok(calls.filter.$or.some((clause) => clause.thumbnail === ""));
-  assert.ok(calls.filter.$or.some((clause) => clause.thumbnail?.$exists === false));
-  assert.ok(calls.filter.$or.some((clause) => clause.thumbnail?.$not?.$regex === "^https?://"));
-  assert.ok(calls.filter.$or.some((clause) => typeof clause.thumbnail?.$regex === "string"));
-  assert.ok(new RegExp(calls.filter.url.$regex, "i").test("https://publisher.example/story"));
-  assert.ok(!new RegExp(calls.filter.url.$regex, "i").test("https://www.reddit.com/r/politics/"));
-  assert.deepEqual(calls.sort, { upvoteCount: -1 });
-  assert.equal(calls.limit, 25);
-  assert.equal(calls.select, "commentLink thumbnail");
-  assert.equal(calls.maxTimeMS, 1500);
-});
-
-test("image priorities explicitly skip details when no eligible stored images exist", async () => {
-  assert.deepEqual(await findImagePriorityIds({ find: async () => [] }, "politics"), []);
-  assert.deepEqual(await findImagePriorityIds({ find: () => { throw new Error("Unexpected query"); } }, "unsupported"), []);
-  const rows = Array.from({ length: 40 }, (_, index) => ({ commentLink: `/r/politics/comments/a${index}/story/`, thumbnail: "https://preview.redd.it/photo.jpg?width=140" }));
-  assert.equal((await findImagePriorityIds({ find: () => rows }, "politics")).length, 25);
-});
-
-test("optional image priority failure logs no database details and does not fail the scrape", async () => {
-  const logger = createLogger();
-  let queries = 0;
-  let options;
-  const handler = createFetchPosts({
-    scrapePostsImpl: async (value) => { options = value; return []; },
-    newPostModel: { find: async () => { if (++queries === 1) throw new Error("Private database details"); return []; } },
-    mongooseClient: { connect: async () => {} }, logger,
-  });
-  await handler({ subreddit: "politics" });
-  assert.equal(options.imagePriorityIds, undefined);
-  assert.equal(logger.warnings.length, 1);
-  assert.ok(!logger.warnings[0][0].includes("Private database details"));
-  assert.equal(parseStructuredLogs(logger, "SCRAPER_JOB_COMPLETED")[0].outcome, "success");
-});
-
-test("image priority queries have a hard optional deadline", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const logger = createLogger();
-  const result = findImagePriorityIds({ find: () => new Promise(() => {}) }, "politics", { logger });
-  t.mock.timers.tick(1500);
-  assert.equal(await result, undefined);
-  assert.equal(logger.warnings.length, 1);
-});
-
-test("normal scrapes pass validated stored image priorities to the browser", async () => {
-  let options;
-  const handler = createFetchPosts({
-    scrapePostsImpl: async (value) => { options = value; return []; },
-    newPostModel: { find: async (filter) => filter.url?.$regex ? [{ commentLink: "/r/politics/comments/abc/story/", thumbnail: "https://preview.redd.it/photo.jpg?width=140" }] : [] },
-    mongooseClient: { connect: async () => {} }, logger: createLogger(),
-  });
-  await handler({ subreddit: "politics" });
-  assert.deepEqual(options.imagePriorityIds, ["t3_abc"]);
 });
 
 test("deferred proactive renewal keeps successful collection visible as degraded", async () => {

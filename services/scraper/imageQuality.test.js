@@ -173,7 +173,7 @@ test("manual publisher backfill repairs only verified external images without re
   await assert.rejects(handler(event, { getRemainingTimeInMillis: () => 5000 }), /Insufficient time/);
 });
 
-test("scheduled Reddit cooldown repairs only politics covers and preserves freshness timestamps", async () => {
+test("scheduled Reddit cooldown leaves images and freshness timestamps untouched", async () => {
   for (const key of ["readBackoffSeconds", "readBackoffStartedSeconds"]) {
     const fetchedAt = new Date(now.getTime() - 600_000);
     const posts = [
@@ -196,13 +196,13 @@ test("scheduled Reddit cooldown repairs only politics covers and preserves fresh
     });
     const result = await handler({ allFeeds: true, scheduled: true });
     assert.equal(result.status, "read_backoff");
-    assert.deepEqual(checked, ["politics"]);
+    assert.deepEqual(checked, []);
     assert.deepEqual(posts.map((post) => post.thumbnail), [
-      "https://cdn.example/publisher-cover.jpg", undefined, large,
+      small, undefined, large,
     ]);
     assert.ok(posts.every((post) => post.fetchedAt === fetchedAt));
     const repairs = events.filter((event) => event.eventType === "PUBLISHER_IMAGE_BACKFILL_COMPLETED");
-    assert.deepEqual(repairs.map(({ subreddit, updated }) => ({ subreddit, updated })), [{ subreddit: "politics", updated: 1 }]);
+    assert.deepEqual(repairs, []);
     assert.equal(events.some((event) => event.eventType === "SCRAPER_JOB_COMPLETED"), false);
   }
 });

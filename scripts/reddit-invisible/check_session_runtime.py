@@ -169,7 +169,7 @@ def check_batch_runtime(saved, directory):
                 return PageProxy(page)
 
         config = SimpleNamespace(subreddit=feeds[0], limit=1, all_feeds=True, authenticate=False,
-                                 session_input=source, session_output=output, image_priority_map=None, batch_budget_seconds=90)
+                                 session_input=source, session_output=output, batch_budget_seconds=90)
         messages = []
         with patch.object(smoke, "log", side_effect=messages.append), patch.object(smoke, "SUBREDDITS", catalog):
             result = smoke.run_all_feeds(config, browser_factory=BrowserFactory)

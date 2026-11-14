@@ -27,7 +27,7 @@ const timestamp = (value) => {
   return Number.isFinite(milliseconds) && milliseconds >= 0 ? Math.floor(milliseconds / 1000) : null;
 };
 
-export function toF5Record(raw, subreddit, { fetchedAt = new Date() } = {}) {
+export function toF5Record(raw, subreddit, { fetchedAt = new Date(), allowPartialMedia = false } = {}) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const attrs = source.attributes && typeof source.attributes === "object" && !Array.isArray(source.attributes) ? source.attributes : source;
   const missing = new Set();
@@ -76,7 +76,7 @@ export function toF5Record(raw, subreddit, { fetchedAt = new Date() } = {}) {
   if (type === "image") {
     const image = images[0];
     if (image) preview = { images: [{ source: { url: image.url } }] };
-    check("preview", preview, true);
+    check("preview", preview, !allowPartialMedia);
   }
   if (type === "link") {
     const previewUrl = httpUrl(source.preview?.images?.[0]?.source?.url);
@@ -84,23 +84,23 @@ export function toF5Record(raw, subreddit, { fetchedAt = new Date() } = {}) {
   }
   if (type === "gallery") {
     const entries = images.filter((image) => typeof image.id === "string" && /^[a-zA-Z0-9_-]+$/.test(image.id));
-    if (entries.length !== source.images?.length || new Set(entries.map((image) => image.id)).size !== entries.length) {
+    if (!allowPartialMedia && (entries.length !== source.images?.length || new Set(entries.map((image) => image.id)).size !== entries.length)) {
       missing.add("gallery.images"); required.add("gallery.images");
     }
     if (entries.length) {
       galleryData = { items: entries.map((image) => ({ media_id: image.id })) };
       metadata = Object.fromEntries(entries.map((image) => [image.id, { s: { u: image.url } }]));
     }
-    check("gallery_data", galleryData, true);
-    check("media_metadata", metadata, true);
+    check("gallery_data", galleryData, !allowPartialMedia);
+    check("media_metadata", metadata, !allowPartialMedia);
   }
   if (type === "video") {
     const video = source.video && typeof source.video === "object" ? source.video : {};
     const dash = httpUrl(video.dash_url);
     if (dash) media = { reddit_video: { dash_url: dash } };
-    check("media.reddit_video.dash_url", dash, true);
+    check("media.reddit_video.dash_url", dash, !allowPartialMedia);
   }
-  if (["image", "gallery", "video"].includes(type) && source.mediaComplete !== true) {
+  if (!allowPartialMedia && ["image", "gallery", "video"].includes(type) && source.mediaComplete !== true) {
     missing.add("mediaComplete"); required.add("mediaComplete");
   }
 
@@ -110,7 +110,7 @@ export function toF5Record(raw, subreddit, { fetchedAt = new Date() } = {}) {
     title, domain, url, commentLink: permalink, author, created_utc: created,
     upvoteCount: score, commentCount: comments, fetchedAt: fetched, sub,
   };
-  const resolvedThumbnail = preview?.images[0].source.url || thumbnail;
+  const resolvedThumbnail = preview?.images[0].source.url || thumbnail || (allowPartialMedia ? images[0]?.url ?? null : null);
   if (check("thumbnail", resolvedThumbnail)) post.thumbnail = resolvedThumbnail;
   if (type === "image") post.post_hint = "image";
   if (type === "video") {
@@ -126,6 +126,7 @@ export function toF5Record(raw, subreddit, { fetchedAt = new Date() } = {}) {
   const data = { ...common, id, name: id ? `t3_${id}` : null, subreddit: sub, permalink: commentLink, ups: upvoteCount, num_comments: commentCount };
   if (preview) data.preview = preview;
   if (galleryData) data.gallery_data = galleryData;
+  if (allowPartialMedia && type === "gallery" && source.mediaComplete !== true) data.partialGallery = true;
   return {
     post, reddit: { kind: "t3", data },
     missingFields: [...missing], ready: required.size === 0,
