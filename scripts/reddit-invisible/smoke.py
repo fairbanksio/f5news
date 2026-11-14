@@ -629,7 +629,16 @@ def wait_batch_feed(page, authenticated, deadline):
     raise FeedFailure("loading_timeout")
 
 
-def snapshot_posts(page, reader, subreddit, limit):
+def snapshot_posts(page, reader, subreddit, limit, deadline=None, authenticated=False):
+    # Give the existing document time to render more cards before reading it once.
+    pause_with_deadline(deadline, 3)
+    ensure_remaining(deadline)
+    access = state(page)
+    if access in ("blocked", "challenge"):
+        if authenticated:
+            raise FeedFailure("session_" + access, {"sessionReason": "feed_" + access})
+        raise FeedFailure("blocked" if access == "blocked" else "challenge_required",
+                          {"sessionReason": "feed_challenge"} if access == "challenge" else None)
     posts = {}
     for raw in read_posts(page, reader):
         attrs = raw["attributes"]
@@ -704,7 +713,7 @@ def run_all_feeds(config, browser_factory=None):
                 if index == 0 and session_output:
                     export_session(page, seed, session_output)
                 ensure_remaining(deadline)
-                selected = snapshot_posts(page, reader, subreddit, config.limit)
+                selected = snapshot_posts(page, reader, subreddit, config.limit, deadline, bool(session or authenticate))
                 if not selected:
                     raise FeedFailure("empty")
                 completed.append({"subreddit": subreddit, "posts": selected})
@@ -795,7 +804,11 @@ def run(config):
 
         if session_output:
             export_session(page, seed, session_output)
-        selected = snapshot_posts(page, reader, config.subreddit, config.limit)
+        try:
+            selected = snapshot_posts(page, reader, config.subreddit, config.limit,
+                                      authenticated=bool(session or getattr(config, "authenticate", False)))
+        except FeedFailure as error:
+            return {**error.result, "subreddit": config.subreddit, "posts": []}
         return {"status": "accessible" if selected else "empty", "subreddit": config.subreddit,
                 "posts": selected, "durationSeconds": round(time.monotonic() - started, 2)}
 

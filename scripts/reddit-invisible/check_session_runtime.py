@@ -119,6 +119,8 @@ def check_batch_runtime(saved, directory):
                 return getattr(self.page, name)
             def locator(self, *_args, **_kwargs):
                 raise AssertionError("Batch reuse unexpectedly accessed login controls")
+            def evaluate(self, *_args, **_kwargs):
+                raise AssertionError("Snapshot must not scroll or mutate the page")
             def evaluate_read(self, expression, *args):
                 if expression.startswith("(function readRenderedPosts"):
                     retained = self.page.evaluate_read("""() => ({storage: localStorage.getItem('f5_offline_session_check') === 'offline-fixture-storage', visits: Number(localStorage.getItem('f5_batch_visits'))})""")
@@ -147,7 +149,7 @@ def check_batch_runtime(saved, directory):
                         route.fulfill(status=204, body="")
                         return
                     parts = urlsplit(route.request.url).path.split("/")
-                    assert len(parts) >= 5 and parts[1] == "r" and parts[3] == "rising", "Batch visited an unexpected route"
+                    assert len(parts) == 5 and parts[1] == "r" and parts[3:] == ["rising", ""], "Batch visited a page other than the Rising listing"
                     feed = parts[2]
                     assert feed in feeds, "Batch requested an unconfigured feed"
                     stats["requests"].append(feed)
@@ -161,6 +163,13 @@ def check_batch_runtime(saved, directory):
                     <shreddit-post id="t3_{name}" subreddit-name="{feed}" post-type="link" post-title="Offline Story" author="fixture"
                       created-timestamp="2026-11-06T00:00:00Z" score="12" comment-count="2" domain="example.com"
                       content-href="https://example.com/story" permalink="/r/{feed}/comments/{name}/story/">Offline fixture</shreddit-post>"""
+                    if failure_status is None:
+                        html += f"""<script>setTimeout(() => {{
+                          const post = document.querySelector('shreddit-post').cloneNode(true);
+                          post.id = 't3_{name}later';
+                          post.setAttribute('permalink', '/r/{feed}/comments/{name}later/story/');
+                          document.body.append(post);
+                        }}, 1000);</script>"""
                     headers = {"content-type": "text/html"}
                     if index == 0:
                         headers["set-cookie"] = "reddit_session=offline-rotated-session; Domain=.reddit.com; Path=/; Secure; HttpOnly; SameSite=Lax"
@@ -176,6 +185,8 @@ def check_batch_runtime(saved, directory):
         expected = len(feeds) if failure_status is None else failure_index
         assert result["status"] == "accessible", "Offline batch did not preserve accessible results"
         assert [item["subreddit"] for item in result["feeds"]] == feeds[:expected], "Offline batch prefix did not match"
+        if failure_status is None:
+            assert all(len(item["posts"]) == 2 for item in result["feeds"]), "Snapshot missed a card rendered after the initial listing"
         assert stats["launches"] == 1 and stats["pages"] == 1, "Offline batch opened more than one browser or page"
         assert len(stats["checks"]) == expected, "Offline batch did not retain state on every feed"
         assert stats["requests"] == feeds[:expected + (failure_status is not None)], "Offline batch read after a rejection"
