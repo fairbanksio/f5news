@@ -1152,19 +1152,22 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(stats["closed"], 1)
             self.assertEqual(len(stats["requests"]), 2)
 
-    def test_optional_429_retains_current_listing_and_stops_batch(self):
+    def test_optional_429_retains_every_listing_and_stops_preview_reads(self):
         with tempfile.TemporaryDirectory() as directory:
             config, stats, fixture, browser = self.setup_batch(directory)
+            optional_reads = []
             def optional(_page, _reader, posts, subreddit, **kwargs):
+                optional_reads.append(subreddit)
+                self.assertEqual(len(stats["requests"]), len(stats["feeds"]))
                 if subreddit == stats["feeds"][1]:
                     kwargs["budget"]["failure"] = smoke.SessionError("Browser navigation was rejected", "navigation_rate_limited", 429, 60)
                 return posts
             with patch.object(smoke, "enrich_link_previews", side_effect=optional):
                 result = self.execute(config, stats, fixture, browser)
-            self.assertEqual([item["subreddit"] for item in result["feeds"]], stats["feeds"][:2])
+            self.assertEqual([item["subreddit"] for item in result["feeds"]], stats["feeds"])
             self.assertEqual(result["batchFailure"]["subreddit"], stats["feeds"][1])
             self.assertEqual(result["batchFailure"]["stage"], "optional_preview")
-            self.assertEqual(len(stats["requests"]), 2)
+            self.assertEqual(optional_reads, stats["feeds"][:2])
 
     def test_authenticated_batch_disables_optional_reads(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1184,7 +1187,7 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(budgets, [True] * len(stats["feeds"]))
             self.assertEqual(len(stats["requests"]), len(stats["feeds"]))
 
-    def test_optional_work_reserves_time_for_every_remaining_core_feed(self):
+    def test_optional_work_runs_after_core_feeds_and_reserves_cleanup_time(self):
         with tempfile.TemporaryDirectory() as directory:
             feed_count = len(json.loads(smoke.SUBREDDITS.read_text()))
             config, stats, fixture, browser = self.setup_batch(directory, batch_budget_seconds=(feed_count - 1) * 10 + 26)
@@ -1193,6 +1196,7 @@ class BatchTests(unittest.TestCase):
             spent = []
             def optional(_page, _reader, posts, _subreddit, **kwargs):
                 budget = kwargs["budget"]
+                self.assertEqual(len(stats["requests"]), len(stats["feeds"]))
                 available = max(0, kwargs["batch_deadline"] - clock["seconds"] - 1)
                 duration = min(budget["seconds"], available)
                 spent.append(duration)
@@ -1203,7 +1207,6 @@ class BatchTests(unittest.TestCase):
                 result = self.execute(config, stats, fixture, browser)
             self.assertEqual(len(result["feeds"]), len(stats["feeds"]))
             self.assertNotIn("batchFailure", result)
-            self.assertLess(spent[0], 25)
             self.assertLessEqual(sum(spent), 25)
             self.assertLessEqual(clock["seconds"], config.batch_budget_seconds - 5)
 

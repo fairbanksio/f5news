@@ -899,16 +899,8 @@ def run_all_feeds(config, browser_factory=None):
                 if index == 0 and session_output:
                     export_session(page, seed, session_output)
                 selected = collect_batch_posts(page, reader, subreddit, config.limit, deadline)
-                remaining_feeds = len(feeds) - index - 1
-                now = time.monotonic()
-                optional_deadline = min(deadline, now + max(0, deadline - now - remaining_feeds * 10 - 5))
-                selected = enrich_link_previews(page, reader, selected, subreddit, priority_ids=priorities[subreddit],
-                                                budget=optional_budget, batch_deadline=optional_deadline)
                 completed.append({"subreddit": subreddit, "posts": selected})
                 log(json.dumps({"eventType": "BROWSER_BATCH_FEED", "subreddit": subreddit, "stage": "collected", "count": len(selected)}))
-                if optional_budget.get("failure"):
-                    failure = {**batch_failure(optional_budget["failure"], subreddit, bool(session)), "stage": "optional_preview"}
-                    break
             except BrowserCancelled:
                 interrupted = True
                 failure = {"subreddit": subreddit, "status": "loading_timeout"}
@@ -916,6 +908,19 @@ def run_all_feeds(config, browser_factory=None):
             except Exception as error:
                 failure = batch_failure(error, subreddit, bool(session))
                 break
+        if not failure:
+            for feed in completed:
+                subreddit = feed["subreddit"]
+                try:
+                    feed["posts"] = enrich_link_previews(page, reader, feed["posts"], subreddit,
+                                                         priority_ids=priorities[subreddit], budget=optional_budget,
+                                                         batch_deadline=deadline - 4)
+                except BrowserCancelled:
+                    interrupted = True
+                    break
+                if optional_budget.get("failure"):
+                    failure = {**batch_failure(optional_budget["failure"], subreddit, bool(session)), "stage": "optional_preview"}
+                    break
         if completed and session_output and not interrupted:
             try:
                 export_session(page, seed, session_output)
