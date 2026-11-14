@@ -531,7 +531,7 @@ const fetchArticleImage = async (url, options = {}) => {
   const fetchImpl = normalizeFetch(options.fetchImpl || fetch);
   const maxBytes = options.maxBytes || DEFAULT_MAX_BYTES;
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
-  const maxRedirects = options.maxRedirects || DEFAULT_MAX_REDIRECTS;
+  const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   const maxTransientRetries =
     options.maxTransientRetries ?? DEFAULT_MAX_TRANSIENT_RETRIES;
   const resolveHostname = options.resolveHostname || dns.lookup;
@@ -971,7 +971,7 @@ const imageSource = async (data, options = {}) => {
   } catch (error) {
     reportArticleImageFailure(articleOptions, { url: articleUrl, reason: "fetch_error", details: errorFields(error) });
   }
-  const nytImage = nytArticle && !rateLimited ? await fetchNytRssImage(nytArticle, options) : "";
+  const nytImage = nytArticle && !rateLimited && options.allowRssFallback !== false ? await fetchNytRssImage(nytArticle, options) : "";
   return nytImage || redditImage || fallback;
 };
 
