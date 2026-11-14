@@ -103,7 +103,7 @@ test("all-feed verification reuses one batch then proves persisted reuse in one 
   assert.deepEqual(calls, [{ allFeeds: true, session: true }, { subreddit: "politics", session: true }]);
   assert.deepEqual(delays, [300000]);
   assert.deepEqual(lines.find((entry) => entry.eventType === "BROWSER_LIVE_PROBE_WAITING"), { eventType: "BROWSER_LIVE_PROBE_WAITING", seconds: 300 });
-  assert.deepEqual(FEEDS, ["politics"]);
+  assert.deepEqual(FEEDS, ["politics", "news", "worldnews"]);
   assert.deepEqual(summary, { eventType: "BROWSER_LIVE_PROBE_COMPLETED", feedCount: FEEDS.length, invocationCount: 2,
     savedCount: (FEEDS.length + 1) * 25, renewalRequested: false, initialGeneration: "generation-1", sessionGeneration: "generation-1", generationCount: 1, renewedCount: 0, reusedCount: 2 });
   assert.equal(lines.at(-2).repeated, true);
@@ -328,7 +328,7 @@ test("deployment mode chooses read-only scheduled verification whenever a schedu
   });
   assert.equal(reads, 1);
   assert.equal(result.eventType, "BROWSER_SCHEDULED_PROBE_COMPLETED");
-  assert.equal(result.feedCount, FEEDS.length);
+  assert.deepEqual(result.feeds.map(({ subreddit }) => subreddit), ["politics"]);
 });
 
 test("deployment mode uses a paced batch when schedules are explicitly disabled", async () => {

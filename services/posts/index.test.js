@@ -427,7 +427,7 @@ test("normalizes configured subreddit spelling and keeps the cache origin-indepe
 
 test("rejects retired feeds before opening a database connection", async () => {
   const context = createHandler();
-  for (const subreddit of ["news", "worldnews", "europe", "technology", "science", "health", "energy", "sports", "business", "Economics"]) {
+  for (const subreddit of ["europe", "technology", "science", "health", "energy", "sports", "business", "Economics"]) {
     const response = await context.handler(allowedEvent({ pathParameters: { subreddit } }));
     assert.equal(response.statusCode, 400);
     assert.deepEqual(getJsonBody(response), { success: false, error: "Unsupported subreddit" });

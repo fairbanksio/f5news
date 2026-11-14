@@ -54,7 +54,7 @@ functions:
           rate: rate(15 minutes)
           enabled: true
           input:
-            allFeeds: true
+            subreddit: politics
             session: true
             scheduled: true
       - schedule:
@@ -64,6 +64,20 @@ functions:
             subreddit: politics
             session: true
             renewSession: true
+            scheduled: true
+      - schedule:
+          rate: cron(12 * * * ? *)
+          enabled: true
+          input:
+            subreddit: news
+            session: true
+            scheduled: true
+      - schedule:
+          rate: cron(42 * * * ? *)
+          enabled: true
+          input:
+            subreddit: worldnews
+            session: true
             scheduled: true
 
 resources:

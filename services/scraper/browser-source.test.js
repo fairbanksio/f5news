@@ -205,7 +205,7 @@ test("the deployed browser catalog rejects retired feeds before launch", async (
   const unexpected = async () => assert.fail("Unsupported feeds must not launch the browser");
   const scrape = liveSource.createBrowserSource({ runBrowserImpl: unexpected, sessionRunner: unexpected });
   const scrapeBatch = liveSource.createBrowserBatchSource({ runBrowserImpl: unexpected, sessionRunner: unexpected });
-  for (const subreddit of ["news", "worldnews"]) {
+  for (const subreddit of ["technology", "europe"]) {
     await assert.rejects(scrape({ subreddit, logger }), /Unsupported subreddit/);
     await assert.rejects(scrapeBatch({ subreddits: ["politics", subreddit], logger }), /requires every configured feed/);
   }

@@ -189,11 +189,10 @@ test("a scheduled snapshot repairs at most three publisher covers after saving t
   let snapshots = 0;
   const [story] = posts;
   const handler = createFetchPosts({
-    scrapeBatchImpl: async () => {
+    scrapePostsImpl: async ({ subreddit }) => {
       snapshots += 1;
-      return { risingNavigations: 1, failures: [], feeds: [{ subreddit: "politics", children: [{
-        kind: "t3", data: { ...story, id: "newest", subreddit: "politics", permalink: "/r/politics/comments/newest/story/", ups: 1, num_comments: 0 },
-      }] }] };
+      assert.equal(subreddit, "politics");
+      return Object.assign([{ data: { ...story, permalink: "/r/politics/comments/newest/story/" } }], { risingNavigations: 1 });
     },
     mongooseClient: { connect: async () => {} }, newPostModel: model(posts), now: () => now,
     logger: { ...logger, log: (line) => events.push(JSON.parse(line)) },
@@ -208,9 +207,8 @@ test("a scheduled snapshot repairs at most three publisher covers after saving t
     },
     fetchImageWidthImpl: async () => 1920,
   });
-  const result = await handler({ allFeeds: true, scheduled: true });
+  await handler({ subreddit: "politics", scheduled: true });
   assert.equal(snapshots, 1);
-  assert.equal(result.feedResults[0].outcome, "success");
   assert.deepEqual(calls.sort(), ["missing", "newest", "tiny"]);
   assert.deepEqual(posts.map((post) => post.thumbnail), [cover, cover, small, small, large, small, small]);
   assert.equal(posts[2].thumbnailQualityCheckedAt.getTime(), now.getTime());
