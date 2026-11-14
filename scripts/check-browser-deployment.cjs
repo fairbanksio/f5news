@@ -330,7 +330,13 @@ async function verifyScheduled({ readEvents, requireOneNavigation = false, now =
         const result = checkInvocation({ StatusCode: 200, LogResult: Buffer.from(JSON.stringify(terminal.record)).toString("base64") }, { session: true });
         const { risingNavigations } = terminal.record;
         if (requireOneNavigation || risingNavigations !== undefined) assert.equal(risingNavigations, 1, "Expected one Rising navigation");
+        const { publisherLookups, publisherCoversUpdated } = terminal.record;
+        if (publisherLookups !== undefined) {
+          assert.ok(Number.isInteger(publisherLookups) && publisherLookups >= 0 && publisherLookups <= 3);
+          assert.ok(Number.isInteger(publisherCoversUpdated) && publisherCoversUpdated >= 0 && publisherCoversUpdated <= publisherLookups);
+        }
         summaries.push({ subreddit, timestamp: terminal.timestamp, ...result,
+          ...(publisherLookups !== undefined ? { publisherLookups, publisherCoversUpdated } : {}),
           ...(risingNavigations === 1 ? { risingNavigations } : {}) });
       } catch { /* A later scheduled run can recover before the deadline. */ }
     }
