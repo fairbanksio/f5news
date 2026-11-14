@@ -4,6 +4,7 @@ const newPost = require("./models/newPost");
 const supportedSubreddits = require("../posts/subreddits.json");
 const { scrapePosts, scrapeBatch } = require("./browser-source");
 const { inspectSession } = require("./browser-session");
+const { captureChallenge } = require("./challenge-capture");
 const {
   hasUsableThumbnail,
   imageUrlWidth,
@@ -707,6 +708,16 @@ const createFetchPosts = ({
   now = () => new Date(),
 } = {}) => {
   return async (event = {}, context = {}) => {
+    if (event.challengeScreenshotPublicKey !== undefined) {
+      if (Object.keys(event).length !== 1) throw new Error("Screenshot capture requires a standalone invocation");
+      return captureChallenge(event.challengeScreenshotPublicKey, async (screenshotPath) => {
+        await mongooseClient.connect();
+        const result = await scrapeBatchImpl({ limit: 1, session: true, logger, screenshotPath });
+        if (result.batchFailure?.sessionReason === "feed_challenge") {
+          throw Object.assign(new Error("Challenge screenshot unavailable"), { sessionReason: "feed_challenge" });
+        }
+      });
+    }
     const hasPublisherTarget = event.publisherPostId !== undefined || event.publisherImageUrl !== undefined;
     if (hasPublisherTarget && event.publisherImageBackfill !== true) throw new Error("Targeted repair requires publisher image backfill");
     if (event.publisherImageBackfill === true) {

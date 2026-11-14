@@ -7,8 +7,12 @@ on:
         description: Inspect shared-session metadata without scraping or logging in
         type: boolean
         default: false
+      challenge_screenshot:
+        description: Capture one encrypted image if the Politics listing shows a challenge
+        type: boolean
+        default: false
       diagnostics_public_key:
-        description: Base64 DER SPKI RSA public key for encrypted diagnostics
+        description: Base64 DER SPKI RSA public key for encrypted diagnostics or screenshot
         type: string
         default: ''
       subreddit:
@@ -81,6 +85,7 @@ jobs:
       - name: Verify Live Extraction
         env:
           F5_PROBE_DIAGNOSTICS_KEY: ${{ inputs.diagnostics_public_key }}
+          F5_PROBE_CHALLENGE_SCREENSHOT: ${{ inputs.challenge_screenshot }}
           F5_PROBE_DIAGNOSTICS: ${{ inputs.diagnostics }}
           F5_PROBE_SUBREDDIT: ${{ inputs.subreddit }}
           F5_PROBE_SCHEDULED: ${{ inputs.scheduled }}

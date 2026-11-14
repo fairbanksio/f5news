@@ -75,6 +75,54 @@ def sample_post(post_type="link"):
 
 
 class SmokeTests(unittest.TestCase):
+    def test_opt_in_challenge_evidence_creates_one_private_viewport_jpeg(self):
+        image = b"\xff\xd8\xffimage\xff\xd9"
+        page = types.SimpleNamespace(url=smoke.CHALLENGE_LISTING_URL,
+                                     evaluate_read=lambda _: {"state": "challenge"})
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "challenge.jpg"
+            with patch.dict(os.environ, {"F5_CHALLENGE_SCREENSHOT_PATH": str(target)}), \
+                    patch.object(page, "screenshot", create=True, return_value=image) as screenshot:
+                self.assertEqual(smoke.state(page), "challenge")
+                self.assertEqual(smoke.state(page), "challenge")
+                screenshot.assert_called_once_with(type="jpeg", quality=70, full_page=False, scale="css", timeout=1500)
+            self.assertEqual(target.read_bytes(), image)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+
+    def test_screenshot_excludes_other_pages_states_and_unconfigured_runs(self):
+        page = types.SimpleNamespace(evaluate_read=lambda _: {"state": "challenge"})
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "challenge.jpg"
+            with patch.dict(os.environ, {"F5_CHALLENGE_SCREENSHOT_PATH": str(target)}), \
+                    patch.object(page, "screenshot", create=True) as screenshot:
+                for url in ("https://www.reddit.com/login/", "https://www.reddit.com/r/politics/comments/id/",
+                            smoke.CHALLENGE_LISTING_URL + "?token=private", "https://other.example/r/politics/rising/"):
+                    page.url = url
+                    self.assertEqual(smoke.state(page), "challenge")
+                page.url = smoke.CHALLENGE_LISTING_URL
+                page.evaluate_read = lambda _: {"state": "feed"}
+                self.assertEqual(smoke.state(page), "feed")
+                os.environ.pop("F5_CHALLENGE_SCREENSHOT_PATH")
+                smoke.capture_listing_challenge(page)
+                screenshot.assert_not_called()
+            self.assertFalse(target.exists())
+
+    def test_invalid_or_failed_screenshot_does_not_change_challenge_result(self):
+        page = types.SimpleNamespace(url=smoke.CHALLENGE_LISTING_URL,
+                                     evaluate_read=lambda _: {"state": "challenge"})
+        for image in (b"not jpeg", b"\xff\xd8\xff" + b"x" * smoke.MAX_CHALLENGE_SCREENSHOT_BYTES + b"\xff\xd9",
+                      RuntimeError("screenshot timed out")):
+            with self.subTest(result=type(image).__name__), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "challenge.jpg"
+                def screenshot(**_kwargs):
+                    if isinstance(image, Exception):
+                        raise image
+                    return image
+                page.screenshot = screenshot
+                with patch.dict(os.environ, {"F5_CHALLENGE_SCREENSHOT_PATH": str(target)}):
+                    self.assertEqual(smoke.state(page), "challenge")
+                self.assertFalse(target.exists())
+
     def test_page_access_logs_only_bounded_verification_evidence(self):
         evidence = {"state": "challenge", "marker": "verify_human", "hasPosts": False,
                     "titleMatch": True, "dialogVisible": False, "verificationFrame": True}
@@ -676,6 +724,19 @@ class NavigationHTTPTests(unittest.TestCase):
             smoke.navigate(page, "https://www.reddit.com")
         self.assertEqual(caught.exception.code, "navigation_http_rejected")
         self.assertEqual(events["calls"], 1)
+
+    def test_main_listing_challenge_header_captures_without_changing_http_result(self):
+        for status, headers, code, capture_expected in (
+            (403, {"cf-mitigated": "challenge"}, "feed_challenge", True),
+            (429, {}, "navigation_rate_limited", False),
+            (403, {}, "navigation_http_rejected", False),
+        ):
+            page, events = self.page(self.response(status, headers, smoke.CHALLENGE_LISTING_URL), error=False)
+            with patch.object(smoke, "capture_listing_challenge") as capture, self.assertRaises(smoke.SessionError) as caught:
+                smoke.navigate(page, smoke.CHALLENGE_LISTING_URL)
+            self.assertEqual(caught.exception.code, code)
+            self.assertEqual(events["calls"], 1)
+            self.assertEqual(capture.call_count, int(capture_expected))
 
     def test_only_reddit_main_document_responses_affect_navigation(self):
         for response in (self.response(403, navigation=False), self.response(403, parent=object()), self.response(403, url="https://evil.example/")):

@@ -217,6 +217,7 @@ function createSessionRunner({ store = createSessionStore(), now = Date.now, pau
             }
           }
         }
+        if (options.screenshotPath) throw new Error("Screenshot capture requires an existing session");
         let acquired;
         try { acquired = await store.acquire(owner, generation); }
         catch (error) {

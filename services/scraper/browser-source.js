@@ -13,9 +13,10 @@ const SESSION_REASONS = ["invalid_data", "input_file_invalid", "root_cookie_expi
 const validPriorities = (ids) => Array.isArray(ids) && ids.length <= 25 && new Set(ids).size === ids.length && ids.every((id) => typeof id === "string" && /^t3_[a-z0-9]+$/.test(id));
 
 // Supervise the browser group and track its detached display separately.
-const runBrowser = ({ subreddit, allFeeds = false, imagePriorityIdsBySubreddit, limit, timeoutMs, logger, authenticate = false, sessionInput, sessionOutput, imagePriorityIds, redactionValues = [process.env.MONGO_CONNECTION_STRING, process.env.REDDIT_USERNAME, process.env.REDDIT_PASSWORD], spawnImpl = spawn }) => new Promise((resolve, reject) => {
+const runBrowser = ({ subreddit, allFeeds = false, imagePriorityIdsBySubreddit, limit, timeoutMs, logger, authenticate = false, sessionInput, sessionOutput, imagePriorityIds, screenshotPath, redactionValues = [process.env.MONGO_CONNECTION_STRING, process.env.REDDIT_USERNAME, process.env.REDDIT_PASSWORD], spawnImpl = spawn }) => new Promise((resolve, reject) => {
   const child = spawnImpl("python", [path.join(root, "scripts/reddit-invisible/smoke.py"), ...(allFeeds ? ["--all-feeds", "--batch-budget-seconds", String(Math.max(1, Math.min(180, Math.floor(timeoutMs / 1000) - 10)))] : ["--subreddit", subreddit]), "--limit", String(limit), ...(authenticate ? ["--authenticate"] : []), ...(sessionInput ? ["--session-input", sessionInput] : []), ...(sessionOutput ? ["--session-output", sessionOutput] : []), ...(Array.isArray(imagePriorityIds) ? ["--image-priority-ids", imagePriorityIds.join(",")] : []), ...(imagePriorityIdsBySubreddit !== undefined ? ["--image-priority-map", JSON.stringify(imagePriorityIdsBySubreddit)] : [])], {
     detached: true, stdio: ["ignore", "pipe", "pipe"],
+    ...(screenshotPath ? { env: { ...process.env, F5_CHALLENGE_SCREENSHOT_PATH: screenshotPath } } : {}),
   });
   let output = "";
   let diagnostics = "";
@@ -139,14 +140,14 @@ const createBrowserSource = ({ runBrowserImpl = runBrowser, fetchImpl = globalTh
   return children;
 };
 
-const createBrowserBatchSource = ({ runBrowserImpl = runBrowser, fetchImpl = globalThis.fetch, sessionRunner = createSessionRunner(), now = Date.now } = {}) => async ({ subreddits = feeds, limit = 25, timeoutMs = 160_000, logger = console, authenticate = false, session = true, renewSession = false, imagePriorityIdsBySubreddit } = {}) => {
+const createBrowserBatchSource = ({ runBrowserImpl = runBrowser, fetchImpl = globalThis.fetch, sessionRunner = createSessionRunner(), now = Date.now } = {}) => async ({ subreddits = feeds, limit = 25, timeoutMs = 160_000, logger = console, authenticate = false, session = true, renewSession = false, imagePriorityIdsBySubreddit, screenshotPath } = {}) => {
   const deadline = now() + timeoutMs;
   if (!Array.isArray(subreddits) || subreddits.length !== feeds.length || subreddits.some((name, index) => name !== feeds[index])) throw new Error("Browser batch requires every configured feed in order");
   if (!Number.isInteger(limit) || limit < 1 || limit > 25) throw new Error("Browser limit must be between 1 and 25");
   if (!Number.isFinite(timeoutMs) || timeoutMs < 10_000) throw new Error("Insufficient time for browser extraction and cleanup");
   if (imagePriorityIdsBySubreddit !== undefined && (!imagePriorityIdsBySubreddit || typeof imagePriorityIdsBySubreddit !== "object" || Array.isArray(imagePriorityIdsBySubreddit) || Object.entries(imagePriorityIdsBySubreddit).some(([name, ids]) => !feeds.includes(name) || !validPriorities(ids)))) throw new Error("Invalid batch image priority map");
   const browserOptions = { subreddit: feeds[0], allFeeds: true, limit, timeoutMs: timeoutMs - 9_000, logger,
-    authenticate: authenticate === true, renewSession: renewSession === true, imagePriorityIdsBySubreddit };
+    authenticate: authenticate === true, renewSession: renewSession === true, imagePriorityIdsBySubreddit, ...(screenshotPath ? { screenshotPath } : {}) };
   const result = session ? await sessionRunner(browserOptions, runBrowserImpl) : await runBrowserImpl(browserOptions);
   if (result?.status !== "accessible" || !Array.isArray(result.feeds) || !result.feeds.length || result.feeds.length > feeds.length ||
       result.feeds.some((entry, index) => !entry || entry.subreddit !== feeds[index] || !Array.isArray(entry.posts) || !entry.posts.length || entry.posts.length > limit)) throw new Error("Browser returned an invalid feed batch");

@@ -391,9 +391,10 @@ function invokeLive(event) {
     console.error(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE_FAILED", subreddit: event.subreddit,
       ...failureSummary({ ...result, LogResult: Buffer.from(logText).toString("base64") }, error) }));
   }
-  if (!result.FunctionError && (event.allFeeds || event.publisherImageBackfill)) {
+  if (!result.FunctionError && (event.allFeeds || event.publisherImageBackfill || event.challengeScreenshotPublicKey)) {
     const payload = JSON.parse(readFileSync(payloadFile, "utf8"));
-    if (event.publisherImageBackfill) result.PublisherBackfillResult = payload;
+    if (event.challengeScreenshotPublicKey) result.ChallengeScreenshotResult = payload;
+    else if (event.publisherImageBackfill) result.PublisherBackfillResult = payload;
     else result.BatchResult = payload;
   }
   return result;
@@ -410,6 +411,35 @@ function selectVerificationMode(env, configuration) {
 
 async function runVerification({ env = process.env, configuration, invoke = invokeLive, readEvents = readScheduledEvents,
   readRuntime = readRuntimeEvents, emit = console.log, sleep } = {}) {
+  if (env.F5_PROBE_CHALLENGE_SCREENSHOT === "true") {
+    for (const name of ["DIAGNOSTICS", "SCHEDULED", "DEPLOYMENT", "ALL_FEEDS", "AUTHENTICATE", "RENEW_SESSION", "PUBLISHER_IMAGE_BACKFILL"]) {
+      assert.notEqual(env[`F5_PROBE_${name}`], "true", "Screenshot must be requested on its own");
+    }
+    const key = env.F5_PROBE_DIAGNOSTICS_KEY;
+    assert.ok(typeof key === "string" && key.length <= 1200 && /^[A-Za-z0-9+/]+={0,2}$/.test(key), "Provide a screenshot public key");
+    const response = await invoke({ challengeScreenshotPublicKey: key });
+    assert.equal(response.StatusCode, 200);
+    assert.ok(!response.FunctionError, "Screenshot invocation failed");
+    const result = response.ChallengeScreenshotResult;
+    assert.ok(["captured", "not_seen", "cooldown", "challenge", "scrape_failed"].includes(result?.outcome), "Invalid screenshot result");
+    const record = { eventType: "BROWSER_CHALLENGE_SCREENSHOT", outcome: result.outcome };
+    if (result.outcome === "captured") {
+      const { version, contentType, iv, tag, wrappedKey, ciphertext } = result.screenshot || {};
+      assert.ok(version === 1 && contentType === "image/jpeg" && typeof ciphertext === "string" && ciphertext.length <= 350000,
+        "Invalid encrypted screenshot");
+      for (const [field, value, maxLength] of [["iv", iv, 16], ["tag", tag, 24], ["wrappedKey", wrappedKey, 700], ["ciphertext", ciphertext, 350000]]) {
+        assert.ok(typeof value === "string" && value.length <= maxLength && /^[A-Za-z0-9+/]+={0,2}$/.test(value),
+          "Invalid screenshot " + field);
+      }
+      record.screenshot = { version, contentType, iv, tag, wrappedKey, ciphertext };
+      const chunks = ciphertext.match(/.{1,3000}/g);
+      emit(JSON.stringify({ ...record, screenshot: { version, contentType, iv, tag, wrappedKey, chunkCount: chunks.length } }));
+      for (const [index, data] of chunks.entries()) emit(JSON.stringify({ eventType: "BROWSER_CHALLENGE_SCREENSHOT_CHUNK", index, data }));
+    } else {
+      emit(JSON.stringify(record));
+    }
+    return record;
+  }
   const publisherPostId = env.F5_PROBE_PUBLISHER_POST_ID || "";
   const publisherImageUrl = env.F5_PROBE_PUBLISHER_IMAGE_URL || "";
   const targeted = Boolean(publisherPostId || publisherImageUrl);
