@@ -14,8 +14,8 @@ const decryptDiagnostics = (envelope) => {
 const response = (fields = {}) => ({ StatusCode: 200, LogResult: Buffer.from('request prefix\t' + JSON.stringify({ eventType: "SCRAPER_JOB_COMPLETED", outcome: "success", fetchedCount: 25, savedCount: 25, ...fields })).toString("base64") });
 
 test("manual publisher backfill invokes one selected feed and reports aggregate counts only", async () => {
-  const env = { F5_PROBE_PUBLISHER_IMAGE_BACKFILL: "true", F5_PROBE_SUBREDDIT: "news", F5_PROBE_SESSION: "true" };
-  const summary = { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", subreddit: "news", candidates: 2,
+  const env = { F5_PROBE_PUBLISHER_IMAGE_BACKFILL: "true", F5_PROBE_SUBREDDIT: "politics", F5_PROBE_SESSION: "true" };
+  const summary = { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", subreddit: "politics", candidates: 2,
     attempts: 2, updated: 1, errors: 0, dependencyFailures: 0, deferred: false };
   const invocations = [];
   const logs = [];
@@ -26,7 +26,7 @@ test("manual publisher backfill invokes one selected feed and reports aggregate 
   assert.deepEqual(await runVerification({ env, invoke, emit: (log) => logs.push(JSON.parse(log)) }), summary);
   assert.deepEqual(logs, [summary]);
   await assert.rejects(runVerification({ env: { ...env, F5_PROBE_ALL_FEEDS: "true" }, invoke }), /by itself/);
-  assert.deepEqual(invocations, [{ publisherImageBackfill: true, subreddit: "news" }]);
+  assert.deepEqual(invocations, [{ publisherImageBackfill: true, subreddit: "politics" }]);
 });
 
 test("deployment probe accepts saved posts and optional image degradation", () => {
@@ -103,7 +103,7 @@ test("all-feed verification reuses one batch then proves persisted reuse in one 
   assert.deepEqual(calls, [{ allFeeds: true, session: true }, { subreddit: "politics", session: true }]);
   assert.deepEqual(delays, [300000]);
   assert.deepEqual(lines.find((entry) => entry.eventType === "BROWSER_LIVE_PROBE_WAITING"), { eventType: "BROWSER_LIVE_PROBE_WAITING", seconds: 300 });
-  assert.deepEqual(FEEDS, ["politics", "news", "worldnews"]);
+  assert.deepEqual(FEEDS, ["politics"]);
   assert.deepEqual(summary, { eventType: "BROWSER_LIVE_PROBE_COMPLETED", feedCount: FEEDS.length, invocationCount: 2,
     savedCount: (FEEDS.length + 1) * 25, renewalRequested: false, initialGeneration: "generation-1", sessionGeneration: "generation-1", generationCount: 1, renewedCount: 0, reusedCount: 2 });
   assert.equal(lines.at(-2).repeated, true);
@@ -132,7 +132,7 @@ test("all-feed verification forbids bootstrap and disabled sessions before invok
 
 test("batch verification rejects partial, extra, duplicate, and unexpected feeds", () => {
   const valid = batchResponse().BatchResult.feedResults;
-  for (const feedResults of [valid.slice(1), [...valid, valid[0]], [valid[0], ...valid.slice(0, -1)],
+  for (const feedResults of [valid.slice(1), [...valid, valid[0]], [...valid, { ...valid[0], subreddit: "news" }],
     [...valid.slice(0, -1), { ...valid.at(-1), subreddit: "unexpected" }]]) {
     assert.throws(() => checkBatchInvocation(batchResponse({ feedResults })));
   }
@@ -308,13 +308,13 @@ test("scheduled verification requires every feed and rejects a newer failure aft
 });
 
 
-test("single-feed verification selects news with the shared session", async () => {
+test("single-feed verification selects Politics with the shared session", async () => {
   const calls = [];
-  await verifyFeeds({ subreddit: "news", emit: () => {}, invoke: async (event) => {
+  await verifyFeeds({ subreddit: "politics", emit: () => {}, invoke: async (event) => {
     calls.push(event);
     return sharedResponse();
   } });
-  assert.deepEqual(calls, [{ subreddit: "news", session: true }]);
+  assert.deepEqual(calls, [{ subreddit: "politics", session: true }]);
 });
 
 test("deployment mode chooses read-only scheduled verification whenever a schedule is enabled", async () => {
@@ -541,16 +541,16 @@ const imageDiagnosticEvents = () => {
       title: "private-title", url: "https://private.example/story", sessionGeneration: "private-generation" }),
     event(100, { eventType: "SCRAPER_JOB_COMPLETED", subreddit: "politics", outcome: "success",
       imageAttempts: 2, imageResolved: 2, imageMissing: 0, sessionRenewalDeferred: true }),
-    event(300, { eventType: "SCRAPER_JOB_FAILED", subreddit: "news", outcome: "failed", imageErrors: 1,
+    event(90, { eventType: "SCRAPER_JOB_FAILED", subreddit: "politics", outcome: "failed", imageErrors: 1,
       errorMessage: "private-provider-message", domain: "private.example" }),
     event(201, { eventType: "POST_IMAGE_RESOLUTION_MISSING", subreddit: "politics", title: "private-title", postUrl: "https://private.example/story",
       imageResolutionFailures: [{ reason: "http_status", status: 403, url: "https://private.example", server: "private-server" },
         { reason: "no_meta_image", status: 200 }, { reason: "request_timeout" }] }),
-    event(301, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit: "news", errorMessage: "private-database-message",
+    event(301, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit: "politics", errorMessage: "private-database-message",
       imageResolutionFailures: [{ reason: "fetch_error", status: 429, domain: "private.example" }] }),
-    event(302, { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", trigger: "schedule", subreddit: "news",
+    event(302, { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", trigger: "schedule", subreddit: "politics",
       candidates: 3, attempts: 2, updated: 1, errors: 0, deferred: true }),
-    event(303, { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", subreddit: "news", updated: 2 }),
+    event(303, { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", subreddit: "politics", updated: 2 }),
     event(400, { eventType: "BROWSER_NAVIGATION_HTTP", status: 429, retryAfterSeconds: 60 }),
     event(500, { eventType: "SCRAPER_JOB_COMPLETED", subreddit: "science", outcome: "degraded", imageAttempts: 999 }),
   ];
@@ -560,7 +560,7 @@ test("encrypted image diagnostics separate publisher failures, Reddit responses,
   const summary = summarizeRuntimeEvents(imageDiagnosticEvents());
   const images = summary.imageDiagnostics;
   assert.deepEqual(images.feeds.map((entry) => entry.subreddit), FEEDS);
-  assert.deepEqual(images.feeds.find((entry) => entry.subreddit === "news").latestScheduledCoverRepair,
+  assert.deepEqual(images.feeds.find((entry) => entry.subreddit === "politics").latestScheduledCoverRepair,
     { timestamp: 302, candidates: 3, attempts: 2, updated: 1, errors: 0, deferred: true });
   const politics = images.feeds.find((entry) => entry.subreddit === "politics");
   assert.equal(politics.completedCount, 2);
@@ -574,7 +574,7 @@ test("encrypted image diagnostics separate publisher failures, Reddit responses,
   assert.equal(politics.sessionRenewalDeferredCount, 1);
   assert.deepEqual(politics.latestTerminal, { timestamp: 200, outcome: "degraded", optionalImagesDeferred: true, sessionRenewalDeferred: false,
     imageAttempts: 5, imageResolved: 4, imageMissing: 1, imageErrors: 2, imageDependencyFailures: 3, imageUpdateErrors: 0, backfillQueryErrors: 1 });
-  assert.equal(images.feeds.find((entry) => entry.subreddit === "news").failedCount, 1);
+  assert.equal(images.feeds.find((entry) => entry.subreddit === "politics").failedCount, 1);
   assert.equal(images.failureReasonCounts.http_status, 1);
   assert.equal(images.failureReasonCounts.no_meta_image, 1);
   assert.equal(images.failureReasonCounts.request_timeout, 1);
@@ -724,8 +724,8 @@ test("page access diagnostics retain only fixed verification indicators", () => 
 test("targeted publisher repair passes the explicit candidate to Lambda and emits only aggregate results", async () => {
   const publisherImageUrl = "https://cdn.example/public.jpg";
   const env = { F5_PROBE_PUBLISHER_IMAGE_BACKFILL: "true", F5_PROBE_PUBLISHER_POST_ID: "abc",
-    F5_PROBE_PUBLISHER_IMAGE_URL: publisherImageUrl, F5_PROBE_SUBREDDIT: "news" };
-  const summary = { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", subreddit: "news", candidates: 1,
+    F5_PROBE_PUBLISHER_IMAGE_URL: publisherImageUrl, F5_PROBE_SUBREDDIT: "politics" };
+  const summary = { eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", subreddit: "politics", candidates: 1,
     attempts: 1, updated: 1, errors: 0, dependencyFailures: 0, deferred: false };
   const calls = [];
   const logs = [];
@@ -737,5 +737,5 @@ test("targeted publisher repair passes the explicit candidate to Lambda and emit
   assert.deepEqual(logs, [summary]);
   await assert.rejects(runVerification({ env: { ...env, F5_PROBE_PUBLISHER_IMAGE_URL: "" }, invoke }), /public HTTPS/);
   await assert.rejects(runVerification({ env: { ...env, F5_PROBE_PUBLISHER_IMAGE_BACKFILL: "false" }, invoke }), /Enable publisher image backfill/);
-  assert.deepEqual(calls, [{ publisherImageBackfill: true, subreddit: "news", publisherPostId: "abc", publisherImageUrl }]);
+  assert.deepEqual(calls, [{ publisherImageBackfill: true, subreddit: "politics", publisherPostId: "abc", publisherImageUrl }]);
 });

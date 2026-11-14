@@ -1,7 +1,10 @@
 const assert = require("assert");
 const test = require("node:test");
 
-const { backfillMissingPostImages, createFetchPosts, findImagePriorityIds } = require("./index");
+const { loadWithMultipleFeeds, multipleFeeds: batchSubreddits } = require("./test-fixtures/subreddit-catalog");
+const liveScraper = require("./index");
+delete require.cache[require.resolve("./index")];
+const { backfillMissingPostImages, createFetchPosts, findImagePriorityIds } = loadWithMultipleFeeds(() => require("./index"));
 
 const createScraper = ({ posts = [] } = {}) => {
   const calls = [];
@@ -64,7 +67,6 @@ const waitUntil = async (predicate) => {
   throw new Error("Timed out waiting for condition");
 };
 
-const batchSubreddits = require("../posts/subreddits.json");
 const batchChild = (subreddit) => ({ kind: "t3", data: {
   id: `p${subreddit.toLowerCase()}`, subreddit, title: "Batch story", domain: "example.com", author: "author",
   url: "https://example.com/story", permalink: `/r/${subreddit}/comments/p${subreddit.toLowerCase()}/story/`,
@@ -90,6 +92,24 @@ const batchHarness = (overrides = {}) => {
   });
   return { handler, logger, writes, calls, images };
 };
+
+test("the scheduled scraper requests and writes only politics with the deployed catalog", async () => {
+  const writes = [];
+  const handler = liveScraper.createFetchPosts({
+    env: { F5_REDDIT_SESSION_ENABLED: "true" },
+    logger: createLogger(),
+    mongooseClient: { connect: async () => {} },
+    newPostModel: { find: () => [], findOneAndUpdate: async (...args) => { writes.push(args); } },
+    scrapeBatchImpl: async ({ subreddits }) => {
+      assert.deepEqual(subreddits, ["politics"]);
+      return batchResult(subreddits);
+    },
+    imageSourceImpl: async () => "",
+  });
+  const result = await handler({ allFeeds: true, scheduled: true });
+  assert.deepEqual(result.feedResults.map(({ subreddit }) => subreddit), ["politics"]);
+  assert.deepEqual(writes.filter(([, , options]) => options.upsert).map(([, update]) => update.$set.sub), ["politics"]);
+});
 
 test("allFeeds extracts once, persists every core feed before optional images, and returns safe summaries", async () => {
   const { handler, logger, writes, calls, images } = batchHarness();

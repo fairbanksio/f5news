@@ -17,13 +17,18 @@ export const SubredditContext = React.createContext({
 export const SubredditProvider = props => {
   const navigate = useNavigate();
   const { subredditPath } = useParams();
-  const subreddit = subredditPath || localStorage.getItem('subreddit') || 'politics';
   const [subredditList, setList] = useState(activeSubreddits);
   const apiEndpoint = normalizeApiEndpoint(getRuntimeConfigValue('REACT_APP_API'));
   const [authoritativeList, setAuthoritativeList] = useState(null);
+  const availableSubreddits = authoritativeList?.endpoint === apiEndpoint
+    ? authoritativeList.subreddits
+    : activeSubreddits;
+  const fallback = availableSubreddits.includes('politics') ? 'politics' : availableSubreddits[0];
+  const requested = (subredditPath || localStorage.getItem('subreddit'))?.toLowerCase();
+  const subreddit = availableSubreddits.includes(requested) ? requested : fallback;
 
   const setSubreddit = nextSubreddit => {
-    navigate('/r/' + nextSubreddit, { replace: true });
+    if (availableSubreddits.includes(nextSubreddit)) navigate('/r/' + nextSubreddit, { replace: true });
   };
   const setSubredditList = subreddits => {
     setList(activeSubreddits.filter(name => subreddits.some(value => value.toLowerCase() === name)));
@@ -89,12 +94,8 @@ export const SubredditProvider = props => {
   }, [apiEndpoint]);
 
   useEffect(() => {
-    if (!authoritativeList || authoritativeList.endpoint !== apiEndpoint) return;
-    const subreddits = authoritativeList.subreddits;
-    const canonical = subreddits.find(name => name.toLowerCase() === subreddit.toLowerCase());
-    const destination = canonical || subreddits.find(name => name.toLowerCase() === 'politics') || subreddits[0];
-    if (subredditPath !== destination) navigate('/r/' + destination, { replace: true });
-  }, [authoritativeList, apiEndpoint, subreddit, subredditPath, navigate]);
+    if (subredditPath !== subreddit) navigate('/r/' + subreddit, { replace: true });
+  }, [subreddit, subredditPath, navigate]);
 
   return (
     <SubredditContext.Provider value={{ subreddit, subredditList, setSubreddit, setSubredditList }}>
