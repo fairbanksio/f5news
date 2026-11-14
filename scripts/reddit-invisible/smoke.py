@@ -18,6 +18,8 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 # Preserve HTTP error responses so status diagnostics can distinguish denials.
 BROWSER_EXTRA_PREFS = {"browser.http.blank_page_with_error_response.enabled": True}
 MAX_BATCH_OPTIONAL_DETAILS = 1
+CHALLENGE_LISTING_URL = "https://www.reddit.com/r/politics/rising/"
+MAX_CHALLENGE_SCREENSHOT_BYTES = 256 * 1024
 ROOT = Path(__file__).resolve().parent
 SUBREDDITS = Path(os.environ.get("F5_SUBREDDITS_FILE", str(ROOT / "../../services/posts/subreddits.json")))
 READER = Path(os.environ.get("F5_BROWSER_READER", str(ROOT / "../reddit-stagehand/browser-reader.js")))
@@ -159,6 +161,26 @@ def options(args=None):
     return result
 
 
+def capture_listing_challenge(page):
+    target = os.environ.get("F5_CHALLENGE_SCREENSHOT_PATH")
+    if not target:
+        return
+    try:
+        if page.url != CHALLENGE_LISTING_URL:
+            return
+        os.environ.pop("F5_CHALLENGE_SCREENSHOT_PATH", None)
+        image = page.screenshot(type="jpeg", quality=70, full_page=False, scale="css", timeout=1500)
+        if (page.url != CHALLENGE_LISTING_URL or len(image) > MAX_CHALLENGE_SCREENSHOT_BYTES
+                or not image.startswith(b"\xff\xd8\xff") or not image.endswith(b"\xff\xd9")):
+            return
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as screenshot:
+            screenshot.write(image)
+    except Exception:
+        # Optional evidence cannot change the scrape or its cooldown result.
+        pass
+
+
 def state(page):
     try:
         evidence = page.evaluate_read("""() => {
@@ -232,6 +254,8 @@ def state(page):
         }""")
         if evidence["state"] in ("challenge", "blocked"):
             log(json.dumps({"eventType": "BROWSER_PAGE_ACCESS", **evidence}, separators=(",", ":")))
+        if evidence["state"] == "challenge":
+            capture_listing_challenge(page)
         return evidence["state"]
     except Exception as error:
         if "Execution context was destroyed" in str(error) or "Cannot find context" in str(error):
@@ -351,18 +375,21 @@ class SessionError(RuntimeError):
 def navigate(page, url, wait_until="domcontentloaded", timeout=30000, now=time.monotonic, sleep=time.sleep):
     deadline = now() + timeout / 1000
     observed = {}
+    listing_challenge = False
     active = True
 
     def header_integer(value, maximum):
         return int(value) if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= 16 and int(value) <= maximum else None
 
     def response_observer(response):
+        nonlocal listing_challenge
         if not active:
             return
         try:
             request = response.request
+            request_url = request.url
             if (not request.is_navigation_request() or request.frame.parent_frame is not None
-                    or urlsplit(request.url).hostname not in ("reddit.com", "www.reddit.com")):
+                    or urlsplit(request_url).hostname not in ("reddit.com", "www.reddit.com")):
                 return
             status = response.status
             if type(status) is not int or not 400 <= status <= 599:
@@ -379,6 +406,7 @@ def navigate(page, url, wait_until="domcontentloaded", timeout=30000, now=time.m
         except Exception:
             pass
         observed.update(event)
+        listing_challenge = request_url == CHALLENGE_LISTING_URL and event["challenge"]
         try:
             log(json.dumps(event))
         except Exception:
@@ -387,6 +415,8 @@ def navigate(page, url, wait_until="domcontentloaded", timeout=30000, now=time.m
     def reject_explicit_http():
         status = observed.get("status")
         if status in (401, 403, 429) or observed.get("challenge"):
+            if url == CHALLENGE_LISTING_URL and listing_challenge:
+                capture_listing_challenge(page)
             if status == 429:
                 code = "navigation_rate_limited"
             else:
@@ -400,6 +430,7 @@ def navigate(page, url, wait_until="domcontentloaded", timeout=30000, now=time.m
             pass
         for attempt in range(3):
             observed.clear()
+            listing_challenge = False
             remaining = deadline - now()
             if remaining <= 0:
                 raise SessionError("Browser navigation failed", "navigation_network_error")
