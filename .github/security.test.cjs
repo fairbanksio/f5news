@@ -89,7 +89,7 @@ test('manual browser probe runs only main and does not deploy services', () => {
   assert.equal(workflow.on.workflow_dispatch.inputs.diagnostics_public_key.default, '');
   assert.equal(workflow.on.workflow_dispatch.inputs.subreddit.default, 'politics');
   assert.equal(workflow.on.workflow_dispatch.inputs.subreddit.type, 'choice');
-  assert.deepEqual(workflow.on.workflow_dispatch.inputs.subreddit.options, ['politics', 'news', 'worldnews']);
+  assert.deepEqual(workflow.on.workflow_dispatch.inputs.subreddit.options, require('../services/posts/subreddits.json'));
   assert.equal(workflow.on.workflow_dispatch.inputs.session.default, true);
   assert.equal(workflow.on.workflow_dispatch.inputs.authenticate.default, false);
   assert.equal(workflow.on.workflow_dispatch.inputs.renew_session.default, false);
