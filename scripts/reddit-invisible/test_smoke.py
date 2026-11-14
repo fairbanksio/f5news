@@ -826,7 +826,7 @@ class SnapshotTests(unittest.TestCase):
                 if args != {"detail": False}:
                     raise AssertionError("Snapshot must read the listing")
                 events.append("read")
-                return [gallery, link]
+                return [gallery, link] if "render waited" in events else [gallery]
 
         class Browser:
             def __init__(self, **_kwargs):
@@ -845,11 +845,22 @@ class SnapshotTests(unittest.TestCase):
                 return Page()
 
         module = types.SimpleNamespace(InvisiblePlaywright=Browser)
-        with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke, "state", return_value="feed"):
+        def wait(seconds):
+            self.assertEqual(seconds, 3)
+            events.append("render waited")
+
+        with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke, "state", return_value="feed"), patch.object(smoke.time, "sleep", side_effect=wait):
             result = smoke.run(argparse.Namespace(subreddit="politics", limit=25))
         self.assertEqual(result["status"], "accessible")
         self.assertEqual(result["posts"], [gallery, link])
-        self.assertEqual(events, ["https://www.reddit.com/r/politics/rising/", "read", "closed"])
+        self.assertEqual(events, ["https://www.reddit.com/r/politics/rising/", "render waited", "read", "closed"])
+
+    def test_challenge_that_appears_during_render_wait_stops_the_snapshot(self):
+        with patch.object(smoke.time, "sleep"), patch.object(smoke, "state", return_value="challenge"), patch.object(smoke, "read_posts") as read:
+            with self.assertRaises(smoke.FeedFailure) as failure:
+                smoke.snapshot_posts(None, "reader", "politics", 25, authenticated=True)
+        self.assertEqual(failure.exception.result["sessionReason"], "feed_challenge")
+        read.assert_not_called()
 
     def test_malformed_reader_or_missing_core_never_reports_success(self):
         for payload in [None, {}, [None], [{"attributes": None}]]:
@@ -941,7 +952,7 @@ class BatchTests(unittest.TestCase):
 
     def execute(self, config, stats, fixture, browser):
         module = types.SimpleNamespace(InvisiblePlaywright=browser)
-        with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke, "read_session", return_value=fixture), patch.object(smoke, "state", return_value="feed"), patch.object(smoke, "authenticate_once", side_effect=AssertionError("Reuse must not log in")):
+        with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke, "read_session", return_value=fixture), patch.object(smoke, "state", return_value="feed"), patch.object(smoke.time, "sleep"), patch.object(smoke, "authenticate_once", side_effect=AssertionError("Reuse must not log in")):
             return smoke.run(config)
 
     def test_all_feeds_reuse_one_browser_page_and_session_restore(self):
