@@ -324,6 +324,23 @@ test("transport and restore failures retry reads twice without acquiring a passw
   }
 });
 
+test("one-shot extraction ends after the first failed feed load", async () => {
+  for (const reason of ["navigation_network_error", "feed_timeout", "feed_cookie_missing"]) {
+    const generation = randomUUID();
+    const store = memoryStore({ activeGeneration: generation, sessionCreatedAt: new Date(NOW) });
+    store.objects.set(generation, SECRET);
+    let calls = 0;
+    const runner = createSessionRunner({ store, now: () => NOW, pause: async () => assert.fail("Snapshot must not retry") });
+    await assert.rejects(runner({ ...options(), allFeeds: true, oneShot: true }, async (request) => {
+      calls++;
+      assert.equal(request.authenticate, false);
+      throw Object.assign(new Error("Browser extraction failed: session_invalid"), { sessionReason: reason });
+    }), (error) => error.sessionReason === reason);
+    assert.equal(calls, 1);
+    assert.equal(store.attempts.length, 0);
+  }
+});
+
 test("explicit HTTP rejection stops after one saved-session read without a password lease", async () => {
   for (const [reason, httpStatus, retryAfterSeconds] of [
     ["navigation_http_rejected", 401, 0], ["navigation_http_rejected", 403, 60], ["navigation_rate_limited", 429, 86400],

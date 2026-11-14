@@ -125,23 +125,6 @@ test("invalid session errors expose only whitelisted reasons", async () => {
   }
 });
 
-test("explicit image priorities reach the browser without adding fallback candidates", async () => {
-  for (const ids of [[], ["t3_target", "t3_other"]]) {
-    await runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger, imagePriorityIds: ids,
-      spawnImpl: (_executable, args) => {
-        const index = args.indexOf("--image-priority-ids");
-        assert.ok(index >= 0);
-        assert.equal(args[index + 1], ids.join(","));
-        return spawnCode('console.log(JSON.stringify({status:"accessible",posts:[]}))')();
-      },
-    });
-  }
-  const scrape = createBrowserSource({ runBrowserImpl: async () => { throw new Error("Unexpected browser"); } });
-  for (const ids of [["t3_ok", "t3_ok"], ["../../bad"], "t3_target", Array.from({ length: 26 }, (_, i) => `t3_${i}`)]) {
-    await assert.rejects(scrape({ subreddit: "news", imagePriorityIds: ids }), /Invalid image priority/);
-  }
-});
-
 test("exhausted GET transport errors retain their finite classification", async () => {
   await assert.rejects(runBrowser({ subreddit: "news", limit: 25, timeoutMs: 5000, logger,
     spawnImpl: spawnCode('console.log(JSON.stringify({status:"network_error",sessionReason:"navigation_network_error"}));process.exitCode=2'),
@@ -255,20 +238,6 @@ test("one session runner and one browser produce every configured feed with norm
   assert.equal(result.sessionRenewalDeferred, true);
 });
 
-test("batch flags and explicit empty priorities reach Python as one JSON map", async () => {
-  const map = { politics: ["t3_abc"], [feeds.at(-1)]: [] };
-  await runBrowser({ subreddit: "politics", allFeeds: true, imagePriorityIdsBySubreddit: map, limit: 25, timeoutMs: 5000, logger,
-    spawnImpl: (_executable, args) => {
-      assert.ok(args.includes("--all-feeds"));
-      assert.equal(args[args.indexOf("--batch-budget-seconds") + 1], "1");
-      assert.ok(!args.includes("--subreddit"));
-      assert.ok(!args.includes("--image-priority-ids"));
-      assert.deepEqual(JSON.parse(args[args.indexOf("--image-priority-map") + 1]), map);
-      return spawnCode(`console.log(${JSON.stringify(JSON.stringify(completeBatch()))})`)();
-    },
-  });
-});
-
 test("the batch browser budget follows the remaining child deadline and reserves teardown time", async () => {
   for (const [timeoutMs, seconds] of [[151000, 141], [34000, 24], [400000, 180]]) {
     await runBrowser({ allFeeds: true, limit: 25, timeoutMs, logger,
@@ -280,11 +249,10 @@ test("the batch browser budget follows the remaining child deadline and reserves
   }
 });
 
-test("batch validates target order, limits, and priority maps before any browser or session launch", async () => {
+test("batch validates target order and limits before any browser or session launch", async () => {
   const unexpected = async () => assert.fail("Invalid options must not launch");
   const scrape = createBrowserBatchSource({ runBrowserImpl: unexpected, sessionRunner: unexpected });
-  for (const request of [{ subreddits: ["politics"] }, { subreddits: [...feeds].reverse() }, { limit: 26 }, { timeoutMs: 9000 },
-    ...[null, [], { economics: [] }, { news: ["../../bad"] }, { news: ["t3_abc", "t3_abc"] }, { news: undefined }].map((imagePriorityIdsBySubreddit) => ({ imagePriorityIdsBySubreddit }))]) {
+  for (const request of [{ subreddits: ["politics"] }, { subreddits: [...feeds].reverse() }, { limit: 26 }, { timeoutMs: 9000 }]) {
     await assert.rejects(scrape(request));
   }
 });
@@ -312,7 +280,6 @@ test("one feed's invalid metadata does not discard valid neighbors or invoke ano
   const invalidPosts = [
     [batchRaw(feeds[1], "same"), batchRaw(feeds[1], "same")],
     [batchRaw(feeds[1])],
-    [{ ...batchRaw(feeds[1]), attributes: { ...batchRaw(feeds[1]).attributes, "post-type": "video" }, mediaComplete: true, video: { dash_url: null } }],
   ];
   invalidPosts[1][0].attributes.score = "private-invalid-value";
   for (const posts of invalidPosts) {
@@ -372,69 +339,20 @@ test("a failure before the first completed batch feed retains ordinary failure b
   }), (error) => error.sessionReason === "feed_challenge" && error.httpStatus === 403 && error.retryAfterSeconds === 120);
 });
 
-const batchVideo = (subreddit, id = "abc") => ({ ...batchRaw(subreddit, id),
-  attributes: { ...batchRaw(subreddit, id).attributes, "post-type": "video" }, mediaComplete: true,
-  video: { hls_url: `https://v.redd.it/${id}/HLSPlaylist.m3u8` } });
-
-test("batch media resolution aborts with the overall deadline while retaining CPU-only feeds", async () => {
+test("a listing-only batch keeps posts with partial media and uses only the listing fields", async () => {
   const response = completeBatch();
-  response.feeds[0].posts = [batchVideo(feeds[0])];
-  let instant = 0;
-  let observed;
-  const keepAlive = setTimeout(() => {}, 1000);
-  try {
-    const result = await createBrowserBatchSource({ now: () => instant,
-      runBrowserImpl: async () => { instant = 980; return response; },
-      fetchImpl: async (_url, options) => {
-        observed = options.signal;
-        return new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true }));
-      },
-    })({ session: false, timeoutMs: 10000, logger });
-    assert.equal(observed.aborted, true);
-    assert.deepEqual(result.failures, [{ subreddit: feeds[0], status: "metadata_invalid" }]);
-    assert.deepEqual(result.feeds.map((entry) => entry.subreddit), feeds.slice(1));
-  } finally { clearTimeout(keepAlive); }
-});
-
-test("mapping starts no further manifest requests after its shared time budget is exhausted", async () => {
-  const response = completeBatch();
-  response.feeds.forEach((entry, index) => { entry.posts = [batchVideo(entry.subreddit, `clip${index}`)]; });
-  let instant = 0;
-  let calls = 0;
-  const result = await createBrowserBatchSource({ now: () => instant, runBrowserImpl: async () => response,
-    fetchImpl: async () => {
-      calls++;
-      instant = 10000;
-      return { ok: true, text: async () => "<MPD />" };
-    },
-  })({ session: false, timeoutMs: 10000, logger });
-  assert.equal(calls, 1);
-  assert.deepEqual(result.feeds.map((entry) => entry.subreddit), [feeds[0]]);
-  assert.deepEqual(result.failures.map((entry) => entry.subreddit), feeds.slice(1));
-});
-
-test("two mapping workers retain configured feed order when manifests finish out of order", async () => {
-  const response = completeBatch();
-  response.feeds[0].posts = [batchVideo(feeds[0], "first")];
-  response.feeds[1].posts = [batchVideo(feeds[1], "second")];
-  let releaseFirst;
-  const first = new Promise((resolve) => { releaseFirst = resolve; });
-  const finished = [];
-  let active = 0;
-  let peak = 0;
-  const result = await createBrowserBatchSource({ runBrowserImpl: async () => response,
-    fetchImpl: async (url) => {
-      active++;
-      peak = Math.max(peak, active);
-      if (url.pathname.includes("first")) await first;
-      else releaseFirst();
-      finished.push(url.pathname);
-      active--;
-      return { ok: true, text: async () => "<MPD />" };
-    },
-  })({ session: false, logger });
-  assert.equal(peak, 2);
-  assert.ok(finished[0].includes("second"));
-  assert.deepEqual(result.feeds.map((entry) => entry.subreddit), feeds);
+  response.feeds[0].posts = [
+    { ...batchRaw(feeds[0], "clip"), attributes: { ...batchRaw(feeds[0], "clip").attributes, "post-type": "video" },
+      video: { hls_url: "https://v.redd.it/clip/HLSPlaylist.m3u8" } },
+    { ...batchRaw(feeds[0], "album"), attributes: { ...batchRaw(feeds[0], "album").attributes, "post-type": "gallery" },
+      images: [{ id: "cover", url: "https://i.redd.it/cover.jpg" }], thumbnail: null, mediaComplete: false },
+  ];
+  const result = await createBrowserBatchSource({ runBrowserImpl: async () => response })({ session: false, logger });
   assert.deepEqual(result.failures, []);
+  const [video, gallery] = result.feeds[0].children.map(({ data }) => data);
+  assert.equal(video.is_video, true);
+  assert.equal(video.media, undefined);
+  assert.equal(gallery.thumbnail, "https://i.redd.it/cover.jpg");
+  assert.equal(gallery.partialGallery, true);
+  assert.equal(gallery.media_metadata.cover.s.u, gallery.thumbnail);
 });
