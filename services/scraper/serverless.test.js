@@ -4,14 +4,12 @@ const path = require("path");
 const test = require("node:test");
 const yaml = require("js-yaml");
 
-test("one scheduled batch covers only politics", () => {
+test("staggered schedules refresh every supported feed", () => {
   const config = yaml.load(fs.readFileSync(path.join(__dirname, "serverless.yml"), "utf8"));
-  const schedules = config.functions.fetchPosts.events.filter((event) => event.schedule?.input.allFeeds === true);
-  assert.equal(schedules.length, 1);
-  assert.equal(schedules[0].schedule.rate, "rate(15 minutes)");
-  assert.equal(schedules[0].schedule.input.allFeeds, true);
-  assert.equal(schedules[0].schedule.input.subreddit, undefined);
-  assert.deepEqual(require("../posts/subreddits.json"), ["politics"]);
+  const schedules = config.functions.fetchPosts.events.map(({ schedule }) => schedule).filter(({ input }) => !input.renewSession);
+  assert.deepEqual(schedules.map(({ input }) => input.subreddit), require("../posts/subreddits.json"));
+  assert.deepEqual(schedules.map(({ rate }) => rate), ["rate(15 minutes)", "cron(12 * * * ? *)", "cron(42 * * * ? *)"]);
+  assert.ok(schedules.every(({ input }) => !input.allFeeds));
 });
 
 test("browser scraper uses an ARM64 image without Reddit API client credentials", () => {
@@ -36,7 +34,7 @@ test("scheduled feeds reuse the shared session without independent login attempt
   assert.equal(config.provider.environment.F5_REDDIT_SESSION_BUCKET, "${env:F5_REDDIT_SESSION_BUCKET, ssm:/f5_reddit_session_bucket}");
   assert.equal(config.provider.environment.F5_REDDIT_SESSION_ENABLED, "true");
   const schedules = config.functions.fetchPosts.events.map((event) => event.schedule);
-  assert.equal(schedules.length, 2);
+  assert.equal(schedules.length, 4);
   for (const schedule of schedules) {
     assert.equal(schedule.enabled, true);
     assert.equal(schedule.input.session, true);

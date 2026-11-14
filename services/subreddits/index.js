@@ -1,6 +1,6 @@
 const { createCorsHeaders, isAllowedOrigin } = require("./cors");
 
-const configuredSubreddits = ["politics"];
+const configuredSubreddits = ["politics", "news", "worldnews"];
 
 const getRequestOrigin = (event = {}) => {
   const headers = event.headers || {};
