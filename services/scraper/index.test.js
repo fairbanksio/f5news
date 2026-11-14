@@ -93,7 +93,7 @@ const batchHarness = (overrides = {}) => {
   return { handler, logger, writes, calls, images };
 };
 
-test("the scheduled scraper requests and writes only politics with the deployed catalog", async () => {
+test("the batch handler requests and writes every deployed feed", async () => {
   const writes = [];
   const handler = liveScraper.createFetchPosts({
     env: { F5_REDDIT_SESSION_ENABLED: "true" },
@@ -101,18 +101,18 @@ test("the scheduled scraper requests and writes only politics with the deployed 
     mongooseClient: { connect: async () => {} },
     newPostModel: { find: () => [], findOneAndUpdate: async (...args) => { writes.push(args); } },
     scrapeBatchImpl: async ({ subreddits }) => {
-      assert.deepEqual(subreddits, ["politics"]);
+      assert.deepEqual(subreddits, ["politics", "news", "worldnews"]);
       return batchResult(subreddits);
     },
     imageSourceImpl: async () => "",
   });
   const result = await handler({ allFeeds: true, scheduled: true });
-  assert.deepEqual(result.feedResults.map(({ subreddit }) => subreddit), ["politics"]);
-  assert.deepEqual(writes.filter(([, , options]) => options.upsert).map(([, update]) => update.$set.sub), ["politics"]);
+  assert.deepEqual(result.feedResults.map(({ subreddit }) => subreddit), ["politics", "news", "worldnews"]);
+  assert.deepEqual(writes.filter(([, , options]) => options.upsert).map(([, update]) => update.$set.sub), ["politics", "news", "worldnews"]);
 });
 
 test("a partial gallery snapshot seeds new records and preserves an existing gallery", async () => {
-  const result = batchResult(["politics"]);
+  const result = batchResult(["politics", "news", "worldnews"]);
   const galleryData = { items: [{ media_id: "cover" }] };
   const metadata = { cover: { s: { u: "https://i.redd.it/cover.jpg" } } };
   Object.assign(result.feeds[0].children[0].data, {
@@ -126,8 +126,8 @@ test("a partial gallery snapshot seeds new records and preserves an existing gal
     newPostModel: { findOneAndUpdate: async (_filter, update, options) => { if (options.upsert) updates.push(update); } },
   });
   await handler({ allFeeds: true, scheduled: true });
-  assert.equal(updates.length, 1);
-  assert.deepEqual(updates[0].$setOnInsert, { is_gallery: true, gallery_data: galleryData, media_metadata: metadata });
+  assert.equal(updates.length, 3);
+  assert.deepEqual(updates.find(update => update.$set.sub === "politics").$setOnInsert, { is_gallery: true, gallery_data: galleryData, media_metadata: metadata });
   for (const field of ["is_gallery", "gallery_data", "media_metadata"]) {
     assert.equal(Object.hasOwn(updates[0].$set, field), false);
   }

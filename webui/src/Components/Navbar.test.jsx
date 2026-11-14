@@ -121,11 +121,11 @@ test('supports keyboard navigation and Escape in the subreddit menu', async () =
 });
 
 
-test('the live feed selector only shows politics even when an old catalog advertises other feeds', async () => {
+test('the live feed selector shows the three supported feeds and preserves World News', async () => {
   localStorage.setItem('subredditList', 'politics,news,worldnews,science,technology,Economics');
   window.REACT_APP_API = 'https://api.f5.test';
   const originalFetch = global.fetch;
-  global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: ['politics', 'news', 'worldnews'] }) });
+  global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: ['politics', 'news', 'worldnews', 'technology'] }) });
   try {
     render(
       <MemoryRouter initialEntries={['/r/worldnews']}>
@@ -134,13 +134,13 @@ test('the live feed selector only shows politics even when an old catalog advert
         } /></Routes>
       </MemoryRouter>
     );
-    fireEvent.click(screen.getByRole('button', { name: 'r/politics' }));
+    fireEvent.click(screen.getByRole('button', { name: 'r/worldnews' }));
     await screen.findByRole('menuitem', { name: 'politics' });
-    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(['politics']);
+    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(['news', 'politics', 'worldnews']);
     await act(async () => window.dispatchEvent(new Event('focus')));
     expect(global.fetch).toHaveBeenCalledTimes(2);
-    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(['politics']);
-    expect(screen.getByRole('button', { name: 'r/politics' })).toBeInTheDocument();
+    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(['news', 'politics', 'worldnews']);
+    expect(screen.getByRole('button', { name: 'r/worldnews' })).toBeInTheDocument();
   } finally {
     global.fetch = originalFetch;
     delete window.REACT_APP_API;

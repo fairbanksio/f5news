@@ -747,6 +747,7 @@ const createFetchPosts = ({
     if (event.allFeeds === true) return fetchAllFeeds({ env, scrapeBatchImpl, mongooseClient, newPostModel, logger, now, imageSourceImpl, fetchImageWidthImpl }, event, context);
     const startedAt = Date.now();
     const subreddit = event.subreddit || "politics";
+    const deadline = startedAt + (context.getRemainingTimeInMillis?.() ?? 240_000) - 5000;
     const job = { savedCount: 0, fetchedCount: 0 };
     const redactionValues = [env.MONGO_CONNECTION_STRING, env.REDDIT_CLIENT_ID, env.REDDIT_SECRET_KEY, env.REDDIT_USERNAME, env.REDDIT_PASSWORD];
     let stage = "database_connect";
@@ -765,8 +766,17 @@ const createFetchPosts = ({
       }
       if (!Array.isArray(children)) throw new Error("Browser extraction response missing posts");
       job.fetchedCount = children.length;
+      job.risingNavigations = children.risingNavigations;
       stage = "post_write";
-      await insertNewPosts(children, subreddit, { imageSourceImpl, logger, newPostModel, job, redactionValues, coreOnly: event.scheduled === true });
+      await insertNewPosts(children, subreddit, { imageSourceImpl, logger, newPostModel, job, redactionValues, coreOnly: event.scheduled === true,
+        deadline: event.scheduled === true ? deadline : undefined });
+      if (event.scheduled === true && event.renewSession !== true) {
+        try {
+          await repairScheduledCovers([{ subreddit, job }], { imageSourceImpl, fetchImageWidthImpl, logger, newPostModel, now, redactionValues }, deadline);
+        } catch (error) {
+          logStructured(logger, { eventType: "POST_IMAGE_BACKFILL_ERROR", subreddit, stage: "scheduled_publisher_repair", ...errorFields(error, redactionValues) });
+        }
+      }
       if (event.scheduled !== true) {
         stage = "image_backfill";
         job.backfillImages = await backfillMissingPostImages(subreddit, { imageSourceImpl, logger, newPostModel, now, redactionValues, job });
@@ -782,25 +792,7 @@ const createFetchPosts = ({
       if (paused) return paused;
       throw terminalError;
     } finally {
-      const imageCounts = [job.scrapeImages, job.backfillImages].filter(Boolean);
-      const degraded = job.sessionRenewalDeferred === true || imageCounts.some((metrics) => metrics.missing || metrics.errors || metrics.dependencyFailures || metrics.updateErrors || metrics.queryErrors);
-      if (!skipped) logStructured(logger, {
-        eventType: terminalError ? "SCRAPER_JOB_FAILED" : "SCRAPER_JOB_COMPLETED",
-        subreddit, stage, trigger: event.scheduled === true ? "schedule" : "manual", outcome: terminalError ? "failed" : degraded ? "degraded" : "success",
-        durationMs: Date.now() - startedAt, requestId: context.awsRequestId || "",
-        fetchedCount: job.fetchedCount, savedCount: job.savedCount,
-        ...(job.sessionMode ? { sessionMode: job.sessionMode, sessionGeneration: job.sessionGeneration } : {}),
-        ...(job.sessionRenewalDeferred ? { sessionRenewalDeferred: true } : {}),
-        imageAttempts: imageCounts.reduce((count, metrics) => count + metrics.attempts, 0),
-        imageResolved: imageCounts.reduce((count, metrics) => count + metrics.resolved, 0),
-        imageMissing: imageCounts.reduce((count, metrics) => count + metrics.missing, 0),
-        imageErrors: imageCounts.reduce((count, metrics) => count + metrics.errors, 0),
-        imageDependencyFailures: imageCounts.reduce((count, metrics) => count + metrics.dependencyFailures, 0),
-        imageUpdateErrors: imageCounts.reduce((count, metrics) => count + metrics.updateErrors, 0),
-        backfillQueryErrors: job.backfillImages?.queryErrors || 0,
-        heapUsedMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-        ...(terminalError ? errorFields(terminalError, redactionValues) : {}),
-      });
+      if (!skipped) finishFeed({ job, subreddit, stage, terminalError, startedAt, event, context, logger, redactionValues });
     }
   };
 };

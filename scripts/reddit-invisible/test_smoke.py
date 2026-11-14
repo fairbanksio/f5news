@@ -145,13 +145,13 @@ class SmokeTests(unittest.TestCase):
 
     def test_options_restrict_targets_and_limits(self):
         configured = json.loads(smoke.SUBREDDITS.read_text())
-        self.assertEqual(configured, ["politics"])
+        self.assertEqual(configured, ["politics", "news", "worldnews"])
         for feed in configured:
             self.assertEqual(smoke.options(["--subreddit", feed.upper()]).subreddit, feed)
         alternate = types.SimpleNamespace(read_text=lambda: '["MixedCase"]')
         with patch.object(smoke, "SUBREDDITS", alternate):
             self.assertEqual(smoke.options(["--subreddit", "mixedcase"]).subreddit, "MixedCase")
-        for feed in ("news", "worldnews", "economics", "science", "technology", "europe", "health", "energy", "sports", "business"):
+        for feed in ("economics", "science", "technology", "europe", "health", "energy", "sports", "business"):
             with self.assertRaises(SystemExit):
                 smoke.options(["--subreddit", feed])
         with self.assertRaises(SystemExit):
@@ -880,14 +880,14 @@ class BatchTests(unittest.TestCase):
         fixture = types.SimpleNamespace(read_text=lambda: '["fixtureone", "fixturetwo", "fixturethree"]')
         self.enterContext(patch.object(smoke, "SUBREDDITS", fixture))
 
-    def test_scheduled_batch_reads_only_politics(self):
+    def test_batch_reads_each_configured_listing_once(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(smoke, "SUBREDDITS", self.deployed_catalog):
             config, stats, fixture, browser = self.setup_batch(directory, limit=25)
             result = self.execute(config, stats, fixture, browser)
             self.assertEqual(result["status"], "accessible")
-            self.assertEqual([item["subreddit"] for item in result["feeds"]], ["politics"])
-            self.assertEqual(stats["requests"], ["https://www.reddit.com/r/politics/rising/"])
-            self.assertEqual(len(result["feeds"][0]["posts"]), 1)
+            self.assertEqual([item["subreddit"] for item in result["feeds"]], ["politics", "news", "worldnews"])
+            self.assertEqual(stats["requests"], [f"https://www.reddit.com/r/{feed}/rising/" for feed in ["politics", "news", "worldnews"]])
+            self.assertTrue(all(len(item["posts"]) == 1 for item in result["feeds"]))
 
     def test_snapshot_does_not_reload_after_transient_navigation_failure(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(smoke, "SUBREDDITS", self.deployed_catalog):

@@ -129,6 +129,7 @@ const createBrowserSource = ({ runBrowserImpl = runBrowser, sessionRunner = crea
   const children = records.map((record) => record.reddit);
   if (new Set(children.map(({ data }) => data.id)).size !== children.length) throw new Error("Browser returned duplicate posts");
   logger.log(JSON.stringify({ eventType: "BROWSER_EXTRACTED", subreddit: canonical, count: children.length }));
+  if (Number.isSafeInteger(result.risingNavigations)) children.risingNavigations = result.risingNavigations;
   if (result.sessionMode) {
     children.sessionMode = result.sessionMode;
     children.sessionGeneration = result.sessionGeneration;

@@ -305,7 +305,7 @@ async function verifySessionDiagnostics({ invoke, publicKey, readRuntimeEvents, 
   return envelope;
 }
 
-async function verifyScheduled({ readEvents, requireOneNavigation = false, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+async function verifyScheduled({ readEvents, feeds = FEEDS, requireOneNavigation = false, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   emit = console.log, startTime = now(), timeoutMs = 35 * 60 * 1000, pollMs = 15000 } = {}) {
   const deadline = now() + timeoutMs;
   const latest = new Map();
@@ -315,7 +315,7 @@ async function verifyScheduled({ readEvents, requireOneNavigation = false, now =
       if (!Number.isFinite(event.timestamp) || event.timestamp < startTime) continue;
       const records = logRecords({ LogResult: Buffer.from(event.message || "").toString("base64") });
       for (const record of records) {
-        if (record.trigger !== "schedule" || !FEEDS.includes(record.subreddit) ||
+        if (record.trigger !== "schedule" || !feeds.includes(record.subreddit) ||
           !["SCRAPER_JOB_COMPLETED", "SCRAPER_JOB_FAILED"].includes(record.eventType)) continue;
         if (!latest.has(record.subreddit) || event.timestamp >= latest.get(record.subreddit).timestamp) {
           latest.set(record.subreddit, { timestamp: event.timestamp, record });
@@ -323,7 +323,7 @@ async function verifyScheduled({ readEvents, requireOneNavigation = false, now =
       }
     }
     const summaries = [];
-    for (const subreddit of FEEDS) {
+    for (const subreddit of feeds) {
       const terminal = latest.get(subreddit);
       if (!terminal || terminal.record.eventType !== "SCRAPER_JOB_COMPLETED") continue;
       try {
@@ -340,15 +340,15 @@ async function verifyScheduled({ readEvents, requireOneNavigation = false, now =
           ...(risingNavigations === 1 ? { risingNavigations } : {}) });
       } catch { /* A later scheduled run can recover before the deadline. */ }
     }
-    if (summaries.length === FEEDS.length) {
-      const summary = { eventType: "BROWSER_SCHEDULED_PROBE_COMPLETED", trigger: "schedule", feedCount: FEEDS.length,
+    if (summaries.length === feeds.length) {
+      const summary = { eventType: "BROWSER_SCHEDULED_PROBE_COMPLETED", trigger: "schedule", feedCount: feeds.length,
         savedCount: summaries.reduce((sum, result) => sum + result.savedCount, 0), feeds: summaries };
       emit(JSON.stringify(summary));
       return summary;
     }
     if (now() >= deadline) {
       const verified = new Set(summaries.map((result) => result.subreddit));
-      const pending = FEEDS.filter((subreddit) => !verified.has(subreddit));
+      const pending = feeds.filter((subreddit) => !verified.has(subreddit));
       emit(JSON.stringify({ eventType: "BROWSER_SCHEDULED_PROBE_FAILED", verifiedFeedCount: summaries.length,
         pendingFeeds: pending, feeds: summaries }));
       assert.fail(`Scheduled scraper verification timed out; missing usable completions for: ${pending.join(", ")}`);
@@ -497,7 +497,14 @@ async function runVerification({ env = process.env, configuration, invoke = invo
   }
   const mode = selectVerificationMode(env, configuration);
   if (mode === "diagnostics") return verifySessionDiagnostics({ invoke, publicKey: env.F5_PROBE_DIAGNOSTICS_KEY, readRuntimeEvents: readRuntime, emit });
-  if (mode === "scheduled") return verifyScheduled({ readEvents, emit, sleep, requireOneNavigation: env.F5_PROBE_DEPLOYMENT === "true" });
+  if (mode === "scheduled") {
+    const deployment = env.F5_PROBE_DEPLOYMENT === "true";
+    // The deployment gate checks the 15-minute feed within its credential window.
+    return verifyScheduled({
+      readEvents, emit, sleep, feeds: deployment ? ["politics"] : FEEDS, requireOneNavigation: true,
+      ...(deployment ? {} : { startTime: Date.now() - 60 * 60 * 1000 }),
+    });
+  }
   return verifyFeeds({ allFeeds: mode === "batch" || env.F5_PROBE_ALL_FEEDS === "true", subreddit: env.F5_PROBE_SUBREDDIT || "politics",
     session: mode === "batch" || env.F5_PROBE_SESSION !== "false", authenticate: mode !== "batch" && env.F5_PROBE_AUTHENTICATE === "true",
     renewSession: mode !== "batch" && env.F5_PROBE_RENEW_SESSION === "true", invoke, emit, sleep });
