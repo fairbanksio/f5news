@@ -383,7 +383,7 @@ function invokeLive(event) {
   const result = JSON.parse(execFileSync("aws", ["lambda", "invoke", "--function-name", "scraper-dev-fetchPosts-browser",
     "--cli-binary-format", "raw-in-base64-out", "--payload", JSON.stringify(event),
     "--log-type", "Tail", "--cli-read-timeout", "260", payloadFile], options));
-  if (result.FunctionError) {
+  if (result.FunctionError && !event.redditOAuthProbe) {
     const error = JSON.parse(readFileSync(payloadFile, "utf8"));
     let logText = Buffer.from(result.LogResult || "", "base64").toString();
     try {
@@ -394,9 +394,10 @@ function invokeLive(event) {
     console.error(JSON.stringify({ eventType: "BROWSER_LIVE_PROBE_FAILED", subreddit: event.subreddit,
       ...failureSummary({ ...result, LogResult: Buffer.from(logText).toString("base64") }, error) }));
   }
-  if (!result.FunctionError && (event.allFeeds || event.publisherImageBackfill || event.challengeScreenshotPublicKey)) {
+  if (!result.FunctionError && (event.allFeeds || event.publisherImageBackfill || event.challengeScreenshotPublicKey || event.redditOAuthProbe)) {
     const payload = JSON.parse(readFileSync(payloadFile, "utf8"));
-    if (event.challengeScreenshotPublicKey) result.ChallengeScreenshotResult = payload;
+    if (event.redditOAuthProbe) result.RedditOAuthResult = payload;
+    else if (event.challengeScreenshotPublicKey) result.ChallengeScreenshotResult = payload;
     else if (event.publisherImageBackfill) result.PublisherBackfillResult = payload;
     else result.BatchResult = payload;
   }
@@ -414,6 +415,21 @@ function selectVerificationMode(env, configuration) {
 
 async function runVerification({ env = process.env, configuration, invoke = invokeLive, readEvents = readScheduledEvents,
   readRuntime = readRuntimeEvents, emit = console.log, sleep } = {}) {
+  if (env.F5_PROBE_DIAGNOSTICS === "oauth") {
+    const response = await invoke({ redditOAuthProbe: true });
+    assert.equal(response.StatusCode, 200, "AWS did not accept the OAuth probe invocation");
+    assert.ok(!response.FunctionError, "Lambda could not run the OAuth probe");
+    const { stage, outcome, tokenStatus, listingStatus, postCount } = response.RedditOAuthResult || {};
+    assert.ok(["credentials", "token", "listing"].includes(stage) &&
+      ["missing", "rejected", "request_failed", "success"].includes(outcome), "Invalid OAuth probe result");
+    const report = { eventType: "REDDIT_OAUTH_PROBE", stage, outcome };
+    for (const [field, value, min, max] of [["tokenStatus", tokenStatus, 100, 599],
+      ["listingStatus", listingStatus, 100, 599], ["postCount", postCount, 0, 1]]) {
+      if (Number.isInteger(value) && value >= min && value <= max) report[field] = value;
+    }
+    emit(JSON.stringify(report));
+    return report;
+  }
   if (env.F5_PROBE_CHALLENGE_SCREENSHOT === "true") {
     for (const name of ["DIAGNOSTICS", "SCHEDULED", "DEPLOYMENT", "ALL_FEEDS", "AUTHENTICATE", "RENEW_SESSION", "PUBLISHER_IMAGE_BACKFILL"]) {
       assert.notEqual(env[`F5_PROBE_${name}`], "true", "Screenshot must be requested on its own");

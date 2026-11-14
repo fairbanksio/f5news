@@ -758,3 +758,17 @@ test("challenge screenshot probe logs only bounded encrypted chunks and rejects 
   assert.equal(JSON.stringify(records).includes("private-value"), false);
   await assert.rejects(runVerification({ env: { ...env, F5_PROBE_AUTHENTICATE: "true" }, invoke }), /on its own/);
 });
+
+test("production OAuth probe invokes only the diagnostic and prints no credentials or post content", async () => {
+  const reports = [];
+  const result = await runVerification({ env: { F5_PROBE_DIAGNOSTICS: "oauth" }, emit: (line) => reports.push(JSON.parse(line)),
+    invoke: async (event) => {
+      assert.deepEqual(event, { redditOAuthProbe: true });
+      return { StatusCode: 200, RedditOAuthResult: {
+        stage: "listing", outcome: "success", tokenStatus: 200, listingStatus: 200, postCount: 1, token: "discard",
+      } };
+    } });
+  assert.deepEqual(reports, [result]);
+  assert.deepEqual(result, { eventType: "REDDIT_OAUTH_PROBE", stage: "listing", outcome: "success",
+    tokenStatus: 200, listingStatus: 200, postCount: 1 });
+});
