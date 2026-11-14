@@ -48,6 +48,11 @@ test("scheduled feeds reuse the shared session without independent login attempt
   assert.equal(renewal.input.subreddit, "politics");
   assert.equal(renewal.input.allFeeds, undefined);
   assert.deepEqual(config.provider.iam.role.statements, [{
+    Sid: "ReadRedditOAuthProbeCredentials",
+    Effect: "Allow",
+    Action: "ssm:GetParameters",
+    Resource: ["reddit_client_id", "reddit_secret_key"].map(name => ({ "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/" + name })),
+  }, {
     Sid: "SharedRedditSessionObjects",
     Effect: "Allow",
     Action: ["s3:GetObject", "s3:PutObject"],

@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       diagnostics:
-        description: Inspect shared-session metadata without scraping or logging in
-        type: boolean
-        default: false
+        description: Select the diagnostic to run
+        type: choice
+        default: 'false'
+        options:
+          - 'false'
+          - 'true'
+          - oauth
       challenge_screenshot:
         description: Capture one encrypted image if the Politics listing shows a challenge
         type: boolean

@@ -1,3 +1,4 @@
+const { probeRedditOAuth } = require("./oauth-probe");
 const mongoose = require("./db");
 const { errorFields, sanitizeImageFailure, sanitizeUrl } = require("./telemetry");
 const newPost = require("./models/newPost");
@@ -643,6 +644,10 @@ const createFetchPosts = ({
   now = () => new Date(),
 } = {}) => {
   return async (event = {}, context = {}) => {
+    if (event.redditOAuthProbe === true) {
+      if (Object.keys(event).length !== 1) throw new Error("OAuth probe requires a standalone invocation");
+      return probeRedditOAuth();
+    }
     if (event.challengeScreenshotPublicKey !== undefined) {
       if (Object.keys(event).length !== 1) throw new Error("Screenshot capture requires a standalone invocation");
       return captureChallenge(event.challengeScreenshotPublicKey, async (screenshotPath) => {

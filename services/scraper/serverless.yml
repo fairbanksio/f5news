@@ -21,6 +21,12 @@ provider:
   iam:
     role:
       statements:
+        - Sid: ReadRedditOAuthProbeCredentials
+          Effect: Allow
+          Action: ssm:GetParameters
+          Resource:
+            - Fn::Sub: "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/reddit_client_id"
+            - Fn::Sub: "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/reddit_secret_key"
         - Sid: SharedRedditSessionObjects
           Effect: Allow
           Action:
