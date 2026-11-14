@@ -739,3 +739,21 @@ test("targeted publisher repair passes the explicit candidate to Lambda and emit
   await assert.rejects(runVerification({ env: { ...env, F5_PROBE_PUBLISHER_IMAGE_BACKFILL: "false" }, invoke }), /Enable publisher image backfill/);
   assert.deepEqual(calls, [{ publisherImageBackfill: true, subreddit: "politics", publisherPostId: "abc", publisherImageUrl }]);
 });
+
+test("challenge screenshot probe logs only bounded encrypted chunks and rejects mixed modes", async () => {
+  const env = { F5_PROBE_CHALLENGE_SCREENSHOT: "true", F5_PROBE_DIAGNOSTICS_KEY: "Zm9v" };
+  const screenshot = { version: 1, contentType: "image/jpeg", iv: "A".repeat(16), tag: "B".repeat(24),
+    wrappedKey: "C".repeat(344), ciphertext: "D".repeat(8000), unrelated: "private-value" };
+  const records = [];
+  const invoke = async (event) => {
+    assert.deepEqual(event, { challengeScreenshotPublicKey: "Zm9v" });
+    return { StatusCode: 200, ChallengeScreenshotResult: { outcome: "captured", screenshot } };
+  };
+  await runVerification({ env, invoke, emit: (line) => records.push(JSON.parse(line)) });
+  assert.equal(records[0].screenshot.chunkCount, 3);
+  assert.equal(records[0].screenshot.ciphertext, undefined);
+  assert.equal(records.slice(1).map(({ data }) => data).join(""), screenshot.ciphertext);
+  assert.ok(records.slice(1).every(({ data }) => data.length <= 3000));
+  assert.equal(JSON.stringify(records).includes("private-value"), false);
+  await assert.rejects(runVerification({ env: { ...env, F5_PROBE_AUTHENTICATE: "true" }, invoke }), /on its own/);
+});
