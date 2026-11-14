@@ -807,74 +807,13 @@ class NavigationHTTPTests(unittest.TestCase):
         self.assertEqual(events["calls"], 1)
 
 
-class GalleryTests(unittest.TestCase):
-    def page(self, details):
-        calls = []
-        page = types.SimpleNamespace(
-            goto=lambda url, **kwargs: calls.append((url, kwargs)),
-            evaluate_read=lambda reader, args: details,
-        )
-        return page, calls
-
-    def test_gallery_detail_keeps_listing_core_and_adds_complete_images(self):
-        listing = sample_post("gallery")
-        detail = sample_post("gallery")
-        detail["attributes"]["score"] = "999"
-        detail["attributes"]["created-timestamp"] = "different"
-        detail.update(images=[{"id": "image1", "url": "https://i.redd.it/image1.jpg"}], mediaComplete=True)
-        page, calls = self.page([detail])
-        with patch.object(smoke, "state", return_value="feed"):
-            result = smoke.enrich_gallery(page, "reader", listing, "politics")
-        self.assertEqual(result["attributes"], listing["attributes"])
-        self.assertEqual(result["images"], detail["images"])
-        self.assertTrue(result["mediaComplete"])
-        self.assertEqual(result["thumbnail"], detail["images"][0]["url"])
-        self.assertEqual(calls[0][0], "https://www.reddit.com/r/politics/comments/example/story/")
-        self.assertEqual(listing["images"], [])
-
-    def test_gallery_reader_uses_detail_mode(self):
-        observed = []
-        detail = {**sample_post("gallery"), "mediaComplete": True,
-                  "images": [{"id": "image1", "url": "https://i.redd.it/image1.jpg"}]}
-        page, _calls = self.page([detail])
-        page.evaluate_read = lambda reader, args: observed.append((reader, args)) or [detail]
-        with patch.object(smoke, "state", return_value="feed"):
-            smoke.enrich_gallery(page, "shared-reader", sample_post("gallery"), "politics")
-        self.assertEqual(observed, [("shared-reader", {"detail": True})])
-
-    def test_external_or_mismatched_gallery_links_fail_before_navigation(self):
-        for permalink in ["https://evil.example/r/politics/comments/example/story/", "/r/news/comments/example/story/", "/r/politics/comments/wrong/story/"]:
-            listing = sample_post("gallery")
-            listing["attributes"]["permalink"] = permalink
-            page, calls = self.page([])
-            with self.assertRaisesRegex(RuntimeError, "does not match"):
-                smoke.enrich_gallery(page, "reader", listing, "politics")
-            self.assertEqual(calls, [])
-
-    def test_gallery_detail_rejects_missing_post_partial_or_invalid_images(self):
-        detail = {**sample_post("gallery"), "mediaComplete": True,
-                  "images": [{"id": "image1", "url": "https://i.redd.it/image1.jpg"}]}
-        for details in [[], [sample_post("gallery")], [{**detail, "mediaComplete": False}],
-                        [{**detail, "images": [{"id": "image1", "url": "javascript:alert(1)"}]}],
-                        [{**detail, "images": detail["images"] * 2}]]:
-            with self.subTest(details=details):
-                page, _calls = self.page(details)
-                with patch.object(smoke, "state", return_value="feed"), self.assertRaises(RuntimeError):
-                    smoke.enrich_gallery(page, "reader", sample_post("gallery"), "politics")
-
-    def test_detail_block_or_navigation_error_propagates(self):
-        for access in ["blocked", "challenge"]:
-            page, _calls = self.page([])
-            with patch.object(smoke, "state", return_value=access), self.assertRaisesRegex(RuntimeError, access):
-                smoke.enrich_gallery(page, "reader", sample_post("gallery"), "politics")
-        page, _calls = self.page([])
-        page.goto = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("navigation failed"))
-        with self.assertRaisesRegex(RuntimeError, "navigation failed"):
-            smoke.enrich_gallery(page, "reader", sample_post("gallery"), "politics")
-
-    def test_gallery_failure_closes_browser_and_does_not_return_accessible(self):
+class SnapshotTests(unittest.TestCase):
+    def test_single_feed_reads_one_snapshot_and_keeps_partial_media(self):
         events = []
-        listing = sample_post("gallery")
+        gallery = sample_post("gallery")
+        gallery["thumbnail"] = "https://i.redd.it/cover.jpg"
+        link = sample_post("link")
+        link["attributes"].update(id="t3_link", permalink="/r/politics/comments/link/story/")
 
         class Page:
             def on(self, *_args):
@@ -883,8 +822,11 @@ class GalleryTests(unittest.TestCase):
             def goto(self, url, **_kwargs):
                 events.append(url)
 
-            def evaluate_read(self, _reader, _args):
-                return [listing]
+            def evaluate_read(self, _reader, args):
+                if args != {"detail": False}:
+                    raise AssertionError("Snapshot must read the listing")
+                events.append("read")
+                return [gallery, link]
 
         class Browser:
             def __init__(self, **_kwargs):
@@ -904,14 +846,14 @@ class GalleryTests(unittest.TestCase):
 
         module = types.SimpleNamespace(InvisiblePlaywright=Browser)
         with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke, "state", return_value="feed"):
-            with self.assertRaisesRegex(RuntimeError, "missing complete image metadata"):
-                smoke.run(argparse.Namespace(subreddit="politics", limit=1))
-        self.assertEqual(events[-1], "closed")
-        self.assertEqual(len(events), 3)
+            result = smoke.run(argparse.Namespace(subreddit="politics", limit=25))
+        self.assertEqual(result["status"], "accessible")
+        self.assertEqual(result["posts"], [gallery, link])
+        self.assertEqual(events, ["https://www.reddit.com/r/politics/rising/", "read", "closed"])
 
     def test_malformed_reader_or_missing_core_never_reports_success(self):
         for payload in [None, {}, [None], [{"attributes": None}]]:
-            page, _calls = self.page(payload)
+            page = types.SimpleNamespace(evaluate_read=lambda *_args: payload)
             with self.assertRaises(RuntimeError):
                 smoke.read_posts(page, "reader")
         for field in smoke.CORE_ATTRIBUTES:
@@ -919,173 +861,6 @@ class GalleryTests(unittest.TestCase):
             post["attributes"][field] = None
             with self.assertRaisesRegex(RuntimeError, "incomplete"):
                 smoke.validate_core(post)
-
-
-class LinkPreviewTests(unittest.TestCase):
-    def posts(self, count=1):
-        result = []
-        for index in range(count):
-            post = sample_post("link")
-            post["attributes"].update(id=f"t3_item{index}", permalink=f"/r/politics/comments/item{index}/story/", score=str(index + 1))
-            post["thumbnail"] = f"https://external-preview.redd.it/image{index}.jpg?width=140&s=small"
-            result.append(post)
-        return result
-
-    def page(self, posts):
-        events = []
-        details = []
-        def goto(url, **kwargs):
-            events.append((url, kwargs))
-            name = url.split("/comments/")[1].split("/")[0]
-            source = next(post for post in posts if post["attributes"]["id"] == "t3_" + name)
-            details[:] = [{**source, "attributes": {**source["attributes"], "score": "9999"},
-                          "preview": {"images": [{"source": {"url": f"https://external-preview.redd.it/{name}.jpg?width=1080&s=published", "width": 1080}}]}}]
-        return types.SimpleNamespace(goto=goto, evaluate_read=lambda *_args: details), events
-
-    def test_optional_detail_preview_preserves_listing_core_and_image_signature(self):
-        posts = self.posts()
-        page, events = self.page(posts)
-        with patch.object(smoke, "state", return_value="feed"):
-            result = smoke.enrich_link_previews(page, "reader", posts, "politics")
-        self.assertEqual(result[0]["attributes"], posts[0]["attributes"])
-        self.assertEqual(result[0]["thumbnail"], "https://external-preview.redd.it/item0.jpg?width=1080&s=published")
-        self.assertEqual(result[0]["thumbnail"], result[0]["preview"]["images"][0]["source"]["url"])
-        self.assertEqual(posts[0]["thumbnail"], "https://external-preview.redd.it/image0.jpg?width=140&s=small")
-        self.assertLessEqual(events[0][1]["timeout"], 5000)
-
-    def test_missing_or_unusable_link_thumbnail_recovers_published_detail_preview(self):
-        for thumbnail in (None, "", "default", "ftp://cdn.example/image.jpg", "https://user:secret@cdn.example/image.jpg"):
-            posts = self.posts()
-            posts[0]["thumbnail"] = thumbnail
-            page, events = self.page(posts)
-            with patch.object(smoke, "state", return_value="feed"):
-                result = smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=["t3_item0"])
-            self.assertEqual(result[0]["thumbnail"], "https://external-preview.redd.it/item0.jpg?width=1080&s=published")
-            self.assertEqual(result[0]["attributes"], posts[0]["attributes"])
-            self.assertEqual(len(events), 1)
-
-    def test_missing_preview_still_keeps_valid_core_listing(self):
-        posts = self.posts()
-        posts[0].pop("thumbnail")
-        page, events = self.page(posts)
-        page.evaluate_read = lambda *_args: posts
-        with patch.object(smoke, "state", return_value="feed"):
-            result = smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=["t3_item0"])
-        self.assertEqual(result, posts)
-        self.assertNotIn("preview", result[0])
-        smoke.validate_core(result[0])
-        self.assertEqual(len(events), 1)
-
-    def test_missing_internal_or_invalid_destination_does_not_request_details(self):
-        for destination in ("https://www.reddit.com/r/news/comments/item0/story/", "/r/news/comments/item0/story/", "javascript:alert(1)", "https://user:secret@publisher.example/story"):
-            posts = self.posts()
-            posts[0]["thumbnail"] = None
-            posts[0]["attributes"]["content-href"] = destination
-            page, events = self.page(posts)
-            self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
-            self.assertEqual(events, [])
-
-    def test_tiny_or_unknown_detail_images_never_replace_missing_article_preview(self):
-        for width in (None, 0, 64, 320, True, "1080", float("inf")):
-            posts = self.posts()
-            posts[0]["thumbnail"] = None
-            page, _events = self.page(posts)
-            source = {"url": "https://i.redd.it/communityicon.png"}
-            if width is not None:
-                source["width"] = width
-            detail = {**posts[0], "preview": {"images": [{"source": source}]}}
-            page.evaluate_read = lambda *_args: [detail]
-            with patch.object(smoke, "state", return_value="feed"):
-                result = smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=["t3_item0"])
-            self.assertEqual(result, posts)
-            self.assertNotIn("preview", result[0])
-
-    def test_large_measured_original_detail_image_can_fill_missing_preview(self):
-        posts = self.posts()
-        posts[0]["thumbnail"] = None
-        page, _events = self.page(posts)
-        detail = {**posts[0], "preview": {"images": [{"source": {"url": "https://i.redd.it/articlephoto.jpg", "width": 800}}]}}
-        page.evaluate_read = lambda *_args: [detail]
-        with patch.object(smoke, "state", return_value="feed"):
-            result = smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=["t3_item0"])
-        self.assertEqual(result[0]["thumbnail"], "https://i.redd.it/articlephoto.jpg")
-        self.assertEqual(result[0]["attributes"], posts[0]["attributes"])
-
-    def test_top_four_small_link_images_are_prioritized_without_reordering_posts(self):
-        posts = self.posts(6)
-        page, events = self.page(posts)
-        with patch.object(smoke, "state", return_value="feed"):
-            result = smoke.enrich_link_previews(page, "reader", posts, "politics")
-        self.assertEqual([event[0].split("/comments/")[1].split("/")[0] for event in events], ["item5", "item4", "item3", "item2"])
-        self.assertEqual([post["attributes"]["id"] for post in result], [post["attributes"]["id"] for post in posts])
-        self.assertNotIn("preview", result[0])
-
-    def test_explicit_priorities_target_known_small_images_in_supplied_order(self):
-        posts = self.posts(7)
-        page, events = self.page(posts)
-        priorities = ["t3_item0", "t3_absent", "t3_item2", "t3_item1", "t3_item4", "t3_item5"]
-        with patch.object(smoke, "state", return_value="feed"):
-            result = smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=priorities)
-        self.assertEqual([event[0].split("/comments/")[1].split("/")[0] for event in events], ["item0", "item2", "item1", "item4"])
-        self.assertIn("preview", result[0])
-        self.assertNotIn("preview", result[6])
-        self.assertEqual([post["attributes"] for post in result], [post["attributes"] for post in posts])
-
-    def test_explicit_empty_priorities_skip_optional_details(self):
-        posts = self.posts(6)
-        page, events = self.page(posts)
-        self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics", priority_ids=[]), posts)
-        self.assertEqual(events, [])
-
-    def test_image_priority_cli_distinguishes_absent_empty_and_valid_ids(self):
-        self.assertIsNone(smoke.options([]).image_priority_ids)
-        self.assertEqual(smoke.options(["--image-priority-ids", ""]).image_priority_ids, [])
-        self.assertEqual(smoke.options(["--image-priority-ids", "t3_abc,t3_def"]).image_priority_ids, ["t3_abc", "t3_def"])
-        for value in ("abc", "t3_ABC", "t3_abc,t3_abc", "t3_abc,", ",", ",".join(f"t3_item{index}" for index in range(26))):
-            with self.assertRaises(SystemExit):
-                smoke.options(["--image-priority-ids", value])
-
-    def test_optional_block_or_challenge_stops_reads_and_preserves_posts(self):
-        for access in ("blocked", "challenge"):
-            posts = self.posts(3)
-            page, events = self.page(posts)
-            page.evaluate_read = lambda *_args: (_ for _ in ()).throw(AssertionError("Must stop before reading details"))
-            budget = {"remaining": 4, "seconds": 25}
-            with patch.object(smoke, "state", return_value=access):
-                self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics", budget=budget), posts)
-            self.assertEqual(len(events), 1)
-            self.assertTrue(budget["disabled"])
-            if access == "challenge":
-                self.assertEqual(budget["failure"].code, "feed_challenge")
-            else:
-                self.assertNotIn("failure", budget)
-
-    def test_unavailable_wrong_identity_or_unsafe_preview_keeps_listing_image(self):
-        for error in ("navigation", "identity", "unsafe"):
-            posts = self.posts()
-            page, _events = self.page(posts)
-            if error == "navigation":
-                page.goto = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("timeout"))
-            else:
-                detail = {**posts[0], "preview": {"images": [{"source": {"url": "https://evil.example/photo.jpg"}}]}}
-                if error == "identity":
-                    detail["attributes"] = {**detail["attributes"], "id": "t3_other"}
-                page.evaluate_read = lambda *_args: [detail]
-            with patch.object(smoke, "state", return_value="feed"):
-                self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
-
-    def test_budget_and_ineligible_media_skip_optional_navigation(self):
-        posts = self.posts()
-        page, events = self.page(posts)
-        self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics", time_budget=0), posts)
-        self.assertEqual(events, [])
-        for post_type in ("gallery", "image", "video", "text"):
-            posts[0]["attributes"]["post-type"] = post_type
-            self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
-        posts[0]["attributes"]["post-type"] = "link"
-        posts[0]["thumbnail"] = "https://preview.redd.it/full.jpg?width=1080&s=published"
-        self.assertEqual(smoke.enrich_link_previews(page, "reader", posts, "politics"), posts)
-        self.assertEqual(events, [])
 
 
 class BatchTests(unittest.TestCase):
@@ -1096,10 +871,19 @@ class BatchTests(unittest.TestCase):
 
     def test_scheduled_batch_reads_only_politics(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(smoke, "SUBREDDITS", self.deployed_catalog):
-            config, stats, fixture, browser = self.setup_batch(directory)
+            config, stats, fixture, browser = self.setup_batch(directory, limit=25)
             result = self.execute(config, stats, fixture, browser)
             self.assertEqual(result["status"], "accessible")
             self.assertEqual([item["subreddit"] for item in result["feeds"]], ["politics"])
+            self.assertEqual(stats["requests"], ["https://www.reddit.com/r/politics/rising/"])
+            self.assertEqual(len(result["feeds"][0]["posts"]), 1)
+
+    def test_snapshot_does_not_reload_after_transient_navigation_failure(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(smoke, "SUBREDDITS", self.deployed_catalog):
+            config, stats, fixture, browser = self.setup_batch(directory)
+            stats.update(fail_on="politics", error=RuntimeError("Page.goto: NS_ERROR_NET_RESET"))
+            result = self.execute(config, stats, fixture, browser)
+            self.assertEqual(result["sessionReason"], "navigation_network_error")
             self.assertEqual(stats["requests"], ["https://www.reddit.com/r/politics/rising/"])
 
     def setup_batch(self, directory, **overrides):
@@ -1108,7 +892,7 @@ class BatchTests(unittest.TestCase):
         stats = {"launches": 0, "pages": 0, "requests": [], "restores": 0, "closed": 0, "feeds": feeds}
         config = argparse.Namespace(subreddit=feeds[0], limit=1, all_feeds=True, authenticate=False,
                                     session_input=Path(directory) / "input.json", session_output=Path(directory) / "output.json",
-                                    image_priority_map=None, batch_budget_seconds=130)
+                                    batch_budget_seconds=130)
         for key, value in overrides.items():
             setattr(config, key, value)
         class Page:
@@ -1137,7 +921,7 @@ class BatchTests(unittest.TestCase):
                     post["attributes"]["score"] = None
                 return [post]
             def evaluate(self, *_args):
-                pass
+                raise AssertionError("Batch must not scroll")
             def locator(self, *_args):
                 raise AssertionError("Batch session reuse must never access login controls")
         class Browser:
@@ -1226,134 +1010,6 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(result["batchFailure"]["status"], "loading_timeout")
             self.assertEqual(stats["closed"], 1)
             self.assertEqual(len(stats["requests"]), 2)
-
-    def test_optional_429_retains_every_listing_and_stops_preview_reads(self):
-        with tempfile.TemporaryDirectory() as directory:
-            config, stats, fixture, browser = self.setup_batch(directory)
-            optional_reads = []
-            def optional(_page, _reader, posts, subreddit, **kwargs):
-                optional_reads.append(subreddit)
-                self.assertEqual(len(stats["requests"]), len(stats["feeds"]))
-                if subreddit == stats["feeds"][1]:
-                    kwargs["budget"]["failure"] = smoke.SessionError("Browser navigation was rejected", "navigation_rate_limited", 429, 60)
-                return posts
-            with patch.object(smoke, "enrich_link_previews", side_effect=optional):
-                result = self.execute(config, stats, fixture, browser)
-            self.assertEqual([item["subreddit"] for item in result["feeds"]], stats["feeds"])
-            self.assertEqual(result["batchFailure"]["subreddit"], stats["feeds"][1])
-            self.assertEqual(result["batchFailure"]["stage"], "optional_preview")
-            self.assertEqual(optional_reads, stats["feeds"][:2])
-
-    def test_authenticated_batch_disables_optional_reads(self):
-        with tempfile.TemporaryDirectory() as directory:
-            config, stats, fixture, browser = self.setup_batch(directory, session_input=None, authenticate=True)
-            module = types.SimpleNamespace(InvisiblePlaywright=browser)
-            budgets = []
-            def authenticate(page, url, **_kwargs):
-                smoke.navigate(page, url)
-                return "authenticated"
-            def optional(_page, _reader, posts, _subreddit, **kwargs):
-                budgets.append(kwargs["budget"]["disabled"])
-                return posts
-            with patch.dict(sys.modules, {"invisible_playwright": module}), patch.object(smoke, "state", return_value="feed"), patch.object(smoke, "authenticate_once", side_effect=authenticate) as login, patch.object(smoke, "enrich_link_previews", side_effect=optional):
-                result = smoke.run(config)
-            self.assertEqual(len(result["feeds"]), len(stats["feeds"]))
-            self.assertEqual(login.call_count, 1)
-            self.assertEqual(budgets, [True] * len(stats["feeds"]))
-            self.assertEqual(len(stats["requests"]), len(stats["feeds"]))
-
-    def test_optional_work_runs_after_core_feeds_and_reserves_cleanup_time(self):
-        with tempfile.TemporaryDirectory() as directory:
-            feed_count = len(json.loads(smoke.SUBREDDITS.read_text()))
-            config, stats, fixture, browser = self.setup_batch(directory, batch_budget_seconds=(feed_count - 1) * 10 + 26)
-            clock = {"seconds": 0}
-            stats["clock"] = clock
-            spent = []
-            def optional(_page, _reader, posts, _subreddit, **kwargs):
-                budget = kwargs["budget"]
-                self.assertEqual(len(stats["requests"]), len(stats["feeds"]))
-                available = max(0, kwargs["batch_deadline"] - clock["seconds"] - 1)
-                duration = min(budget["seconds"], available)
-                spent.append(duration)
-                clock["seconds"] += duration
-                budget["seconds"] -= duration
-                return posts
-            with patch.object(smoke.time, "monotonic", side_effect=lambda: clock["seconds"]), patch.object(smoke, "enrich_link_previews", side_effect=optional):
-                result = self.execute(config, stats, fixture, browser)
-            self.assertEqual(len(result["feeds"]), len(stats["feeds"]))
-            self.assertNotIn("batchFailure", result)
-            self.assertLessEqual(sum(spent), 25)
-            self.assertLessEqual(clock["seconds"], config.batch_budget_seconds - 5)
-
-    def test_priority_allocation_rotates_fairly_and_skips_absent_map(self):
-        feeds = json.loads(smoke.SUBREDDITS.read_text())
-        mapping = {feed: ["t3_" + feed.lower(), "t3_" + feed.lower() + "2"] for feed in feeds}
-        self.assertEqual(smoke.allocate_image_priorities(feeds, None), {feed: [] for feed in feeds})
-        with patch.object(smoke.time, "time", return_value=300):
-            result = smoke.allocate_image_priorities(feeds, mapping, maximum=len(feeds) - 1)
-        self.assertEqual(result[feeds[0]], [])
-        self.assertTrue(all(len(result[feed]) == 1 for feed in feeds[1:]))
-        with patch.object(smoke.time, "time", return_value=0):
-            result = smoke.allocate_image_priorities(feeds, {feeds[0]: ["t3_a", "t3_b", "t3_c"], feeds[1]: ["t3_d", "t3_e"]})
-        self.assertEqual(result[feeds[0]], ["t3_a", "t3_b"])
-        self.assertEqual(result[feeds[1]], ["t3_d", "t3_e"])
-        self.assertEqual(sum(map(len, result.values())), 4)
-
-    def test_persistent_missing_candidates_each_get_a_turn_across_feed_cycles(self):
-        feeds = json.loads(smoke.SUBREDDITS.read_text())
-        mapping = {feed: ["t3_" + feed + str(index) for index in range(3)] for feed in feeds}
-        seen = {feed: [] for feed in feeds}
-        # Leave every ID pending, including the first unrecoverable image.
-        for bucket in range(len(feeds) * 3):
-            with patch.object(smoke.time, "time", return_value=bucket * 300):
-                allocated = smoke.allocate_image_priorities(feeds, mapping, maximum=1)
-            selected = [(feed, item) for feed, ids in allocated.items() for item in ids]
-            self.assertEqual(len(selected), 1)
-            feed = feeds[bucket % len(feeds)]
-            self.assertEqual(selected, [(feed, mapping[feed][bucket // len(feeds)])])
-            seen[feed].append(selected[0][1])
-        self.assertEqual(seen, mapping)
-
-    def test_rotated_priorities_keep_caps_empty_inputs_and_duplicate_guards(self):
-        feeds = json.loads(smoke.SUBREDDITS.read_text())
-        mapping = {feeds[0]: ["t3_a", "t3_a", "t3_b"], feeds[1]: ["t3_a", "t3_c"], feeds[2]: []}
-        with patch.object(smoke.time, "time", return_value=len(feeds) * 300):
-            allocated = smoke.allocate_image_priorities(feeds, mapping, maximum=10)
-        selected = [item for ids in allocated.values() for item in ids]
-        self.assertEqual(set(selected), {"t3_a", "t3_b", "t3_c"})
-        self.assertEqual(len(selected), 3)
-        self.assertEqual(allocated[feeds[0]], ["t3_b", "t3_a"])
-        self.assertEqual(smoke.allocate_image_priorities(feeds, mapping, maximum=0), {feed: [] for feed in feeds})
-        self.assertEqual(smoke.allocate_image_priorities([], mapping), {})
-
-    def test_initial_batch_detail_cap_is_one_while_single_mode_keeps_four(self):
-        self.assertEqual(smoke.MAX_BATCH_OPTIONAL_DETAILS, 1)
-        with tempfile.TemporaryDirectory() as directory:
-            feeds = json.loads(smoke.SUBREDDITS.read_text())
-            mapping = {feed: ["t3_" + feed + "0"] for feed in feeds}
-            config, stats, fixture, browser = self.setup_batch(directory, image_priority_map=mapping)
-            allocated = []
-            def optional(_page, _reader, posts, _subreddit, **kwargs):
-                allocated.extend(kwargs["priority_ids"])
-                self.assertEqual(kwargs["budget"]["remaining"], 1)
-                return posts
-            with patch.object(smoke.time, "time", return_value=0), patch.object(smoke, "enrich_link_previews", side_effect=optional):
-                result = self.execute(config, stats, fixture, browser)
-            self.assertEqual(len(result["feeds"]), len(feeds))
-            self.assertEqual(allocated, [mapping[feeds[0]][0]])
-
-    def test_batch_cli_map_and_budget_validation(self):
-        feeds = json.loads(smoke.SUBREDDITS.read_text())
-        priorities = json.dumps({feeds[0]: [], feeds[-1]: ["t3_abc"]})
-        arguments = ["--subreddit", feeds[0], "--all-feeds"]
-        config = smoke.options([*arguments, "--image-priority-map", priorities, "--batch-budget-seconds", "126"])
-        self.assertTrue(config.all_feeds)
-        self.assertEqual(config.image_priority_map[feeds[-1]], ["t3_abc"])
-        self.assertEqual(config.batch_budget_seconds, 126)
-        for args in (["--all-feeds", "--image-priority-map", json.dumps({feeds[0].upper(): []})], ["--all-feeds", "--image-priority-map", '{"Economics":[]}'], ["--all-feeds", "--image-priority-map", json.dumps({feeds[0]: ["t3_a", "t3_a"]})], ["--all-feeds", "--image-priority-map", json.dumps({feeds[0]: None})], ["--all-feeds", "--batch-budget-seconds", "0"], ["--all-feeds", "--image-priority-ids", "t3_a"]):
-            with self.assertRaises(SystemExit):
-                smoke.options(["--subreddit", feeds[0], *args])
-
 
 class NativeRunnerTests(unittest.TestCase):
     def check_runner(self, architecture):

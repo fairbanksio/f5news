@@ -305,7 +305,7 @@ async function verifySessionDiagnostics({ invoke, publicKey, readRuntimeEvents, 
   return envelope;
 }
 
-async function verifyScheduled({ readEvents, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+async function verifyScheduled({ readEvents, requireOneNavigation = false, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   emit = console.log, startTime = now(), timeoutMs = 35 * 60 * 1000, pollMs = 15000 } = {}) {
   const deadline = now() + timeoutMs;
   const latest = new Map();
@@ -328,7 +328,10 @@ async function verifyScheduled({ readEvents, now = Date.now, sleep = (ms) => new
       if (!terminal || terminal.record.eventType !== "SCRAPER_JOB_COMPLETED") continue;
       try {
         const result = checkInvocation({ StatusCode: 200, LogResult: Buffer.from(JSON.stringify(terminal.record)).toString("base64") }, { session: true });
-        summaries.push({ subreddit, timestamp: terminal.timestamp, ...result });
+        const { risingNavigations } = terminal.record;
+        if (requireOneNavigation || risingNavigations !== undefined) assert.equal(risingNavigations, 1, "Expected one Rising navigation");
+        summaries.push({ subreddit, timestamp: terminal.timestamp, ...result,
+          ...(risingNavigations === 1 ? { risingNavigations } : {}) });
       } catch { /* A later scheduled run can recover before the deadline. */ }
     }
     if (summaries.length === FEEDS.length) {
@@ -472,7 +475,7 @@ async function runVerification({ env = process.env, configuration, invoke = invo
   }
   const mode = selectVerificationMode(env, configuration);
   if (mode === "diagnostics") return verifySessionDiagnostics({ invoke, publicKey: env.F5_PROBE_DIAGNOSTICS_KEY, readRuntimeEvents: readRuntime, emit });
-  if (mode === "scheduled") return verifyScheduled({ readEvents, emit, sleep });
+  if (mode === "scheduled") return verifyScheduled({ readEvents, emit, sleep, requireOneNavigation: env.F5_PROBE_DEPLOYMENT === "true" });
   return verifyFeeds({ allFeeds: mode === "batch" || env.F5_PROBE_ALL_FEEDS === "true", subreddit: env.F5_PROBE_SUBREDDIT || "politics",
     session: mode === "batch" || env.F5_PROBE_SESSION !== "false", authenticate: mode !== "batch" && env.F5_PROBE_AUTHENTICATE === "true",
     renewSession: mode !== "batch" && env.F5_PROBE_RENEW_SESSION === "true", invoke, emit, sleep });
