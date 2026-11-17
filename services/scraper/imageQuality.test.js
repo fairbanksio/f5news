@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createFetchPosts, backfillMissingPostImages } = require("./index");
+const { imageSource } = require("./imageSource");
 
 const logger = { log() {}, warn() {}, error() {} };
 const small = "https://external-preview.redd.it/story.jpg?width=140&s=original";
@@ -173,7 +174,7 @@ test("manual publisher backfill repairs only verified external images without re
   await assert.rejects(handler(event, { getRemainingTimeInMillis: () => 5000 }), /Insufficient time/);
 });
 
-test("a scheduled snapshot repairs at most three publisher covers after saving the feed", async () => {
+test("a scheduled snapshot counts a redirect toward the three publisher requests after saving the feed", async () => {
   const cover = "https://cdn.publisher.example/story.jpg";
   const posts = [
     record({ _id: "newest", title: "New story", created_utc: now.getTime() / 1000 - 10 }),
@@ -184,7 +185,7 @@ test("a scheduled snapshot repairs at most three publisher covers after saving t
     record({ _id: "cooldown", title: "Recently checked", thumbnailQualityCheckedAt: now }),
     record({ _id: "internal", title: "Internal post", url: "https://www.reddit.com/r/politics/" }),
   ];
-  const calls = [];
+  const requests = [];
   const events = [];
   let snapshots = 0;
   const [story] = posts;
@@ -199,27 +200,40 @@ test("a scheduled snapshot repairs at most three publisher covers after saving t
     imageSourceImpl: async (post, options) => {
       assert.ok(story.fetchedAt instanceof Date);
       assert.equal(options.publisherOnly, true);
-      assert.equal(options.maxRedirects, 0);
+      assert.equal(options.maxRedirects, 1);
       assert.equal(options.maxTransientRetries, 0);
       assert.equal(options.allowRssFallback, false);
-      calls.push(post._id);
-      return post._id === "tiny" ? "" : cover;
+      return imageSource({ ...post, url: `https://publisher.example/${post._id}` }, {
+        ...options,
+        resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+        fetchImpl: async (url) => {
+          const path = new URL(url).pathname;
+          requests.push(path);
+          if (path !== "/canonical") {
+            return { status: 301, headers: new Headers({ location: "/canonical" }) };
+          }
+          return { status: 200, ok: true, headers: new Headers({ "content-type": "text/html" }),
+            text: async () => `<meta property="og:image" content="${cover}">` };
+        },
+      });
     },
     fetchImageWidthImpl: async () => 1920,
   });
   await handler({ subreddit: "politics", scheduled: true });
   assert.equal(snapshots, 1);
-  assert.deepEqual(calls.sort(), ["missing", "newest", "tiny"]);
-  assert.deepEqual(posts.map((post) => post.thumbnail), [cover, cover, small, small, large, small, small]);
-  assert.equal(posts[2].thumbnailQualityCheckedAt.getTime(), now.getTime());
+  assert.deepEqual(requests, ["/newest", "/canonical", "/missing"]);
+  assert.deepEqual(posts.map((post) => post.thumbnail), [cover, undefined, small, small, large, small, small]);
+  assert.equal(posts[0].thumbnailQualityCheckedAt.getTime(), now.getTime());
+  assert.equal(posts[1].thumbnailQualityCheckedAt, undefined);
   const completed = events.find((event) => event.eventType === "SCRAPER_JOB_COMPLETED");
   assert.equal(completed.risingNavigations, 1);
   assert.equal(completed.publisherLookups, 3);
-  assert.equal(completed.publisherCoversUpdated, 2);
+  assert.equal(completed.publisherCoversUpdated, 1);
   const repair = events.find((event) => event.eventType === "PUBLISHER_IMAGE_BACKFILL_COMPLETED");
   assert.equal(repair.trigger, "schedule");
-  assert.equal(repair.attempts, 3);
-  assert.equal(repair.updated, 2);
+  assert.equal(repair.attempts, 2);
+  assert.equal(repair.publisherLookups, 3);
+  assert.equal(repair.updated, 1);
 });
 
 test("scheduled Reddit cooldown leaves images and freshness timestamps untouched", async () => {

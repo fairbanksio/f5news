@@ -244,7 +244,7 @@ const dependencyFailed = (diagnostics) => diagnostics.failures.some((failure) =>
   ["http_status", "request_timeout", "empty_response", "body_read_error", "body_read_timeout", "fetch_error", "redirect_missing_location", "too_many_redirects"].includes(failure.reason)
 );
 
-const resolvePostImage = async (post, subreddit, operation, metrics, imageSourceImpl, logger, secrets = [], { deadline, job, publisherOnly = false, singlePublisherRequest = false } = {}) => {
+const resolvePostImage = async (post, subreddit, operation, metrics, imageSourceImpl, logger, secrets = [], { deadline, job, publisherOnly = false, takePublisherRequest } = {}) => {
   if (deadline && deadline - Date.now() < 6000) {
     if (job) job.optionalImagesDeferred = true;
     return "";
@@ -271,7 +271,7 @@ const resolvePostImage = async (post, subreddit, operation, metrics, imageSource
     thumbnail = await imageSourceImpl(post, { ...diagnostics.options, preferArticleImage: operation === "scrape" || isSmallRedditThumbnail(post.thumbnail),
       ...(deadline ? { timeoutMs: publisherOnly ? 2000 : 1000, maxTransientRetries: 0, maxRedirects: 1 } : {}),
       ...(publisherOnly ? { publisherOnly } : {}),
-      ...(singlePublisherRequest ? { maxRedirects: 0, allowRssFallback: false } : {}) });
+      ...(takePublisherRequest ? { allowRssFallback: false, takePublisherRequest } : {}) });
   } catch (error) {
     resolutionError = error;
     if (publisherOnly) thumbnail = "";
@@ -323,7 +323,7 @@ const backfillMissingPostImages = async (
   subreddit,
   { imageSourceImpl = imageSource, fetchImageWidthImpl = fetchImageWidth, logger = console, newPostModel = newPost, now = () => new Date(), redactionValues = [], deadline, job, publisherOnly = false, publisherTarget,
     limit = publisherTarget ? 1 : publisherOnly ? PUBLISHER_BACKFILL_LIMIT : IMAGE_BACKFILL_LIMIT,
-    singlePublisherRequest = false } = {}
+    publisherRequestBudget } = {}
 ) => {
   const metrics = createImageResolutionMetrics(subreddit, "backfill");
   let posts;
@@ -338,7 +338,8 @@ const backfillMissingPostImages = async (
     metrics.candidates = posts.length;
     metrics.updated = 0;
   }
-  await mapWithConcurrency(posts || [], IMAGE_BACKFILL_CONCURRENCY, async (post) => {
+  await mapWithConcurrency(posts || [], publisherRequestBudget ? 1 : IMAGE_BACKFILL_CONCURRENCY, async (post) => {
+    if (publisherRequestBudget?.remaining === 0) return;
     if (deadline && deadline - Date.now() < (publisherOnly ? PUBLISHER_BACKFILL_MIN_REMAINING_MS : 6000)) {
       if (job) job.optionalImagesDeferred = true;
       return;
@@ -348,7 +349,14 @@ const backfillMissingPostImages = async (
     const qualityCheck = hasUsableThumbnail(post.thumbnail);
     if (qualityCheck && (!isSmallRedditThumbnail(post.thumbnail) || !isExternalLinkPost(post))) return;
     if (publisherTarget) metrics.attempts += 1;
-    const thumbnail = publisherTarget?.imageUrl || await resolvePostImage(post, subreddit, "backfill", metrics, imageSourceImpl, logger, redactionValues, { deadline, job, publisherOnly, singlePublisherRequest });
+    let deferred = false;
+    const takePublisherRequest = publisherRequestBudget && (() => {
+      const allowed = publisherRequestBudget.take();
+      deferred = !allowed;
+      return allowed;
+    });
+    const thumbnail = publisherTarget?.imageUrl || await resolvePostImage(post, subreddit, "backfill", metrics, imageSourceImpl, logger, redactionValues, { deadline, job, publisherOnly, takePublisherRequest });
+    if (deferred) return;
     if (qualityCheck || publisherOnly) {
       let better = false;
       if (thumbnail && thumbnail !== post.thumbnail && (!publisherOnly || isPublisherUrl(thumbnail))) {
@@ -511,18 +519,25 @@ const persistBatchImages = async (feed, dependencies, deadline) => {
 };
 
 const repairScheduledCovers = async (feeds, dependencies, deadline) => {
-  let remaining = SCHEDULED_PUBLISHER_LOOKUP_LIMIT;
+  const publisherRequestBudget = {
+    remaining: SCHEDULED_PUBLISHER_LOOKUP_LIMIT,
+    take() {
+      if (this.remaining === 0) return false;
+      this.remaining -= 1;
+      return true;
+    },
+  };
   for (const feed of feeds) {
+    const { remaining } = publisherRequestBudget;
     if (!remaining || deadline - Date.now() < PUBLISHER_BACKFILL_MIN_REMAINING_MS) break;
     const job = {};
-    const options = { ...dependencies, deadline, job, publisherOnly: true, singlePublisherRequest: true, limit: remaining };
+    const options = { ...dependencies, deadline, job, publisherOnly: true, publisherRequestBudget, limit: remaining };
     const metrics = await backfillMissingPostImages(feed.subreddit, options);
-    remaining -= metrics.attempts;
-    feed.job.publisherLookups = metrics.attempts;
+    feed.job.publisherLookups = remaining - publisherRequestBudget.remaining;
     feed.job.publisherCoversUpdated = metrics.updated || 0;
     logStructured(dependencies.logger, {
       eventType: "PUBLISHER_IMAGE_BACKFILL_COMPLETED", trigger: "schedule", subreddit: feed.subreddit,
-      candidates: metrics.candidates || 0, attempts: metrics.attempts, updated: feed.job.publisherCoversUpdated,
+      candidates: metrics.candidates || 0, attempts: metrics.attempts, publisherLookups: feed.job.publisherLookups, updated: feed.job.publisherCoversUpdated,
       errors: metrics.errors + metrics.updateErrors + (metrics.queryErrors || 0),
       dependencyFailures: metrics.dependencyFailures, deferred: job.optionalImagesDeferred === true,
     });
