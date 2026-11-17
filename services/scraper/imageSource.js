@@ -556,6 +556,8 @@ const fetchArticleImage = async (url, options = {}) => {
       return "";
     }
 
+    if (options.takePublisherRequest && !options.takePublisherRequest()) return "";
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let requestTimedOut = false;
